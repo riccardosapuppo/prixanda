@@ -29,8 +29,10 @@ from commerce.engine.errors import EngineError, InvalidArgument, PermissionDenie
 from commerce.engine.overview import Overview
 from commerce.engine.publication import Publisher, activate_due, end_due
 from commerce.engine.quotes import Quotes
+from commerce.engine.providers import PaymentProvider, SimulatedPayments, SimulatedStudentVerifier, StudentVerifier
 from commerce.engine.simulation import Simulation
-from commerce.v1 import audit_pb2, catalog_pb2, changes_pb2, overview_pb2, quotes_pb2, simulation_pb2
+from commerce.engine.subscribers import Subscribers
+from commerce.v1 import audit_pb2, catalog_pb2, changes_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2
 
 PACKAGE = "commerce.v1"
 
@@ -41,7 +43,7 @@ class Method:
     name: str
     request: type
     response: type
-    public: bool  # served without a person: the site's catalog and quotes, and the list of people
+    public: bool  # served without a person: the site's catalog, quotes and subscriber calls, and the list of people
     writes: bool  # needs an idempotency key; its outcome is recorded
 
     @property
@@ -77,13 +79,18 @@ METHODS: dict[str, Method] = {m.full_name: m for m in [
     _m("AuditService", "ExportHead", audit_pb2, writes=True),
     _m("OverviewService", "GetOverview", overview_pb2),
     _m("PeopleService", "ListPeople", overview_pb2, public=True),
+    _m("SubscriberService", "ListDemoListeners", subscriptions_pb2, public=True),
+    _m("SubscriberService", "VerifyStudent", subscriptions_pb2, public=True, writes=True),
+    _m("SubscriberService", "ConfirmQuote", subscriptions_pb2, public=True, writes=True),
+    _m("SubscriberService", "GetAccount", subscriptions_pb2, public=True),
 ]}
 
 Handler = Callable[[Connection, Call, Any], Awaitable[Any]]
 
 
 class Engine:
-    def __init__(self, db: Database, clock: Clock, book: Book | None = None) -> None:
+    def __init__(self, db: Database, clock: Clock, book: Book | None = None, *,
+                 payments: PaymentProvider | None = None, verifier: StudentVerifier | None = None) -> None:
         self.db = db
         self.clock = clock
         self.book = book or Book()
@@ -94,6 +101,9 @@ class Engine:
         self.simulation = Simulation(clock, self.book)
         self.audit = AuditLog(clock)
         self.overview = Overview(clock, self.book)
+        # Simulated unless a real provider is given: no money moves, no student record is checked.
+        self.subscribers = Subscribers(clock, self.book, self.catalog, payments or SimulatedPayments(),
+                                       verifier or SimulatedStudentVerifier())
         self.handlers: dict[str, Handler] = {
             "ListMarkets": self.catalog.list_markets, "ListPlans": self.catalog.list_plans,
             "GetPriceList": self.catalog.get_price_list, "ListOffers": self.catalog.list_offers,
@@ -107,6 +117,9 @@ class Engine:
             "SimulateOffer": self.simulation.simulate_offer,
             "ListEvents": self.audit.list_events, "VerifyChain": self.audit.verify_chain, "ExportHead": self.audit.export_head,
             "GetOverview": self.overview.get_overview, "ListPeople": self.overview.list_people,
+            "ListDemoListeners": self.subscribers.list_demo_listeners,
+            "VerifyStudent": self.subscribers.verify_student, "ConfirmQuote": self.subscribers.confirm_quote,
+            "GetAccount": self.subscribers.get_account,
         }
 
     async def handle(self, full_name: str, call: Call, request: Any) -> Any:
