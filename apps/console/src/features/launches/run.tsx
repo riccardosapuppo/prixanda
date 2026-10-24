@@ -20,7 +20,7 @@ import { PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, Callout, Chip, Empty, ErrorPanel, Loading, Locked } from "../../components/ui.tsx";
 import { AuditEventsDocument, CancelLaunchDocument, LaunchRunDocument, RetryLaunchDocument } from "../../graphql/generated.ts";
 import {
-  elapsed, INCIDENT_KIND, INCIDENT_LOOK, type LaunchDetail, launchActions, launchWords, liveNow, MAX_FAILURES, STEP_LOOK, STEP_NAME, stepCounts, stepLook,
+  elapsed, INCIDENT_KIND, INCIDENT_LOOK, type LaunchDetail, launchActions, launchWords, MAX_FAILURES, now, publication, STEP_LOOK, STEP_NAME, stepCounts, stepLook,
 } from "../../lib/launch.ts";
 import { marketName, marketZone } from "../../lib/markets.ts";
 import { asRole, can, primaryRole, whoDoes } from "../../lib/permissions.ts";
@@ -148,25 +148,48 @@ function Fact({ label, children }: { readonly label: string; readonly children: 
   );
 }
 
-/** What the site shows right now: the catalog of before until the publish step is done. */
+/**
+ * Two things kept apart: what is live today (the change's state now, and the
+ * newest catalog the log says was published), and what this launch itself
+ * published, which is history. When today is not what the launch left (the
+ * change suspended or ended since, a later catalog live), the page says so.
+ */
 function LiveNow({ launch, zone }: { readonly launch: LaunchDetail; readonly zone: string }) {
-  const live = liveNow(launch);
+  const latest = useGatewayQuery(AuditEventsDocument, { filter: { action: "catalog.published" }, first: 1, after: null }, {
+    refetchInterval: launch.state === "RUNNING" ? 2_000 : false,
+  });
+  const newest = latest.data?.auditEvents.nodes[0] ?? null;
+  const liveCatalog = newest?.subject.startsWith("catalog:") ? newest.subject.slice("catalog:".length) : null;
+  const today = now(launch, liveCatalog);
+  const left = publication(launch);
   const publish = launch.steps.find((step) => step.name === "publish");
   return (
-    <section className="grid content-start gap-3 border border-cord bg-stone-0 p-4" aria-labelledby="live-now">
-      <h2 id="live-now" className="text-xl font-bold">Live now</h2>
-      <dl className="m-0 grid gap-3">
-        <Fact label="Catalog">
-          <span className="text-4xl font-bold tabular-nums">{live.catalog ? `#${live.catalog}` : "not known yet"}</span>
-          <span className="block text-sm font-normal text-ink-2">
-            {live.published && publish?.finishedAt ? `since ${formatInstantIn(publish.finishedAt, zone, { seconds: true })}` : "the one before this launch"}
-          </span>
-        </Fact>
-        <Fact label="On the site">{live.words}</Fact>
-        {publish ? <Fact label="Publish attempts">{publish.attempts} of {MAX_FAILURES}</Fact> : null}
-        <Fact label="Attempts, all steps together">{launch.attempts}</Fact>
-      </dl>
-    </section>
+    <div className="grid content-start gap-4">
+      <section className="grid content-start gap-3 border border-cord bg-stone-0 p-4" aria-labelledby="live-now">
+        <h2 id="live-now" className="text-xl font-bold">Live now</h2>
+        <dl className="m-0 grid gap-3">
+          <Fact label="Catalog">
+            <span className="text-4xl font-bold tabular-nums">{latest.isPending ? "…" : today.catalog ? `#${today.catalog}` : "not known"}</span>
+            {newest ? <span className="block text-sm font-normal text-ink-2">published {formatInstantIn(newest.at, zone, { seconds: true })}, the newest in the log</span> : null}
+          </Fact>
+          <Fact label="On the site">{today.words}</Fact>
+        </dl>
+        {latest.isError ? <ErrorPanel error={latest.error} retry={() => void latest.refetch()} /> : null}
+        {today.differs ? <Callout icon="warning"><p>{today.differs}</p></Callout> : null}
+      </section>
+      <section className="grid content-start gap-3 border border-cord bg-stone p-4" aria-labelledby="launch-published">
+        <h2 id="launch-published" className="text-lg font-bold">What this launch published</h2>
+        <dl className="m-0 grid gap-3">
+          <Fact label={left.published ? "Catalog" : "Catalog that stayed live"}>
+            {left.catalog ? `#${left.catalog}` : "not known yet"}
+            {left.published && left.at ? <span className="block text-sm font-normal text-ink-2">{formatInstantIn(left.at, zone, { seconds: true })}</span> : null}
+          </Fact>
+          <Fact label="What it did">{left.words}</Fact>
+          {publish ? <Fact label="Publish attempts">{publish.attempts} of {MAX_FAILURES}</Fact> : null}
+          <Fact label="Attempts, all steps together">{launch.attempts}</Fact>
+        </dl>
+      </section>
+    </div>
   );
 }
 

@@ -100,10 +100,12 @@ test("a scheduled offer launches step by step, a cut publish is tried again, and
   await page.getByRole("link", { name: done.run }).click();
   await expect(page.getByRole("heading", { name: `Launch timeline: ${done.run}`, level: 1 })).toBeVisible();
   await expect(page.getByText("5 done")).toBeVisible();
-  await expect(page.getByText("attempt 2 of 5")).toBeVisible();
+  await expect(page.getByText("attempt 2 of 5", { exact: true })).toBeVisible();
   const live = page.getByRole("region", { name: "Live now" });
   await expect(live.getByText(`#${done.snapshotAfter}`)).toBeVisible();
-  await expect(live.getByText("The change is live on the site, in one piece.")).toBeVisible();
+  await expect(live.getByText(`${title} v1 is live on the site.`)).toBeVisible();
+  const left = page.getByRole("region", { name: "What this launch published" });
+  await expect(left.getByText(`It published catalog #${done.snapshotAfter}, with the change in it, in one piece, on its publish step's attempt 2 of 5.`)).toBeVisible();
   const events = page.getByRole("region", { name: "Audit events" });
   await expect(events.getByText("change.activated")).toBeVisible();
   await expect(events.getByText("catalog.published")).toBeVisible();
