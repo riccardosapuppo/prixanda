@@ -26,11 +26,11 @@
   "devDependencies": {
     "@axe-core/playwright": "4.11.0",
     "@graphql-codegen/typescript-operations": "6.1.10",
-    "@playwright/test": "1.62.1",
     "@tailwindcss/postcss": "4.3.3",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "graphql": "16.14.2",
+    "playwright": "1.62.1",
     "tailwindcss": "4.3.3"
   }
 }
