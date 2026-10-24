@@ -193,8 +193,8 @@ function IncidentsZone({ incidents }: { readonly incidents: Overview["incidentsT
           {incidents.map((incident) => (
             <li key={incident.run} className="grid gap-1.5 border-b border-cord py-3 first:pt-1">
               <p className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
-                <Chip look={incident.state === "RECOVERED" ? "done" : "rejected"} icon={incident.state === "RECOVERED" ? "arrows-clockwise" : "warning"}>
-                  {incident.state === "RECOVERED" ? "Recovered" : "Open"}
+                <Chip look={incident.state === "OPEN" ? "rejected" : "done"} icon={incident.state === "OPEN" ? "warning" : incident.state === "RECOVERED" ? "arrows-clockwise" : "check-circle"}>
+                  {incident.state === "OPEN" ? "Open" : incident.state === "RECOVERED" ? "Recovered on its own" : "Resolved by a person"}
                 </Chip>
                 Run {incident.run}
               </p>

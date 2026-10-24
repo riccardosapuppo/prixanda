@@ -32,7 +32,9 @@ const ACTIONS = [
 export const ROLES_SENTENCE = "Everyone on the team reads the log. The auditor exports it. The auditor and the on-call engineer verify the chain.";
 
 function actorRole(role: string): string {
-  return role === "SYSTEM" ? "The engine's job" : ROLE_NAME[role as Role] ?? role;
+  if (role === "SYSTEM") return "The engine's job";
+  if (role === "SUBSCRIBER") return "A subscriber, on the site";
+  return ROLE_NAME[role as Role] ?? role;
 }
 
 /** "draft → validated", from an event's body, when it says so. */

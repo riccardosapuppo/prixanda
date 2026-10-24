@@ -80,7 +80,9 @@ export function ApprovalScreen() {
 }
 
 function roleWord(role: string): string {
-  return role === "SYSTEM" ? "The activation job" : ROLE_NAME[role as Role] ?? role;
+  if (role === "SYSTEM") return "The activation job";
+  if (role === "SUBSCRIBER") return "A subscriber";
+  return ROLE_NAME[role as Role] ?? role;
 }
 
 function Block({ title, children, id }: { readonly title: string; readonly children: ReactNode; readonly id: string }) {
