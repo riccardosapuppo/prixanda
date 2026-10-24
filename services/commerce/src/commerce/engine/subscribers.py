@@ -62,7 +62,7 @@ def _date(text: str) -> date:
 
 
 CURRENT = (
-    "select id, plan_id, paid, price_minor, currency, started_on::text as started_on, billing_day, quote_id, "
+    "select id, plan_id, paid, currency, started_on::text as started_on, billing_day, quote_id, "
     "offer_change_id, offer_months, ended_on::text as ended_on from subscription where subscriber_id = $1 "
     "and started_on <= $2::text::date "
     "and (ended_on is null or ended_on > $2::text::date)")
@@ -98,7 +98,7 @@ class Subscribers:
     async def _subscription(self, tx: Connection, market: reference.Market, row, today: date) -> subscriptions_pb2.Subscription:
         message = subscriptions_pb2.Subscription(
             subscription_id=row["id"], plan=row["plan_id"], market=market.code, paid=row["paid"],
-            price=contract.money(Money(row["price_minor"], market.currency)), started_on=row["started_on"],
+            price=contract.money(Money.zero(market.currency)), started_on=row["started_on"],
             offer_id=row["offer_change_id"] or 0)
         if not row["paid"]:
             return message
@@ -261,12 +261,10 @@ class Subscribers:
             raise FailedPrecondition("the free plan started today and cannot end today: subscribe again tomorrow")
         price = Money(quote["price_minor"], market.currency)
         await tx.execute("update subscription set ended_on = $2::text::date where id = $1", current["id"], today.isoformat())
-        subscription_id = await tx.fetchval(
-            "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, "
-            "billing_day, quote_id, offer_change_id, offer_months) values (nextval('subscription_id_seq'), $1, $2, $3, $4, "
-            "true, $5, $6::text::date, $7, $8, $9, $10) returning id",
-            subscriber, market.code, market.currency, plan.id, price.amount, today.isoformat(), billing.billing_day_for(today),
-            quote["id"], offer_id, quote["months_at_price"] or None)
+        subscription_id = await charging.write_subscription(
+            tx, market, subscriber_id=subscriber, plan_id=plan.id, paid=True, price=price, started_on=today,
+            billing_day=billing.billing_day_for(today), quote_id=quote["id"], offer_change_id=offer_id,
+            offer_months=quote["months_at_price"] or None)
         payment_id = payments.new_payment_id()
         await payments.request(
             tx, payment_id=payment_id, quote_id=quote["id"], subscription_id=subscription_id, subscriber_id=subscriber,

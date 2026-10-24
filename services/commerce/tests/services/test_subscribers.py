@@ -17,6 +17,7 @@ from commerce.engine.providers import FAILED, ChargeResult, ProviderEvent
 from commerce.invariants import check
 from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, subscriptions_pb2
 from engine_support import FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, family_rise, new_key, scheduled, student_autumn
+from helpers import add_subscription
 
 REFUSAL = common_pb2.RefusalCode
 
@@ -242,8 +243,7 @@ async def test_one_offer_of_a_group_per_listener(world):
     await confirm(world, q.quote_id, 101)
     # The pass ends in November and 101 goes back to Free (by hand: cancellations are not modelled yet).
     await world.owner.execute("update subscription set ended_on = '2026-11-26' where subscriber_id = 101 and ended_on is null")
-    await world.owner.execute("insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, "
-                              "started_on, billing_day) values (90001, 101, 'IT', 'EUR', 'free', false, 0, '2026-11-26', 26)")
+    await add_subscription(world.owner, 101, "IT", "free", 0, "2026-11-26", subscription=90001, billing_day=26)
     # For verified students on Free, which 101 is again: only the group keeps them out.
     winter = await scheduled(world, student_autumn(
         title="Student Winter Pass",
@@ -320,8 +320,7 @@ async def test_a_declined_payment_ends_the_paid_plan_at_the_end_of_the_day(world
 
 async def test_a_free_plan_that_started_today_cannot_end_today(world):
     await world.owner.execute("insert into subscriber (id, market, joined_on) values (402, 'FR', '2026-10-24')")
-    await world.owner.execute("insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, "
-                              "started_on, billing_day) values (90002, 402, 'FR', 'EUR', 'free', false, 0, '2026-10-24', 24)")
+    await add_subscription(world.owner, 402, "FR", "free", 0, "2026-10-24", subscription=90002, billing_day=24)
     q = await quote(world, plan="individual", market="FR", subscriber_id=402)
     with pytest.raises(FailedPrecondition):
         await confirm(world, q.quote_id, 402)

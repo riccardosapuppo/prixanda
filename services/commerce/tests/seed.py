@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta
 import asyncpg
 
 from commerce.generate import CURRENCY, ENTITLEMENTS, LABELS, NAMED_ARTISTS, PRICES
-from helpers import add_people
+from helpers import add_people, add_subscription
 
 BEGINNING = datetime(2025, 1, 1)
 JOINED = date(2026, 1, 10)
@@ -83,10 +83,7 @@ async def seed(conn: asyncpg.Connection) -> None:
         await conn.execute("insert into subscriber (id, market, joined_on) values ($1, $2, $3)", subscriber, market, JOINED)
         for plan, price, started, ended in history:
             subscription += 1
-            await conn.execute(
-                "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, "
-                "ended_on, billing_day) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 10)",
-                subscription, subscriber, market, CURRENCY[market], plan, plan != "free", price, started, ended)
+            await add_subscription(conn, subscriber, market, plan, price, started, subscription=subscription, ended=ended)
         for verified, until in checks:
             await conn.execute("insert into student_verification (subscriber_id, verified_on, valid_until, provider) "
                                "values ($1, $2, $3, 'simulated')", subscriber, verified, until)

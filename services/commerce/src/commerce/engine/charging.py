@@ -1,16 +1,17 @@
 """What a subscription costs on a day, by the rules of its charges (business
 book §4.3, §6.1): one rule for the account and for the console's home.
 
-A subscription's price is a history (migration V12): the price it started
-at, and any price that took over later, each from its own day (a price
-migration, §8). On a day it costs the latest price of its history from that
-day or before. An offer prices the first charges, as many as its months;
-from the charge after them, the list price in force when that charge's day
-begins (billing.py), unless a later price of the history took over by then;
-and once a price migration asked the subscription, the price before the
-migration until its new price took over, never the new one before (§8).
-A subscription without an offer keeps its price until a price migration
-moves it (§4.3).
+A subscription's price is a history (migrations V12 and V14): the price it
+started at, and any price that took over later, each from its own day (a
+price migration, §8). A subscription is written with the first row of its
+history, in the same transaction (write_subscription). On a day it costs
+the latest price of its history from that day or before. An offer prices
+the first charges, as many as its months; from the charge after them, the
+list price in force when that charge's day begins (billing.py), unless a
+later price of the history took over by then; and once a price migration
+asked the subscription, the price before the migration until its new price
+took over, never the new one before (§8). A subscription without an offer
+keeps its price until a price migration moves it (§4.3).
 """
 
 from __future__ import annotations
@@ -39,6 +40,22 @@ async def full_price(tx: Connection, market: reference.Market, plan_id: str, ful
     if price is None:
         raise FailedPrecondition(f"no {plan_id} price is in force in {market.name} on {full_price_from.isoformat()}")
     return price
+
+
+async def write_subscription(tx: Connection, market: reference.Market, *, subscriber_id: int, plan_id: str, paid: bool,
+                             price: Money, started_on: date, billing_day: int, quote_id: str | None = None,
+                             offer_change_id: int | None = None, offer_months: int | None = None) -> int:
+    """A subscription and the price it starts at, the first row of its history: the database checks, when the
+    transaction commits, that no subscription is without it (migration V14)."""
+    subscription_id = await tx.fetchval(
+        "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, started_on, billing_day, quote_id, "
+        "offer_change_id, offer_months) values (nextval('subscription_id_seq'), $1, $2, $3, $4, $5, $6::text::date, $7, $8, "
+        "$9, $10) returning id",
+        subscriber_id, market.code, market.currency, plan_id, paid, started_on.isoformat(), billing_day, quote_id,
+        offer_change_id, offer_months)
+    await tx.execute("insert into subscription_price (subscription_id, from_on, price_minor) values ($1, $2::text::date, $3)",
+                     subscription_id, started_on.isoformat(), price.amount)
+    return subscription_id
 
 
 # The price after an offer of a subscription that a price migration asked: the price before the migration, until the

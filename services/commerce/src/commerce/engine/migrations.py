@@ -233,18 +233,17 @@ async def _new_price(tx: Connection, request: Request, from_on: date) -> bool:
     return True
 
 
-async def _leave(tx: Connection, request: Request, leaves_on: date) -> bool:
+async def _leave(tx: Connection, request: Request, market: reference.Market, leaves_on: date) -> bool:
     """The paid subscription ends on a day, and the free plan starts that day (§8.2: playlists and library are kept).
     False when it ends by then anyway."""
-    sub = await tx.fetchrow("select id, subscriber_id, market, currency, ended_on::text as ended_on from subscription "
-                            "where id = $1 for update", request.row["subscription_id"])
+    sub = await tx.fetchrow("select id, subscriber_id, ended_on::text as ended_on from subscription where id = $1 for update",
+                            request.row["subscription_id"])
     if sub["ended_on"] is not None and _date(sub["ended_on"]) <= leaves_on:
         return False
     await tx.execute("update subscription set ended_on = $2::text::date where id = $1", sub["id"], leaves_on.isoformat())
-    await tx.execute(
-        "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, billing_day) "
-        "values (nextval('subscription_id_seq'), $1, $2, $3, 'free', false, 0, $4::text::date, $5)",
-        sub["subscriber_id"], sub["market"], sub["currency"], leaves_on.isoformat(), billing.billing_day_for(leaves_on))
+    await charging.write_subscription(tx, market, subscriber_id=sub["subscriber_id"], plan_id="free", paid=False,
+                                      price=Money.zero(market.currency), started_on=leaves_on,
+                                      billing_day=billing.billing_day_for(leaves_on))
     return True
 
 
@@ -295,7 +294,7 @@ class Migrations:
         elif not request.accept:
             state = "declined"
             leaves = asked.leaving_day()
-            if leaves is not None and await _leave(tx, asked, leaves):
+            if leaves is not None and await _leave(tx, asked, market, leaves):
                 dates["leaves_on"] = leaves.isoformat()
         await tx.execute(
             "update price_change_request set state = $2, answer = $3, answered_at = $4::text::timestamptz, "
@@ -339,7 +338,8 @@ class Migrations:
         elif state == "waiting" and asked.policy.consent:
             state = "lapsed"  # silence is never consent (§8.2)
             leaves = asked.leaving_day()
-            if leaves is not None and await _leave(tx, asked, leaves):
+            market = (await reference.load(tx, now)).market(row["market"].strip())
+            if leaves is not None and await _leave(tx, asked, market, leaves):
                 effect, dates = "left", {"leaves_on": leaves.isoformat()}
         elif state == "waiting":
             from_on = asked.new_price_from()

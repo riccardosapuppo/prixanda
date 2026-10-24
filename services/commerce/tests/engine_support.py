@@ -12,6 +12,7 @@ import asyncpg
 from commerce.engine.call import Call, FixedClock
 from commerce.engine.engine import METHODS, Engine
 from commerce.v1 import changes_pb2, common_pb2
+from helpers import add_subscription
 
 BY_NAME = {method.name: method for method in METHODS.values()}
 
@@ -186,8 +187,6 @@ async def add_students(world: World, count: int) -> None:
     for n in range(count):
         subscriber = 1_000 + n
         await world.owner.execute("insert into subscriber (id, market, joined_on) values ($1, 'IT', '2026-01-10')", subscriber)
-        await world.owner.execute(
-            "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, billing_day) "
-            "values ($1, $1, 'IT', 'EUR', 'free', false, 0, '2026-01-10', 10)", subscriber)
+        await add_subscription(world.owner, subscriber, "IT", "free", 0, "2026-01-10", subscription=subscriber)
         await world.owner.execute("insert into student_verification (subscriber_id, verified_on, valid_until, provider) "
                                   "values ($1, '2026-09-01', '2027-09-01', 'simulated')", subscriber)

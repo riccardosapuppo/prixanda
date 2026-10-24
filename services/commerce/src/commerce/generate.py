@@ -269,7 +269,26 @@ def listening(rng: random.Random, size: Size, subscribers, subscriptions, artist
 # A hash per row, summed: it does not depend on the order rows were written
 # in, and never builds one huge text (PostgreSQL caps a text at 1 GB).
 FINGERPRINTED = ["person", "person_role", "plan_entitlement", "list_price", "label", "artist", "release",
-                 "subscriber", "subscription", "student_verification", "listening_day", "demo_listener"]
+                 "subscriber", "subscription", "subscription_price", "student_verification", "listening_day", "demo_listener"]
+
+
+async def write_subscriptions(conn: asyncpg.Connection, subscriptions: list[tuple]) -> None:
+    """Each subscription with the price it starts at, where the schema keeps it: since migration V14 the first row of
+    its history; before it a column of the subscription, which a trigger copied into the history from V12 on. So the
+    compatibility check (compat.py) can write the data of the version before the history too."""
+    column = await conn.fetchval(
+        "select exists (select from information_schema.columns where table_schema = current_schema() "
+        "and table_name = 'subscription' and column_name = 'price_minor')")
+    columns = ["id", "subscriber_id", "market", "currency", "plan_id", "paid", "price_minor", "started_on", "ended_on",
+               "billing_day"]
+    if column:
+        await conn.copy_records_to_table("subscription", records=subscriptions, columns=columns)
+        return
+    price, started = columns.index("price_minor"), columns.index("started_on")
+    await conn.copy_records_to_table("subscription", records=[s[:price] + s[price + 1:] for s in subscriptions],
+                                     columns=columns[:price] + columns[price + 1:])
+    await conn.copy_records_to_table("subscription_price", records=[(s[0], s[started], s[price]) for s in subscriptions],
+                                     columns=["subscription_id", "from_on", "price_minor"])
 
 
 async def fingerprint(conn: asyncpg.Connection) -> str:
@@ -330,9 +349,7 @@ async def generate(url: str, size_name: str, seed: int, start: date, until: date
             subscribers, subscriptions, verifications = subscribers + demo[0], subscriptions + demo[1], verifications + demo[2]
             lap("plan_people")
             await conn.copy_records_to_table("subscriber", records=subscribers, columns=["id", "market", "joined_on"])
-            await conn.copy_records_to_table(
-                "subscription", records=subscriptions,
-                columns=["id", "subscriber_id", "market", "currency", "plan_id", "paid", "price_minor", "started_on", "ended_on", "billing_day"])
+            await write_subscriptions(conn, subscriptions)
             await conn.copy_records_to_table("student_verification", records=verifications,
                                              columns=["subscriber_id", "verified_on", "valid_until", "provider"])
             await conn.copy_records_to_table("demo_listener", records=demo[3],

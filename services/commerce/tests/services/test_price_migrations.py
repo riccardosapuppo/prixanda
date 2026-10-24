@@ -22,6 +22,7 @@ from commerce.engine import migrations, outbox
 from commerce.engine.errors import InvalidArgument, NotFound
 from commerce.server.app import Jobs
 from commerce.server.logs import JsonLog
+from helpers import add_subscription
 from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2
 from engine_support import (
     AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, apply, create, eur, family_migration, scheduled, student_autumn,
@@ -38,9 +39,7 @@ def at(*parts: int) -> datetime:
 async def add_family(world) -> None:
     for subscriber, (started, day) in FAMILY.items():
         await world.owner.execute("insert into subscriber (id, market, joined_on) values ($1, 'DE', $2)", subscriber, started)
-        await world.owner.execute(
-            "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, billing_day) "
-            "values ($1, $1, 'DE', 'EUR', 'family', true, 1899, $2, $3)", subscriber, started, day)
+        await add_subscription(world.owner, subscriber, "DE", "family", 1899, started, subscription=subscriber, billing_day=day)
 
 
 async def started(world) -> changes_pb2.Change:

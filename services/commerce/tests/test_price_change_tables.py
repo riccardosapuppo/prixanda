@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 
-from helpers import T0, add_people, new_change, sqlstate_of
+from helpers import T0, add_people, add_subscription, new_change, sqlstate_of
 
 REQUEST = (
     "insert into price_change_request (change_id, subscription_id, subscriber_id, market, plan_id, kind, old_price_minor, "
@@ -20,8 +20,7 @@ async def world(db) -> int:
     migration = await new_change(db.app, kind="price_migration", author="commercial-lead-1",
                                  content={"title": "Family price, Germany", "market": "DE"})
     await db.owner.execute("insert into subscriber (id, market, joined_on) values (1, 'DE', '2026-01-10')")
-    await db.owner.execute("insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, "
-                           "started_on, billing_day) values (2, 1, 'DE', 'EUR', 'family', true, 1899, '2026-02-01', 1)")
+    await add_subscription(db.owner, 1, "DE", "family", 1899, "2026-02-01", subscription=2, billing_day=1)
     return migration
 
 
