@@ -16,7 +16,7 @@
 // but one could not run on this machine, which is listed and never reads as
 // passed.
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { flyway } from "./lib/flyway.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
@@ -232,6 +232,42 @@ const SUITES: Suite[] = [
       return passed(counted);
     },
   },
+  // The engine and the gateway together (end of stage 3): the real engine on
+  // CHECK_ENGINE_PORT, the real gateway on the gateway's test ports, and the
+  // Student Autumn Pass walked through over HTTP only.
+  {
+    name: "integration",
+    what: "the real engine and the real gateway over HTTP: §14.1 from a draft to the site's quote, the audit log, idempotency",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const database = "commerce_integration";
+      await createDatabase(cluster, database, TEMPLATE);
+      try {
+        const commerce = join(repoRoot, "services", "commerce");
+        const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), "--size", "small", "--seed", "7"], {
+          cwd: commerce, env: { ...process.env, PYTHONPATH: join(commerce, "src") },
+        });
+        if (generated.code !== 0) return failed("-", generated.output.slice(-3000));
+        const summaryFile = join(reports, "integration.json");
+        await rm(summaryFile, { force: true });
+        const tests = await nodeTests("integration", ["test/integration/student-autumn.test.ts"], GATEWAY_FLOOR.integrationTests, {
+          INTEGRATION_DATABASE_URL: cluster.url(database, "app"),
+          INTEGRATION_SUMMARY: summaryFile,
+        });
+        if (!existsSync(summaryFile)) return failed(tests.counted, `${tests.detail}\nthe test wrote no summary`.trim());
+        const summary = JSON.parse(await readFile(summaryFile, "utf8")) as { activationMs: number | null; auditEvents: number; engineExit: number | null };
+        const counted = `${tests.counted}; on the site ${summary.activationMs === null ? "never" : `${(summary.activationMs / 1000).toFixed(1)} s`} after 09:00; ${summary.auditEvents} audit events`;
+        if (tests.outcome !== "passed") return { ...tests, counted };
+        if (summary.auditEvents < GATEWAY_FLOOR.integrationAuditEvents) return failed(counted, `fewer than ${GATEWAY_FLOOR.integrationAuditEvents} audit events of the pass were found`);
+        if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
+        return passed(counted);
+      } finally {
+        await cluster.sql("postgres", `drop database if exists ${database} with (force)`);
+      }
+    },
+  },
 ];
 
 // pytest's JUnit report: the totals of its test suites.
@@ -250,18 +286,21 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
-const GATEWAY_FLOOR = { files: 43, coreFiles: 19, generated: 3, schemaTests: 18, tests: 142, dataloaderOffers: 25 };
+const GATEWAY_FLOOR = {
+  files: 44, coreFiles: 19, generated: 3, schemaTests: 18, tests: 142, dataloaderOffers: 25, integrationTests: 7, integrationAuditEvents: 7,
+};
 
 /**
  * Node's test runner over some of the gateway's test files, one file at a
  * time (they share the fake engine's and the gateway's ports), counting the test cases
  * of its JUnit report: a file that failed to load is a failure there too.
  */
-async function nodeTests(suite: string, files: string[], floor: number): Promise<Omit<Result, "suite" | "seconds">> {
+async function nodeTests(suite: string, files: string[], floor: number, env: Record<string, string> = {}): Promise<Omit<Result, "suite" | "seconds">> {
   if (files.length === 0) return failed("0", "no test file found");
   const report = join(reports, `${suite}.xml`);
+  await rm(report, { force: true });
   const ran = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=junit", `--test-reporter-destination=${report}`,
-    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true });
+    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true, env: { ...process.env, ...env } });
   if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
   const xml = await readFile(report, "utf8");
   const tests = [...xml.matchAll(/<testcase\b/g)].length;

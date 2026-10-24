@@ -282,5 +282,36 @@ They are not `GATEWAY_` settings on purpose: `npm run gateway` refuses any
 `GATEWAY_` variable it does not know, and these belong to the tests alone.
 
 The fake engine was written with the gateway, so the two could agree on a
-mistake. The integration tests against the real engine come when the
-engine's branch joins this one.
+mistake. The integration suite runs the real ones together:
+
+```
+npm run check -- --only integration
+```
+
+It clones the migrated database, loads the small generated data (seed 7),
+starts the real engine with an internal token of its own, starts the real
+gateway in front of it, and walks the Student Autumn Pass of §14.1 through
+HTTP only, cookies, CSRF tokens, idempotency keys and request ids included:
+marketing creates it, saves a second version, validates it (finance must
+sign: the price is under the floor) and submits it; marketing's approval and
+the commercial lead's are refused, finance's with an old fingerprint too,
+and finance's with the exact one approves it; marketing schedules it; the
+site shows it at €2.99 with €5.79 struck through, and quotes €2.99 for 3
+months, then €5.79; the auditor finds every step in the log with the request
+id the client sent, and the chain holds; a repeated idempotency key gives the
+same change, and the same key for another request is refused.
+
+The engine reads the machine's clock when it runs for real, and nothing in
+it moves time. The test starts the same `serve()` through a launcher of its
+own (`services/commerce/tests/clocked_server.py`) that hands it a clock the
+test moves on standard input: from 24 October to past 09:00 in Rome on 26
+October, the morning after the clocks go back. The suite reports how long the
+site takes to show the offer once the clock is past the start: one tick of
+the engine's activation timer, 0.5 s in the test (5 s by default). With a
+clock that runs on its own, activation comes a minute before the start
+instead, and the offer appears at the start exactly. Times measured while
+other work ran on the machine: they say the order of magnitude, nothing more.
+
+The engine, the gateway and the database are stopped and dropped at the end,
+also when a step fails. The suite needs `CHECK_ENGINE_PORT` (4612 by
+default) besides the gateway's test ports.
