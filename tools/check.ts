@@ -182,8 +182,9 @@ const SUITES: Suite[] = [
     },
   },
   // The gateway (stage 3). Its tests start a fake engine on 127.0.0.1:4613
-  // and the gateway on 4621 and 4622, after asking the system that nobody
-  // listens there; they need no database.
+  // and the gateway on 4621 and 4622 (CHECK_FAKE_ENGINE_PORT,
+  // CHECK_GATEWAY_INTERNAL_PORT and CHECK_GATEWAY_PUBLIC_PORT move them),
+  // after asking the system that nobody listens there; they need no database.
   {
     name: "gw-types",
     what: "tsc over the gateway (strict, erasable), then its core again with a browser's types and none of Node's",
@@ -225,7 +226,7 @@ const SUITES: Suite[] = [
   },
   {
     name: "gw-tests",
-    what: "the gateway against a fake engine over gRPC: resolvers, roles, sessions, CSRF, idempotency, request ids, limits",
+    what: "the gateway against a fake engine over gRPC: resolvers, roles, both APIs' sessions, CSRF, idempotency, request ids, limits, the subscriber's side",
     needsDatabase: false,
     async run() {
       const files = (await readdir(join(gatewayDir, "test"))).filter((name) => name.endsWith(".test.ts") && !name.includes("contract"))
@@ -247,6 +248,53 @@ const SUITES: Suite[] = [
       if (report.offers < GATEWAY_FLOOR.dataloaderOffers) return failed(counted, `fewer than ${GATEWAY_FLOOR.dataloaderOffers} offers measured`);
       if (report.without.calls !== report.offers + 1 || report.with.calls !== 2) return failed(counted, "expected N + 1 calls without batching and 2 with");
       return passed(counted);
+    },
+  },
+  // The engine and the gateway together (end of stage 3, and the subscriber's
+  // side of stage 5): the real engine on CHECK_ENGINE_PORT, the real gateway
+  // on the gateway's test ports, and the Student Autumn Pass walked through
+  // over HTTP only, up to a student's subscription.
+  {
+    name: "integration",
+    what: "the real engine and the real gateway over HTTP: §14.1 from a draft to a student's subscription on the site, the audit log, idempotency",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const database = "commerce_integration";
+      await createDatabase(cluster, database, TEMPLATE);
+      try {
+        const commerce = join(repoRoot, "services", "commerce");
+        const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), "--size", "small", "--seed", "7"], {
+          cwd: commerce, env: { ...process.env, PYTHONPATH: join(commerce, "src") },
+        });
+        if (generated.code !== 0) return failed("-", generated.output.slice(-3000));
+        const summaryFile = join(reports, "integration.json");
+        await rm(summaryFile, { force: true });
+        const tests = await nodeTests("integration", ["test/integration/student-autumn.test.ts"], GATEWAY_FLOOR.integrationTests, {
+          INTEGRATION_DATABASE_URL: cluster.url(database, "app"),
+          INTEGRATION_SUMMARY: summaryFile,
+        });
+        if (!existsSync(summaryFile)) return failed(tests.counted, `${tests.detail}\nthe test wrote no summary`.trim());
+        const summary = JSON.parse(await readFile(summaryFile, "utf8")) as {
+          activationMs: number | null;
+          auditEvents: number;
+          engineExit: number | null;
+          subscription: { price: string; months: number; fullPrice: string; fullPriceFrom: string; payment: string; logged: boolean } | null;
+        };
+        const euros = (minor: string) => (Number(minor) / 100).toFixed(2);
+        const paid = summary.subscription
+          ? `subscribed at ${euros(summary.subscription.price)} × ${summary.subscription.months}, then ${euros(summary.subscription.fullPrice)} from ${summary.subscription.fullPriceFrom}, the first month ${summary.subscription.payment}`
+          : "no subscription";
+        const counted = `${tests.counted}; on the site ${summary.activationMs === null ? "never" : `${(summary.activationMs / 1000).toFixed(1)} s`} after 09:00; ${summary.auditEvents} audit events; ${paid}`;
+        if (tests.outcome !== "passed") return { ...tests, counted };
+        if (summary.auditEvents < GATEWAY_FLOOR.integrationAuditEvents) return failed(counted, `fewer than ${GATEWAY_FLOOR.integrationAuditEvents} audit events of the pass were found`);
+        if (!summary.subscription?.logged) return failed(counted, "the student's subscription was not found in the audit log");
+        if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
+        return passed(counted);
+      } finally {
+        await cluster.sql("postgres", `drop database if exists ${database} with (force)`);
+      }
     },
   },
   // The site (stage 5): apps/site, a static Next.js build. Its types, its
@@ -337,18 +385,21 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
-const GATEWAY_FLOOR = { files: 42, coreFiles: 19, generated: 3, schemaTests: 18, tests: 133, dataloaderOffers: 25 };
+const GATEWAY_FLOOR = {
+  files: 46, coreFiles: 19, generated: 3, schemaTests: 19, tests: 185, dataloaderOffers: 25, integrationTests: 8, integrationAuditEvents: 7,
+};
 
 /**
  * Node's test runner over some of the gateway's test files, one file at a
- * time (they share the ports 4613, 4621 and 4622), counting the test cases
+ * time (they share the fake engine's and the gateway's ports), counting the test cases
  * of its JUnit report: a file that failed to load is a failure there too.
  */
-async function nodeTests(suite: string, files: string[], floor: number): Promise<Omit<Result, "suite" | "seconds">> {
+async function nodeTests(suite: string, files: string[], floor: number, env: Record<string, string> = {}): Promise<Omit<Result, "suite" | "seconds">> {
   if (files.length === 0) return failed("0", "no test file found");
   const report = join(reports, `${suite}.xml`);
+  await rm(report, { force: true });
   const ran = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=junit", `--test-reporter-destination=${report}`,
-    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true });
+    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true, env: { ...process.env, ...env } });
   if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
   const xml = await readFile(report, "utf8");
   const tests = [...xml.matchAll(/<testcase\b/g)].length;
@@ -367,7 +418,7 @@ async function nodeTests(suite: string, files: string[], floor: number): Promise
 const siteDir = join(repoRoot, "apps", "site");
 const SITE_FLOOR = { files: 23, nodeFiles: 16, operations: 4, unitTests: 42 };
 const SITE_PAGES = ["index.html", "campaign/index.html", "404.html"];
-const SITE_CHECK_API = `http://127.0.0.1:${Number(process.env["CHECK_GATEWAY_PUBLIC_PORT"] ?? 4622)}/graphql`;
+const SITE_CHECK_API = `http://127.0.0.1:${PORTS.gatewayCheckPublic}/graphql`;
 
 /** Node's test runner over the site's unit tests, counting the cases of its JUnit report. */
 async function siteNodeTests(suite: string, files: string[], floor: number): Promise<Omit<Result, "suite" | "seconds">> {

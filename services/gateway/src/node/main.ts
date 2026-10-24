@@ -2,9 +2,9 @@
 // 127.0.0.1:4622 (both at /graphql, with /health beside them), in front of
 // the engine at ENGINE_URL. Settings and secrets: config.ts.
 //
-// DEMONSTRATION MODE ONLY: signing in picks a person of the demo, which is
-// not authentication; the log says so at every start, and the gateway refuses
-// to start any other way.
+// DEMONSTRATION MODE ONLY: signing in picks a person of the demo, or one of
+// the demo's listeners on the site, which is not authentication; the log says
+// so at every start, and the gateway refuses to start any other way.
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertFree } from "../../../../tools/lib/ports.ts";
@@ -24,6 +24,11 @@ try {
   for (const endpoint of config.endpoints) await assertFree(config.ports[endpoint], `the gateway's ${endpoint} API`);
   if (config.endpoints.includes("internal")) {
     logger.log("warn", "DEMONSTRATION MODE: signing in to the console's API picks a person of the demo, and is not authentication", {
+      realDeploymentNeeds: REAL_AUTH,
+    });
+  }
+  if (config.siteSessions) {
+    logger.log("warn", "DEMONSTRATION MODE: signing in to the site's API picks one of the demo's listeners, and is not authentication", {
       realDeploymentNeeds: REAL_AUTH,
     });
   }

@@ -1,35 +1,56 @@
-// The internal token the gateway sends the engine (authorization: Bearer).
+// The secrets of a development machine, kept in .data/ (ignored by git): the
+// internal token the gateway sends the engine (authorization: Bearer), and
+// the key that signs the gateway's session cookies. One implementation for
+// every process that needs them: `npm run engine` (tools/engine.ts) and the
+// gateway's Node shell (services/gateway/src/node/config.ts).
 //
-// COMMERCE_INTERNAL_TOKEN when it is set. On a development machine, when it is
-// not, the file .data/internal-token (ignored by git): 32 random bytes in hex,
-// created by whichever of the engine or the gateway starts first. The creation
-// is exclusive and whole: the token is written to a file of this process and
-// then linked into place, which fails if the file already exists, so the
-// second to start reads the first one's token and never a half-written file.
+// The internal token is COMMERCE_INTERNAL_TOKEN when it is set. When it is
+// not, it is the file .data/internal-token: 32 random bytes in hex, created by
+// whichever of the engine or the gateway starts first (the coordinator's
+// convention 4, 24 October).
+//
+// The creation is exclusive and whole: the secret is written to a file of
+// this process and then linked into place, which fails if the file already
+// exists, so the second to start reads the first one's secret and never a
+// half-written file. A reader still waits a moment for a file that is not
+// whole yet, in case another writer creates it in place.
 import { randomBytes } from "node:crypto";
 import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { dataDir } from "./paths.ts";
+import { dirname, join, relative } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { dataDir, repoRoot } from "./paths.ts";
 
 const SHAPE = /^[0-9a-f]{64}$/;
 export const tokenFile = join(dataDir, "internal-token");
 
-export async function internalToken(): Promise<{ token: string; from: string }> {
-  const fromEnvironment = process.env["COMMERCE_INTERNAL_TOKEN"];
-  if (fromEnvironment) return { token: fromEnvironment, from: "COMMERCE_INTERNAL_TOKEN" };
-  await mkdir(dataDir, { recursive: true });
-  const mine = `${tokenFile}.${process.pid}.${randomBytes(4).toString("hex")}`;
+/** The secret in `file`, created there first when there is none. */
+export async function localSecret(file: string): Promise<{ secret: string; created: boolean }> {
+  await mkdir(dirname(file), { recursive: true });
+  const mine = `${file}.${process.pid}.${randomBytes(4).toString("hex")}`;
   await writeFile(mine, randomBytes(32).toString("hex"), { mode: 0o600, flag: "wx" });
   let created = true;
   try {
-    await link(mine, tokenFile);
+    await link(mine, file);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     created = false;
   } finally {
     await rm(mine, { force: true });
   }
-  const token = (await readFile(tokenFile, "utf8")).trim();
-  if (!SHAPE.test(token)) throw new Error(`${tokenFile} does not hold 64 hex characters: delete it and start again`);
-  return { token, from: created ? ".data/internal-token, created now" : ".data/internal-token" };
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const secret = (await readFile(file, "utf8")).trim();
+    if (SHAPE.test(secret)) return { secret, created };
+    await sleep(50);
+  }
+  throw new Error(`${file} does not hold 64 hex characters: delete it and start again`);
+}
+
+/** The internal token: from the environment, or the development file of `dir`. */
+export async function internalToken(env: NodeJS.ProcessEnv = process.env, dir: string = dataDir): Promise<{ token: string; from: string }> {
+  const fromEnvironment = env["COMMERCE_INTERNAL_TOKEN"];
+  if (fromEnvironment) return { token: fromEnvironment, from: "COMMERCE_INTERNAL_TOKEN" };
+  const file = join(dir, "internal-token");
+  const { secret, created } = await localSecret(file);
+  const where = relative(repoRoot, file).replaceAll("\\", "/");
+  return { token: secret, from: created ? `${where}, created now` : where };
 }

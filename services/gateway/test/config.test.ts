@@ -5,12 +5,14 @@
 // person would.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, request } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { ConfigError, loadConfig, localSecret, VARIABLES } from "../src/node/config.ts";
+import { internalToken, localSecret } from "../../../tools/lib/internal-token.ts";
+import { ConfigError, loadConfig, VARIABLES } from "../src/node/config.ts";
 import { FAKE_TOKEN, FakeEngine } from "./support/fake-engine.ts";
 import { assertPortsFree, PORTS, TestClock } from "./support/harness.ts";
 
@@ -66,31 +68,48 @@ describe("loadConfig", () => {
   });
 });
 
-describe("local secrets", () => {
+describe("local secrets (tools/lib/internal-token.ts, shared with npm run engine)", () => {
   test("are created once, with 32 random bytes, and whoever comes second reads the same one", async () => {
     const dir = await mkdtemp(join(tmpdir(), "gateway-secret-"));
     try {
       const file = join(dir, "internal-token");
-      const values = await Promise.all(Array.from({ length: 8 }, () => localSecret(file)));
-      assert.match(values[0] ?? "", /^[0-9a-f]{64}$/);
-      assert.deepEqual(new Set(values).size, 1);
-      assert.equal((await readFile(file, "utf8")).trim(), values[0]);
+      const results = await Promise.all(Array.from({ length: 8 }, () => localSecret(file)));
+      assert.match(results[0]?.secret ?? "", /^[0-9a-f]{64}$/);
+      assert.equal(new Set(results.map((result) => result.secret)).size, 1);
+      assert.equal(results.filter((result) => result.created).length, 1, "one of them created it");
+      assert.equal((await readFile(file, "utf8")).trim(), results[0]?.secret);
       const other = await localSecret(join(dir, "gateway-session-secret"));
-      assert.notEqual(other, values[0]);
+      assert.notEqual(other.secret, results[0]?.secret);
+      assert.deepEqual((await readdir(dir)).sort(), ["gateway-session-secret", "internal-token"], "no file of a writer is left behind");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  test("a secret the engine wrote first is read, never replaced, even while it is still being written", async () => {
+  test("a secret another process wrote first is read, never replaced, even while it is still being written", async () => {
     const dir = await mkdtemp(join(tmpdir(), "gateway-secret-"));
     try {
       const file = join(dir, "internal-token");
       await writeFile(file, "");
       const written = "c0ffee".repeat(10) + "abcd";
       setTimeout(() => void writeFile(file, `${written}\n`), 150);
-      assert.equal(await localSecret(file), written);
+      assert.deepEqual(await localSecret(file), { secret: written, created: false });
       assert.equal((await readFile(file, "utf8")).trim(), written);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the gateway and the engine's launcher read the same token, from the environment first", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "gateway-secret-"));
+    try {
+      const launcher = await internalToken({}, dir);
+      const config = await loadConfig({ GATEWAY_SESSION_SECRET: SECRETS.GATEWAY_SESSION_SECRET }, dir);
+      assert.equal(config.engineToken, launcher.token);
+      assert.match(launcher.from, /internal-token, created now$/);
+      assert.deepEqual(await internalToken({ COMMERCE_INTERNAL_TOKEN: "from-the-environment-0123456789abcdef" }, dir), {
+        token: "from-the-environment-0123456789abcdef", from: "COMMERCE_INTERNAL_TOKEN",
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -138,6 +157,18 @@ describe("npm run gateway", () => {
       assert.equal(fromPage.status, 403);
       // The secrets never reach the log.
       for (const secret of [FAKE_TOKEN, SECRETS.GATEWAY_SESSION_SECRET]) assert.ok(!gateway.output().includes(secret));
+      // A request target that is no URL is a 400, and the process stays up.
+      const malformed = await new Promise<string>((resolve, reject) => {
+        let answer = "";
+        const socket = connect(PORTS.public, "127.0.0.1", () => socket.write("GET //[ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"));
+        socket.setEncoding("latin1");
+        socket.on("data", (chunk: string) => (answer += chunk));
+        socket.on("end", () => resolve(answer));
+        socket.on("error", reject);
+      });
+      assert.match(malformed, /^HTTP\/1\.1 400 /);
+      assert.equal((await get(`http://127.0.0.1:${PORTS.internal}/health`)).status, 200);
+      assert.equal(gateway.running(), true);
     } finally {
       await gateway.stop();
       await engine.stop();
@@ -177,9 +208,10 @@ describe("npm run gateway", () => {
   });
 });
 
-/** `npm run gateway`'s entry point as a child process, its log lines read as they come. */
+/** `npm run gateway`'s entry point as a child process on the tests' ports, its log lines read as they come. */
 async function startProcess(env: Record<string, string>) {
-  const child = spawn(process.execPath, [MAIN], { env: cleanEnvironment(env), windowsHide: true });
+  const ports = { GATEWAY_INTERNAL_PORT: String(PORTS.internal), GATEWAY_PUBLIC_PORT: String(PORTS.public) };
+  const child = spawn(process.execPath, [MAIN], { env: cleanEnvironment({ ...ports, ...env }), windowsHide: true });
   const lines: Array<Record<string, unknown>> = [];
   let raw = "";
   let pending = "";
@@ -211,6 +243,7 @@ async function startProcess(env: Record<string, string>) {
     exited,
     lines: () => lines,
     output: () => raw,
+    running: () => child.exitCode === null && child.signalCode === null,
     async stop() {
       if (child.exitCode === null) child.kill();
       await exited;

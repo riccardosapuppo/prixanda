@@ -10,23 +10,45 @@ import { after, before, describe, test } from "node:test";
 import { AuditService } from "contracts/commerce/v1/audit";
 import { CatalogService } from "contracts/commerce/v1/catalog";
 import { ChangeService, ChangeState } from "contracts/commerce/v1/changes";
+import { LaunchService } from "contracts/commerce/v1/launches";
 import { OverviewService, PeopleService } from "contracts/commerce/v1/overview";
 import { QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
-import { anyKind, FIELD_ROLES, isByKind, METHOD_ROLES, PUBLIC_METHODS, ROLES } from "../src/core/roles.ts";
+import { SubscriberService } from "contracts/commerce/v1/subscriptions";
+import { SERVICES } from "../src/core/engine.ts";
+import { anyKind, FIELD_ROLES, isByKind, METHOD_ROLES, PUBLIC_METHODS, ROLES, SUBSCRIBER_METHODS } from "../src/core/roles.ts";
 import { type Harness, startHarness } from "./support/harness.ts";
 
 const BOOK = join(import.meta.dirname, "..", "..", "..", "docs", "business.md");
 
-/** §12.1, as docs/business.md writes it on 24 October 2026. */
+/**
+ * §12.1, as docs/business.md writes it since stage 6 of the engine: the
+ * commercial lead reads revenue, and the on-call engineer retries or cancels
+ * a launch that stopped.
+ */
 const SECTION_12 = [
   "| Marketing | create and edit campaigns, run simulations, submit | approve |",
-  "| Commercial lead | own the price list and commercial rules, create price changes, approve campaigns within the thresholds | approve own versions; sign for finance |",
+  "| Commercial lead | own the price list and commercial rules, create price changes, approve campaigns within the thresholds, read revenue | approve own versions; sign for finance |",
   "| Finance | approve price changes and anything over a finance condition (§7.3); read revenue and unearned value | approve own versions |",
   "| Catalog manager | define plans and entitlements | approve own versions; change prices |",
-  "| On-call engineer | suspend an active change and roll back a launch | create or approve anything |",
+  "| On-call engineer | suspend an active change; retry or cancel a launch that stopped (roll back a launch) | create or approve anything |",
   "| Auditor | read and export the audit log | change anything |",
 ];
+
+/** §11.4 and §12.2, as docs/business.md writes them since the same commit, each paragraph on one line. */
+const SECTION_11_4 = "§11.4 Everyone on the team reads the log, so any decision can be traced from any seat; the auditor exports it, "
+  + "and the auditor and the on-call engineer verify the chain. Nobody can change it through Plancia.";
+const SECTION_12_2 = "§12.2 Every role reads the changes, the home and the audit log. Revenue is read by finance and the commercial lead, "
+  + "unearned pass value by finance (§9.2); the console tells the other roles who can read them, and the engine leaves those figures "
+  + "out of its answers to them.";
+
+/** The paragraph of the book that starts with a section's mark, its lines joined. */
+function paragraph(book: string, mark: string): string {
+  const start = book.indexOf(`\n${mark} `) + 1;
+  assert.ok(start > 0, `the book has no ${mark}`);
+  const end = book.indexOf("\n\n", start);
+  return book.slice(start, end === -1 ? undefined : end).split("\n").join(" ");
+}
 
 const ALL = ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"];
 
@@ -104,22 +126,55 @@ describe("the role matrix", () => {
     assert.deepEqual(Object.keys(FIELD_ROLES).sort(), ["Overview.monthlyRevenue", "Overview.monthlyRevenueEur", "Overview.monthlyTopUps"]);
   });
 
+  test("§11.4 and §12.2 quoted here are the book's, and the matrix does what they say", async () => {
+    const book = (await readFile(BOOK, "utf8")).replaceAll("\r\n", "\n");
+    assert.equal(paragraph(book, "§11.4"), SECTION_11_4);
+    assert.equal(paragraph(book, "§12.2"), SECTION_12_2);
+    // "Every role reads the changes, the home and the audit log."
+    for (const method of ["GetChange", "BatchGetChanges", "ListChanges", "GetOverview", "ListEvents"]) {
+      assert.deepEqual(sorted(anyKind(matrix[method] as never)), sorted(ALL), method);
+    }
+    // "The auditor exports it, and the auditor and the on-call engineer verify the chain."
+    assert.deepEqual(sorted(METHOD_ROLES.ExportHead), ["auditor"]);
+    assert.deepEqual(sorted(METHOD_ROLES.VerifyChain), ["auditor", "on_call"]);
+    // "Revenue is read by finance and the commercial lead": the fields the
+    // gateway narrows (FIELD_ROLES) are the revenue of the home, read by those
+    // two and nobody else. Unearned pass value has no field before stage 7.
+    const revenue = Object.keys(FIELD_ROLES).filter((field) => /revenue|topups/i.test(field));
+    assert.deepEqual(revenue.sort(), Object.keys(FIELD_ROLES).sort(), "every narrowed field is revenue");
+    for (const field of revenue) assert.deepEqual(sorted(FIELD_ROLES[field as keyof typeof FIELD_ROLES]), ["commercial_lead", "finance"], field);
+  });
+
   test("asks for the home in a role that reads its narrower fields first, when the person holds one", () => {
     const readers = [...new Set(Object.values(FIELD_ROLES).flat())];
     assert.deepEqual(sorted(METHOD_ROLES.GetOverview.slice(0, readers.length)), sorted(readers));
   });
 
-  test("covers every method of the contract: public or in the matrix, never both", () => {
-    const contract = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService]
+  test("covers every method of the contract: public, the subscriber's, or in the matrix, exactly one of them", () => {
+    const contract = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService, SubscriberService]
       .flatMap((service) => service.methods.map((method) => method.name));
-    // Catalog 4, Change 12, Quote 1, Simulation 1, Audit 3, Overview 1, People 1.
-    assert.equal(contract.length, 23, "the contract's methods were all read");
-    assert.deepEqual([...PUBLIC_METHODS].sort(), ["GetPriceList", "GetQuote", "ListMarkets", "ListOffers", "ListPeople", "ListPlans"]);
+    // Catalog 4, Change 12, Quote 1, Simulation 1, Audit 3, Overview 1, People 1, Subscriber 4.
+    assert.equal(contract.length, 27, "the contract's methods were all read");
+    assert.deepEqual([...PUBLIC_METHODS].sort(), ["GetPriceList", "GetQuote", "ListDemoListeners", "ListMarkets", "ListOffers", "ListPeople", "ListPlans"]);
+    // The brief of stage 5: these act for the listener of the site's session, with no x-actor.
+    assert.deepEqual([...SUBSCRIBER_METHODS].sort(), ["ConfirmQuote", "GetAccount", "VerifyStudent"]);
     for (const method of contract) {
-      const isPublic = (PUBLIC_METHODS as readonly string[]).includes(method);
-      assert.notEqual(isPublic, Object.hasOwn(matrix, method), `${method} must be either public or in the matrix`);
+      const kinds = [(PUBLIC_METHODS as readonly string[]).includes(method), (SUBSCRIBER_METHODS as readonly string[]).includes(method), Object.hasOwn(matrix, method)];
+      assert.equal(kinds.filter(Boolean).length, 1, `${method} must be public, the subscriber's, or in the matrix, and only one of them`);
     }
-    assert.deepEqual(Object.keys(matrix).filter((method) => !contract.includes(method)), [], "the matrix names no method the contract lacks");
+    const listed = [...PUBLIC_METHODS, ...SUBSCRIBER_METHODS, ...Object.keys(matrix)];
+    assert.deepEqual(listed.filter((method) => !contract.includes(method)), [], "the lists name no method the contract lacks");
+  });
+
+  test("leaves the launch service of stage 6 to a later round: in the contract, not served, and in none of the lists", () => {
+    // The console's schema exposes ListLaunches, GetLaunch, RetryLaunch and
+    // CancelLaunch later; until then the gateway binds no client to them, and
+    // adding one without its roles stops engineCalls() (src/core/engine.ts).
+    const launches = LaunchService.methods.map((method) => method.name);
+    assert.deepEqual(launches.sort(), ["CancelLaunch", "GetLaunch", "ListLaunches", "RetryLaunch"]);
+    assert.ok(!(Object.values(SERVICES) as unknown[]).includes(LaunchService));
+    const listed: string[] = [...PUBLIC_METHODS, ...SUBSCRIBER_METHODS, ...Object.keys(matrix)];
+    assert.deepEqual(launches.filter((method) => listed.includes(method)), []);
   });
 });
 

@@ -12,7 +12,8 @@ import type { LocalTime, Refusal } from "contracts/commerce/v1/common";
 import type { GetOverviewResponse, Incident, Launch, MarketRevenue, Person, SubscriberCount } from "contracts/commerce/v1/overview";
 import type { Quote } from "contracts/commerce/v1/quotes";
 import type { Assumption, FinanceCondition, SimulationResult, Totals } from "contracts/commerce/v1/simulation";
-import type { SessionInfo } from "./context.ts";
+import type { Account, Confirmation, DemoListener, Payment, Receipt, StudentVerification, Subscription } from "contracts/commerce/v1/subscriptions";
+import type { Listener, SessionInfo } from "./context.ts";
 
 // The console's schema.
 export type PersonModel = Person;
@@ -62,13 +63,27 @@ export type ChainVerificationModel = VerifyChainResponse;
 // The site's schema: the same messages, read through fewer fields.
 export type PublicMarketModel = Market;
 export type PublicEntitlementsModel = Entitlements;
+export type PublicPriceBreakdownModel = PriceBreakdown;
 export type PublicPlanModel = Plan;
 export type PublicListPriceModel = PriceListEntry;
 export type PublicMarketTimeModel = LocalTime;
 export type PublicOfferModel = PublishedOffer;
 export type PublicQuoteModel = Quote;
-export type PublicQuoteRefusalModel = {
-  readonly $typeName: "gateway.QuoteRefusal";
-  readonly code: "OFFER_ENDED" | "NOT_ELIGIBLE" | "NOT_AVAILABLE";
+export type PublicDemoListenerModel = DemoListener;
+/** The site's session: the listener chosen at the entrance, its CSRF token and expiry. */
+export type PublicMeModel = SessionInfo<Listener>;
+export type PublicAccountModel = Account;
+export type PublicSubscriptionModel = Subscription;
+export type PublicStudentVerificationModel = StudentVerification;
+export type PublicPaymentModel = Payment;
+export type PublicReceiptModel = Receipt;
+/** The engine's confirmation: its payment, or, from an engine that charged at the confirmation, only its receipt. */
+export type PublicConfirmationModel = Confirmation;
+/** A refusal as the site may say it: a public code, and a sentence written for a visitor. */
+export type PublicRefusalModel = {
+  readonly $typeName: "gateway.PublicRefusal";
+  readonly code: PublicRefusalCode;
   readonly reason: string;
 };
+export type PublicRefusalCode =
+  | "OFFER_ENDED" | "QUOTE_EXPIRED" | "NOT_ELIGIBLE" | "ALREADY_SUBSCRIBED" | "NOT_COMBINABLE" | "CAP_REACHED" | "PAYMENT_DECLINED" | "NOT_AVAILABLE";

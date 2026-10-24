@@ -179,6 +179,28 @@ describe("reads", () => {
     assert.deepEqual(answer.body.data.priceList, [{ amount: { amountMinor: "579", currency: "EUR" }, belowFloor: true, change: null }]);
   });
 
+  test("the home's incidents: open, recovered on their own, or resolved by a person; an unknown state breaks the contract", async () => {
+    const id = harness.engine.seedOffer("Late launch", "marketing-1", ChangeState.ACTIVE).id;
+    const incident = (state: string) => ({
+      changeId: id, title: "Late launch", run: "launch-12", state, summary: "Not live 5 minutes after its start.", launchId: "12", kind: "late",
+      openedAt: "2026-10-24T07:05:00Z", closedAt: state === "open" ? "" : "2026-10-24T07:20:00Z", resolution: state === "resolved" ? "cancelled by on-call-1" : "",
+    });
+    harness.engine.incidents.push(incident("resolved"), incident("open"), incident("recovered"));
+    try {
+      const reader = harness.console();
+      await reader.signIn("on-call-1");
+      const query = "{ overview { incidentsToday { title run state change { id } } } }";
+      const answer = await reader.graphql(query);
+      assert.equal(answer.body.errors, undefined, answer.text);
+      assert.deepEqual(answer.body.data.overview.incidentsToday.map((entry: { state: string }) => entry.state), ["RESOLVED", "OPEN", "RECOVERED"]);
+      assert.deepEqual(answer.body.data.overview.incidentsToday[0], { title: "Late launch", run: "launch-12", state: "RESOLVED", change: { id } });
+      harness.engine.incidents.push(incident("forgotten"));
+      assert.deepEqual(codes(await reader.graphql(query)), ["INTERNAL_SERVER_ERROR"], "never read as another state");
+    } finally {
+      harness.engine.incidents.length = 0;
+    }
+  });
+
   test("the simulation keeps negative amounts and turns the engine's -1 into null", async () => {
     const id = harness.engine.seedOffer("Simulated", "marketing-1", ChangeState.DRAFT).id;
     const marketing = harness.console();

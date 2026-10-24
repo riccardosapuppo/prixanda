@@ -40,8 +40,11 @@ const SCHEMAS = {
     scalars: ["Money", "LocalDateTime", "DateTime", "MarketCode", "PlanCode", "Sha256"],
   },
   public: {
-    objects: ["Market", "Entitlements", "Plan", "ListPrice", "MarketTime", "Offer", "Quote", "QuoteRefusal"],
-    scalars: ["Money", "LocalDateTime", "DateTime", "MarketCode", "PlanCode"],
+    objects: [
+      "Market", "Entitlements", "PriceBreakdown", "Plan", "ListPrice", "MarketTime", "Offer", "Quote", "DemoListener", "Me", "Account", "Subscription",
+      "StudentVerification", "Payment", "Receipt", "Confirmation", "Refusal",
+    ],
+    scalars: ["Money", "LocalDateTime", "DateTime", "Date", "MarketCode", "PlanCode"],
   },
 } as const;
 

@@ -1,40 +1,95 @@
 // The site's resolvers: every field of public.graphql. They read the engine's
-// public methods only, act for nobody, and pass on no field the schema does
-// not name: the engine's messages carry floors, breakdowns and ids of
-// changes, and none of it reaches a public field (test/public-contract.test.ts
-// plants such values and looks for them in every answer).
-import { RefusalCode } from "contracts/commerce/v1/common";
-import { idOrNull, money, optionalMoney, orNull } from "../convert.ts";
+// public methods, and the subscriber's methods for the listener of the site's
+// session, and pass on no field the schema does not name: the engine's
+// messages carry floors, the price list's top-ups and changes, a quote's
+// breakdown, ids of changes, subscriptions and payments, and none of it
+// reaches a public field (test/public-contract.test.ts plants such values and
+// looks for them in every answer). Where a list price or an offer price goes
+// is public by decision (§1.2): its breakdown is a field of the site's own.
+//
+// Who the listener is comes from the session alone: no argument names a
+// subscriber, and the engine's binding writes the session's subscriber id
+// into every subscriber call (engine.ts).
+import { create } from "@bufbuild/protobuf";
+import { type Refusal, RefusalCode } from "contracts/commerce/v1/common";
+import { type Confirmation, type Payment, PaymentSchema, PaymentState, PaymentStateSchema } from "contracts/commerce/v1/subscriptions";
+import { enumName, idOrNull, money, optionalMoney, orNull } from "../convert.ts";
 import { breach, gatewayError } from "../errors.ts";
-import type { AudioQuality, QuoteRefusalCode, Resolvers } from "../generated/public.ts";
+import type { AudioQuality, PaymentState as PublicPaymentState, Resolvers } from "../generated/public.ts";
 import { positiveId } from "../ids.ts";
-import type { PublicQuoteRefusalModel } from "../models.ts";
-import { DateTimeScalar, LocalDateTimeScalar, MarketCodeScalar, MoneyScalar, PlanCodeScalar } from "../scalars.ts";
+import type { PublicRefusalCode, PublicRefusalModel } from "../models.ts";
+import { listenerOf } from "../policy.ts";
+import { DateScalar, DateTimeScalar, LocalDateTimeScalar, MarketCodeScalar, MoneyScalar, PlanCodeScalar } from "../scalars.ts";
 
 const AUDIO = new Map<string, AudioQuality>([["standard", "STANDARD"], ["lossless", "LOSSLESS"]]);
 
-/** The refusals written for a visitor, and what the site calls them. */
-const FOR_VISITORS = new Map<RefusalCode, QuoteRefusalCode>([
-  [RefusalCode.QUOTE_EXPIRED, "OFFER_ENDED"],
-  [RefusalCode.NOT_ELIGIBLE, "NOT_ELIGIBLE"],
-]);
+/** A quote's id is the engine's and opaque; the gateway refuses only what cannot be one. */
+const QUOTE_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 /**
- * What the site may say about a refused quote. The engine's sentence is kept
- * for the two refusals written for a visitor; any other refusal reads the
- * same fixed sentence, so nothing internal travels in its words.
+ * What the site says for a refusal of the engine: its own code, and the
+ * engine's sentence (null) or one of its own. The engine's sentence travels
+ * only where it names nothing but what the site already shows; where it names
+ * what the console sets and the site does not show (an offer's
+ * non-combinability group, its cap on redemptions), the gateway says it in its
+ * own words. A refusal not listed reads NOT_AVAILABLE and a fixed sentence,
+ * so nothing internal travels in its words.
  */
-function quoteRefusal(code: RefusalCode, reason: string): PublicQuoteRefusalModel {
-  const mapped = FOR_VISITORS.get(code);
-  return mapped
-    ? { $typeName: "gateway.QuoteRefusal", code: mapped, reason }
-    : { $typeName: "gateway.QuoteRefusal", code: "NOT_AVAILABLE", reason: "This plan cannot be quoted here right now." };
+type Said = { readonly code: PublicRefusalCode; readonly sentence: string | null };
+
+/** Asking for a quote: an offer that is not on sale is over, as far as a visitor can tell. */
+const QUOTE_REFUSALS = new Map<RefusalCode, Said>([
+  [RefusalCode.QUOTE_EXPIRED, { code: "OFFER_ENDED", sentence: null }],
+  [RefusalCode.NOT_ELIGIBLE, { code: "NOT_ELIGIBLE", sentence: null }],
+]);
+
+const VERIFICATION_REFUSALS = new Map<RefusalCode, Said>([
+  [RefusalCode.NOT_ELIGIBLE, { code: "NOT_ELIGIBLE", sentence: null }],
+]);
+
+const SUBSCRIPTION_REFUSALS = new Map<RefusalCode, Said>([
+  [RefusalCode.QUOTE_EXPIRED, { code: "QUOTE_EXPIRED", sentence: null }],
+  [RefusalCode.NOT_ELIGIBLE, { code: "NOT_ELIGIBLE", sentence: null }],
+  [RefusalCode.ALREADY_SUBSCRIBED, { code: "ALREADY_SUBSCRIBED", sentence: null }],
+  [RefusalCode.NOT_COMBINABLE, {
+    code: "NOT_COMBINABLE",
+    sentence: "You already took an offer that does not combine with this one: offers of the same kind never stack (§10.3).",
+  }],
+  [RefusalCode.CAP_REACHED, { code: "CAP_REACHED", sentence: "This offer has been taken as many times as it can be." }],
+  [RefusalCode.PAYMENT_DECLINED, { code: "PAYMENT_DECLINED", sentence: "The payment provider declined the charge, so no subscription was made." }],
+]);
+
+function refusal(table: ReadonlyMap<RefusalCode, Said>, otherwise: string, refused: Refusal): PublicRefusalModel {
+  const said = table.get(refused.code);
+  return said
+    ? { $typeName: "gateway.PublicRefusal", code: said.code, reason: said.sentence ?? refused.reason }
+    : { $typeName: "gateway.PublicRefusal", code: "NOT_AVAILABLE", reason: otherwise };
+}
+
+/**
+ * The first month's payment of a confirmation. An engine that charges after
+ * the confirmation, through its outbox (stage 6), sends the payment, PENDING;
+ * one that charged at the confirmation sent only the receipt, which is a
+ * payment that succeeded then. The site reads one shape from both.
+ */
+function paymentOf(confirmation: Confirmation): Payment {
+  if (confirmation.payment) return confirmation.payment;
+  const receipt = confirmation.receipt ?? breach("the confirmation has neither a payment nor a receipt");
+  return create(PaymentSchema, {
+    state: PaymentState.SUCCEEDED,
+    ...(receipt.amount ? { amount: receipt.amount } : {}),
+    provider: receipt.provider,
+    requestedAt: receipt.issuedAt,
+    settledAt: receipt.issuedAt,
+    receipt,
+  });
 }
 
 export const publicResolvers: Resolvers = {
   Money: MoneyScalar,
   LocalDateTime: LocalDateTimeScalar,
   DateTime: DateTimeScalar,
+  Date: DateScalar,
   MarketCode: MarketCodeScalar,
   PlanCode: PlanCodeScalar,
 
@@ -44,19 +99,56 @@ export const publicResolvers: Resolvers = {
     prices: async (_root, { market, plan }, context) =>
       (await context.engine.catalog.getPriceList({ market, plan: plan ?? "" })).entries,
     offers: async (_root, { market }, context) => (await context.engine.catalog.listOffers({ market, at: "" })).offers,
+    // Without the site's sessions (in production) nobody can be chosen, so the entrance offers nobody.
+    demoListeners: async (_root, _args, context) =>
+      context.sessions === null ? [] : (await context.engine.subscribers.listDemoListeners({})).listeners,
+    me: (_root, _args, context) => context.sessions?.current() ?? null,
   },
 
   Mutation: {
     // The site never sends a price: it names the plan, the market and the
-    // offer, and the engine quotes (§4.5). A visitor not signed in yet is
-    // subscriber 0; eligibility is checked again when they subscribe.
+    // offer, and the engine quotes (§4.5). Signed in, the quote is the
+    // session's listener's, and the engine checks their eligibility now and
+    // again when they subscribe; a visitor not signed in is subscriber 0.
     requestQuote: async (_root, { plan, market, offerId }, context) => {
       const offer = offerId === null || offerId === undefined ? "0" : positiveId(offerId);
       if (offer === null) throw gatewayError("BAD_USER_INPUT", "offerId is not an offer id");
-      const answer = await context.engine.quotes.getQuote({ plan, market, offerId: offer, subscriberId: "0" });
+      const subscriberId = listenerOf(context)?.subscriberId ?? "0";
+      const answer = await context.engine.quotes.getQuote({ plan, market, offerId: offer, subscriberId });
       if (answer.outcome.case === "quote") return answer.outcome.value;
-      if (answer.outcome.case === "refusal") return quoteRefusal(answer.outcome.value.code, answer.outcome.value.reason);
+      if (answer.outcome.case === "refusal") return refusal(QUOTE_REFUSALS, "This plan cannot be quoted here right now.", answer.outcome.value);
       return breach("GetQuote answered with neither a quote nor a refusal");
+    },
+    // DEMONSTRATION MODE: the browser picks one of the demo's listeners, as
+    // the engine lists them, and never anybody else; from then on the
+    // session, not the browser, says who the site acts for.
+    signInAsListener: async (_root, { listenerId }, context) => {
+      const sessions = context.sessions;
+      if (sessions === null) {
+        throw gatewayError("FORBIDDEN", "Choosing one of the demo's listeners is a demonstration, and this gateway runs in production, where a real site signs its listeners in.");
+      }
+      const id = positiveId(listenerId);
+      if (id === null) throw gatewayError("BAD_USER_INPUT", "listenerId is not the id of one of the demo's listeners");
+      const { listeners } = await context.engine.subscribers.listDemoListeners({});
+      const chosen = listeners.find((listener) => listener.subscriberId === id);
+      if (chosen === undefined) throw gatewayError("NOT_FOUND", `No demo listener ${id}: choose one of demoListeners.`);
+      return sessions.start({ subscriberId: chosen.subscriberId, market: chosen.market, title: chosen.title });
+    },
+    signOutListener: (_root, _args, context) => context.sessions?.end() ?? false,
+    verifyStudent: async (_root, _args, context) => {
+      const answer = await context.engine.subscribers.verifyStudent({});
+      if (answer.outcome.case === "verification") return answer.outcome.value;
+      if (answer.outcome.case === "refusal") return refusal(VERIFICATION_REFUSALS, "The student verification cannot be done here right now.", answer.outcome.value);
+      return breach("VerifyStudent answered with neither a verification nor a refusal");
+    },
+    // The quote's id is all the site sends: the price is the quote's, saved by
+    // the engine when it quoted (§4.5), and the listener is the session's.
+    confirmSubscription: async (_root, { quoteId }, context) => {
+      if (!QUOTE_ID.test(quoteId)) throw gatewayError("BAD_USER_INPUT", "quoteId is the id requestQuote returned");
+      const answer = await context.engine.subscribers.confirmQuote({ quoteId });
+      if (answer.outcome.case === "confirmation") return answer.outcome.value;
+      if (answer.outcome.case === "refusal") return refusal(SUBSCRIPTION_REFUSALS, "This subscription cannot be made here right now.", answer.outcome.value);
+      return breach("ConfirmQuote answered with neither a confirmation nor a refusal");
     },
   },
 
@@ -65,6 +157,18 @@ export const publicResolvers: Resolvers = {
     name: (market) => market.name,
     currency: (market) => market.currency,
     timeZone: (market) => market.timeZone,
+    vatBasisPoints: (market) => market.vatBp,
+    artistsMinimum: (market) => money(market.artistsMinimum, `market ${market.code}'s artists' minimum`),
+  },
+  // Where a price goes: public by decision, the promise of §1.2. The floor, which the console reads beside it, is not.
+  PriceBreakdown: {
+    price: (breakdown) => money(breakdown.price, "breakdown price"),
+    vat: (breakdown) => money(breakdown.vat, "breakdown VAT"),
+    net: (breakdown) => money(breakdown.net, "breakdown net"),
+    artists: (breakdown) => money(breakdown.artists, "breakdown artists"),
+    topUp: (breakdown) => money(breakdown.topUp, "breakdown top-up"),
+    paymentCosts: (breakdown) => money(breakdown.paymentCosts, "breakdown payment costs"),
+    companyKeeps: (breakdown) => money(breakdown.encoreKeeps, "breakdown margin"),
   },
   Entitlements: {
     skipsPerHour: (entitlements) => (entitlements.skipsPerHour === 0 ? null : entitlements.skipsPerHour),
@@ -79,6 +183,7 @@ export const publicResolvers: Resolvers = {
     paid: (plan) => plan.paid,
     entitlements: (plan) => plan.entitlements ?? breach(`plan ${plan.id} has no entitlements`),
     listPrice: (plan) => optionalMoney(plan.listPrice),
+    breakdown: (plan) => plan.breakdown ?? null,
   },
   ListPrice: {
     plan: (entry) => entry.plan,
@@ -104,6 +209,8 @@ export const publicResolvers: Resolvers = {
     takeableUntil: (offer) => offer.takeableUntil ?? null,
     audience: (offer) => offer.audience,
     needsStudentCheck: (offer) => offer.needsStudentCheck,
+    // The engine of stage 5 sends none; stage 6 adds it at the offer price.
+    breakdown: (offer) => offer.breakdown ?? null,
   },
   Quote: {
     id: (quote) => quote.quoteId,
@@ -116,11 +223,83 @@ export const publicResolvers: Resolvers = {
     expiresAt: (quote) => quote.expiresAt,
     offerId: (quote) => idOrNull(quote.offerId),
   },
-  QuoteRefusal: {
-    code: (refusal) => refusal.code,
-    reason: (refusal) => refusal.reason,
+  DemoListener: {
+    id: (listener) => listener.subscriberId,
+    market: (listener) => listener.market,
+    title: (listener) => listener.title,
+    label: (listener) => listener.label,
+    plan: (listener) => orNull(listener.plan),
+    studentVerified: (listener) => listener.studentVerified,
+  },
+  Me: {
+    id: (me) => me.viewer.subscriberId,
+    market: (me) => me.viewer.market,
+    title: (me) => me.viewer.title,
+    csrfToken: (me) => me.csrfToken,
+    expiresAt: (me) => me.expiresAt.toISOString(),
+    // The session's listener, which the engine's binding names: the parent says nothing the session does not.
+    account: async (_me, _args, context) =>
+      (await context.engine.subscribers.getAccount({})).account ?? breach("GetAccount answered without an account"),
+  },
+  Account: {
+    market: (account) => account.market,
+    subscription: (account) => account.subscription ?? breach("the account has no subscription"),
+    payment: (account) => account.payment ?? null,
+    studentVerification: (account) => account.studentVerification ?? null,
+  },
+  Subscription: {
+    plan: (subscription) => subscription.plan,
+    market: (subscription) => subscription.market,
+    paid: (subscription) => subscription.paid,
+    price: (subscription) => money(subscription.price, "the subscription's price"),
+    startedOn: (subscription) => subscription.startedOn,
+    billingDay: (subscription) => (subscription.billingDay === 0 ? null : subscription.billingDay),
+    offerTitle: (subscription) => orNull(subscription.offerTitle),
+    offerMonths: (subscription) => subscription.offerMonths,
+    offerMonthsLeft: (subscription) => subscription.offerMonthsLeft,
+    fullPriceFrom: (subscription) => orNull(subscription.fullPriceFrom),
+    fullPrice: (subscription) => optionalMoney(subscription.fullPrice),
+    nextBillingOn: (subscription) => orNull(subscription.nextBillingOn),
+    nextCharge: (subscription) => optionalMoney(subscription.nextCharge),
+  },
+  StudentVerification: {
+    verifiedOn: (verification) => verification.verifiedOn,
+    validUntil: (verification) => verification.validUntil,
+    provider: (verification) => verification.provider,
+    valid: (verification) => verification.valid,
+  },
+  Receipt: {
+    id: (receipt) => receipt.receiptId,
+    amount: (receipt) => money(receipt.amount, "the receipt's amount"),
+    issuedAt: (receipt) => receipt.issuedAt,
+    provider: (receipt) => receipt.provider,
+    providerReference: (receipt) => receipt.providerReference,
+    demonstration: (receipt) => receipt.demonstration,
+    note: (receipt) => receipt.note,
+  },
+  Payment: {
+    state: (payment) => enumName<PublicPaymentState>(PaymentStateSchema, payment.state, "payment state"),
+    amount: (payment) => money(payment.amount, "the payment's amount"),
+    provider: (payment) => payment.provider,
+    requestedAt: (payment) => payment.requestedAt,
+    settledAt: (payment) => orNull(payment.settledAt),
+    receipt: (payment) => payment.receipt ?? null,
+  },
+  Confirmation: {
+    subscription: (confirmation) => confirmation.subscription ?? breach("the confirmation has no subscription"),
+    payment: (confirmation) => paymentOf(confirmation),
+  },
+  Refusal: {
+    code: (refused) => refused.code,
+    reason: (refused) => refused.reason,
   },
   QuoteResult: {
-    __resolveType: (result) => (result.$typeName === "gateway.QuoteRefusal" ? "QuoteRefusal" : "Quote"),
+    __resolveType: (result) => (result.$typeName === "gateway.PublicRefusal" ? "Refusal" : "Quote"),
+  },
+  VerificationResult: {
+    __resolveType: (result) => (result.$typeName === "gateway.PublicRefusal" ? "Refusal" : "StudentVerification"),
+  },
+  SubscriptionResult: {
+    __resolveType: (result) => (result.$typeName === "gateway.PublicRefusal" ? "Refusal" : "Confirmation"),
   },
 };
