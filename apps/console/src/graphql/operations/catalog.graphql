@@ -1,0 +1,64 @@
+# Markets, plans and the price list, read only (business book §2, §3, §4, §5).
+
+fragment MarketFields on Market {
+  code
+  name
+  currency
+  minorUnits
+  timeZone
+  vatBasisPoints
+  artistsMinimum
+  floor
+}
+
+query Markets {
+  markets {
+    ...MarketFields
+  }
+}
+
+query Plans($market: MarketCode!) {
+  plans(market: $market) {
+    code
+    name
+    paid
+    entitlements {
+      skipsPerHour
+      audio
+      offline
+      seats
+      needsStudentCheck
+    }
+    listPrice
+    breakdown {
+      price
+      vat
+      net
+      artists
+      topUp
+      paymentCosts
+      companyKeeps
+    }
+  }
+}
+
+query PriceList {
+  markets {
+    ...MarketFields
+  }
+  priceList {
+    id
+    plan
+    market
+    amount
+    validFrom
+    validUntil
+    belowFloor
+    topUp
+    change {
+      id
+      title
+      currentVersion
+    }
+  }
+}

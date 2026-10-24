@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "packages/*",
-    "services/gateway"
+    "services/gateway",
+    "apps/console"
   ],
   "scripts": {
     "build": "node tools/setup.ts && tsc -p tsconfig.json",
@@ -22,7 +23,8 @@
     "proto": "node tools/proto.ts",
     "graphql": "node tools/graphql.ts",
     "gateway": "node services/gateway/src/node/main.ts",
-    "design": "node packages/design/scripts/generate.ts"
+    "design": "node packages/design/scripts/generate.ts",
+    "console:stack": "node apps/console/scripts/stack.ts"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.73.0",
@@ -43,6 +45,10 @@
     "@embedded-postgres/linux-x64@18.4.0-beta.17": true,
     "@embedded-postgres/windows-x64@18.4.0-beta.17": true,
     "@bufbuild/buf@1.73.0": true,
-    "@apollo/protobufjs@1.2.8": false
+    "@apollo/protobufjs@1.2.8": false,
+    "esbuild@0.28.2": false
+  },
+  "overrides": {
+    "playwright-core": "1.62.1"
   }
 }

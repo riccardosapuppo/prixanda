@@ -1,0 +1,53 @@
+# The simulation of an offer in one market against not running it (§6.6),
+# with the conditions under which finance must sign (§7.3).
+
+fragment TotalsFields on Totals {
+  revenue
+  artists
+  paymentCosts
+  contribution
+}
+
+query SimulateOffer($changeId: ID!, $version: Int!, $market: MarketCode!, $overrides: [AssumptionInput!]) {
+  simulateOffer(changeId: $changeId, version: $version, market: $market, overrides: $overrides) {
+    __typename
+    ... on Simulation {
+      eligible
+      takers
+      stayers
+      cannibalized
+      withOffer {
+        ...TotalsFields
+      }
+      withoutOffer {
+        ...TotalsFields
+      }
+      difference {
+        ...TotalsFields
+      }
+      discountCost
+      topUpCost
+      financeConditions {
+        number
+        rule
+        met
+        detail
+      }
+      breakEvenRetentionBasisPoints
+      assumptions {
+        name
+        value
+        source
+      }
+      horizonMonths
+    }
+    ... on Refusal {
+      code
+      reason
+      facts {
+        name
+        value
+      }
+    }
+  }
+}

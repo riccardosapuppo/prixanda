@@ -1,0 +1,39 @@
+{
+  "name": "console",
+  "private": true,
+  "type": "module",
+  "description": "The console of the platform: where the commercial team creates, simulates, approves and follows changes. Next.js, built to static files; every number comes from the gateway's internal GraphQL API.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 4631",
+    "build": "next build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "codegen": "node scripts/codegen.ts",
+    "storybook": "storybook dev --port 4633 --host 127.0.0.1 --no-open --disable-telemetry",
+    "build-storybook": "storybook build --disable-telemetry --quiet"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.104.1",
+    "design": "*",
+    "next": "16.3.8",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@graphql-codegen/core": "6.2.2",
+    "@graphql-codegen/typescript": "6.1.2",
+    "@graphql-codegen/typescript-operations": "6.1.10",
+    "@playwright/test": "1.62.1",
+    "@storybook/nextjs-vite": "10.6.1",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "graphql": "16.14.2",
+    "playwright-core": "1.62.1",
+    "storybook": "10.6.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "vite": "7.3.7"
+  }
+}

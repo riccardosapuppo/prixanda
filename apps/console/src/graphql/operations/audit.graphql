@@ -1,0 +1,48 @@
+# The audit log (business book §11): everyone reads it, the auditor and the
+# on-call engineer verify its chain, the auditor exports its head (§11.4).
+
+query AuditEvents($filter: AuditFilter, $first: Int!, $after: String) {
+  auditEvents(filter: $filter, first: $first, after: $after) {
+    nodes {
+      seq
+      at
+      actor
+      actorRole
+      action
+      subject
+      requestId
+      reason
+      body
+      previousHash
+      hash
+    }
+    next
+  }
+}
+
+query VerifyAuditChain($anchor: ChainHeadInput) {
+  verifyAuditChain(anchor: $anchor) {
+    ok
+    events
+    head {
+      seq
+      hash
+    }
+    brokenAt
+    why
+  }
+}
+
+mutation ExportAuditHead {
+  exportAuditHead {
+    __typename
+    ... on ChainHead {
+      seq
+      hash
+    }
+    ... on Refusal {
+      code
+      reason
+    }
+  }
+}
