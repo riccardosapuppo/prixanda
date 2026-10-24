@@ -4,7 +4,7 @@
 // idempotency key per action, kept until the action has an answer.
 import { keepPreviousData, type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useRef } from "react";
-import type { Operation } from "../../graphql/operation.ts";
+import { type Operation, queryKeyOf } from "../../graphql/operation.ts";
 import { ActionKey, runAction } from "../action-key.ts";
 import type { GatewayClient } from "../gateway.ts";
 
@@ -26,10 +26,6 @@ export type QueryOptions = {
   readonly keepPrevious?: boolean;
   readonly refetchInterval?: number | false;
 };
-
-export function queryKeyOf<TVariables>(operation: Operation<unknown, TVariables>, variables: TVariables): readonly unknown[] {
-  return [operation.name, variables];
-}
 
 export function useGatewayQuery<TData, TVariables>(
   operation: Operation<TData, TVariables>,

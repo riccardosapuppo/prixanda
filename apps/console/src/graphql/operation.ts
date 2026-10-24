@@ -15,3 +15,8 @@ export type Operation<TData, TVariables> = {
 
 export type ResultOf<O> = O extends Operation<infer TData, unknown> ? TData : never;
 export type VariablesOf<O> = O extends Operation<unknown, infer TVariables> ? TVariables : never;
+
+/** The key a query is cached under: the operation's name and its variables. */
+export function queryKeyOf<TVariables>(operation: Operation<unknown, TVariables>, variables: TVariables): readonly unknown[] {
+  return [operation.name, variables];
+}

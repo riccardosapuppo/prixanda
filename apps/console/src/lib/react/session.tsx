@@ -6,10 +6,11 @@
 // mutation must carry while the session lasts.
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
-import { CurrentSessionDocument, type CurrentSessionQuery, SignInDocument, SignOutDocument } from "../../graphql/generated.ts";
+import { CurrentSessionDocument, type CurrentSessionQuery } from "../../graphql/generated.ts";
 import { setCsrfToken } from "../csrf.ts";
 import { type Role, ROLES } from "../permissions.ts";
-import { queryKeyOf, useGateway, useGatewayQuery } from "./gateway.tsx";
+import { enter, leave } from "../session-switch.ts";
+import { useGateway, useGatewayQuery } from "./gateway.tsx";
 
 export type Viewer = { readonly personId: string; readonly label: string; readonly roles: readonly Role[] };
 
@@ -24,9 +25,6 @@ export type SessionValue = {
 };
 
 const SessionContext = createContext<SessionValue | null>(null);
-
-const SESSION_KEY = queryKeyOf(CurrentSessionDocument, {});
-const KEEP = new Set(["CurrentSession", "People"]);
 
 function viewerOf(session: CurrentSessionQuery["session"]): Viewer | null {
   if (session === null) return null;
@@ -45,35 +43,25 @@ export function SessionProvider({ children }: { readonly children: ReactNode }) 
   const session = query.data?.session ?? null;
   setCsrfToken(session?.csrfToken ?? null);
 
-  // Everything read as the previous person is reset, not removed: the screens
-  // on display keep their queries and read them again as the new person.
-  const forgetOthers = useCallback(() => {
-    void client.resetQueries({ predicate: (cached) => !KEEP.has(String(cached.queryKey[0])) });
-  }, [client]);
-
+  // Entering and leaving cancel the readings of the session still on their
+  // way before installing the answer (lib/session-switch.ts).
   const signIn = useCallback(async (personId: string) => {
     setBusy(true);
     try {
-      const data = await gateway.run(SignInDocument, { personId });
-      setCsrfToken(data.signIn.csrfToken);
-      client.setQueryData<CurrentSessionQuery>(SESSION_KEY, { session: data.signIn });
-      forgetOthers();
+      await enter(gateway, client, personId);
     } finally {
       setBusy(false);
     }
-  }, [client, forgetOthers, gateway]);
+  }, [client, gateway]);
 
   const signOut = useCallback(async () => {
     setBusy(true);
     try {
-      await gateway.run(SignOutDocument, {});
+      await leave(gateway, client);
     } finally {
-      setCsrfToken(null);
-      client.setQueryData<CurrentSessionQuery>(SESSION_KEY, { session: null });
-      forgetOthers();
       setBusy(false);
     }
-  }, [client, forgetOthers, gateway]);
+  }, [client, gateway]);
 
   const value = useMemo<SessionValue>(() => ({
     status: query.isPending ? "loading" : query.isError ? "error" : session === null ? "signed-out" : "signed-in",

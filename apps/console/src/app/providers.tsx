@@ -4,13 +4,13 @@
 // modality (nothing animates while the person works from the keyboard).
 import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
-import { CurrentSessionDocument } from "../graphql/generated.ts";
 import { csrfToken } from "../lib/csrf.ts";
 import { createGatewayClient, GatewayError, httpTransport } from "../lib/gateway.ts";
 import { newRequestId } from "../lib/ids.ts";
 import { ClockProvider, systemClock } from "../lib/react/clock.tsx";
-import { GatewayProvider, queryKeyOf } from "../lib/react/gateway.tsx";
+import { GatewayProvider } from "../lib/react/gateway.tsx";
 import { SessionProvider } from "../lib/react/session.tsx";
+import { SESSION_KEY } from "../lib/session-switch.ts";
 
 /** The gateway's internal endpoint, fixed when the console is built. */
 export const GATEWAY_URL = process.env["NEXT_PUBLIC_GATEWAY_URL"] ?? "http://127.0.0.1:4621/graphql";
@@ -29,7 +29,7 @@ function makeQueryClient(): QueryClient {
       onError: (error) => {
         // The session ended on the gateway (an hour idle, a restart): back to the entry.
         if (error instanceof GatewayError && error.code === "UNAUTHENTICATED") {
-          client.setQueryData(queryKeyOf(CurrentSessionDocument, {}), { session: null });
+          client.setQueryData(SESSION_KEY, { session: null });
         }
       },
     }),
