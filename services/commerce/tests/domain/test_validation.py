@@ -12,6 +12,7 @@ from commerce.domain.economics import Book
 from commerce.domain.localtime import parse_local
 from commerce.domain.money import Money
 from commerce.domain.offers import Audience, ListeningRule, ListPrice, Offer, OfferPage, OfferPeriod, OfferPrice
+from commerce.domain.sentence import audience_words
 from commerce.domain.validation import (
     BLOCKING, INFO, NEEDS_SIGNATURE, Context, MarketFacts, Neighbour, PlanFacts, audiences_overlap, periods_overlap,
     report_to_json, resolve_price, validate,
@@ -348,3 +349,13 @@ def test_a_percentage_that_brings_the_price_to_nothing_blocks_and_the_validation
     assert report.simulations == {}
     simulated = {c.number: c for c in report.conditions if c.number in (3, 4)}
     assert all(c.met and "cannot be simulated" in c.detail for c in simulated.values())
+
+
+def test_an_audience_in_the_middle_of_a_sentence_keeps_its_proper_names():
+    def words(audience: Audience) -> str:
+        return audience_words(audience, "Italy", plan_names={"duo": "Duo"}, artist_names={4: "Doppelfenster"}, in_sentence=True)
+
+    assert words(Audience("never_paid", None, True)) == "verified students in Italy who have never had a paid plan"
+    assert words(Audience("subscribers_of_plan", "duo")) == "Duo subscribers in Italy"
+    assert words(Audience("free_listeners", listening=ListeningRule(4, 10_800, 30))) == (
+        "free listeners in Italy, with more than 3 hours of Doppelfenster in the last 30 days")

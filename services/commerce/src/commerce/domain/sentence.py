@@ -54,8 +54,10 @@ def audience_short(audience: Audience, *, plan_needs_student_check: bool, plan_n
     return words
 
 
-def audience_words(audience: Audience, market_name: str, *, plan_names: dict[str, str], artist_names: dict[int, str]) -> str:
-    """For the page: "Verified students in Italy who have never had a paid plan"."""
+def audience_words(audience: Audience, market_name: str, *, plan_names: dict[str, str], artist_names: dict[int, str],
+                   in_sentence: bool = False) -> str:
+    """For the page: "Verified students in Italy who have never had a paid plan". In a sentence, the first word is
+    lower case unless it names a plan: "not among verified students in Italy", "not among Duo subscribers in Italy"."""
     segment = audience.segment
     student = audience.needs_student_check
     if segment == "never_paid":
@@ -71,6 +73,8 @@ def audience_words(audience: Audience, market_name: str, *, plan_names: dict[str
         rule = audience.listening
         artist = artist_names.get(rule.artist_id, f"artist {rule.artist_id}")
         words += f", with more than {duration(rule.min_seconds)} of {artist} in the last {rule.within_days} days"
+    if in_sentence and segment != "subscribers_of_plan":
+        words = words[0].lower() + words[1:]
     return words
 
 
