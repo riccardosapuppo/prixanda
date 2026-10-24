@@ -260,3 +260,34 @@ async def test_the_check_for_a_partial_activation_sees_one(world):
     problems = await partial_activation(world.owner, change.id, "offer", other)
     assert any(f"(#{other}) is missing" in p for p in problems)
     assert any("shows it in ['IT'], not ['FR', 'IT']" in p for p in problems)
+
+
+async def test_the_server_s_own_entry_point_arms_no_fault(world):
+    """python -m commerce.server, the production entry point, with the fault settings of this folder in its
+    environment: it reads none of them, and the launch goes through untouched."""
+    # It runs on the machine's clock: an offer from 11:00 in Rome on 24 October, with no end, is due on any day the
+    # tests run (the tests' own clock, at 10:42 that day, could still validate it).
+    soon = student_autumn(periods=[changes_pb2.OfferPeriod(market="IT", starts_local="2026-10-24T11:00")])
+    change = await scheduled(world, soon, MARKETING, FINANCE)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("COMMERCE_", "FAULT_"))}
+    env.update({"PYTHONPATH": SOURCE, "PYTHONIOENCODING": "utf-8", "COMMERCE_DATABASE_URL": APP_URL.format(database=world.name),
+                "COMMERCE_INTERNAL_TOKEN": secrets.token_hex(32), "COMMERCE_ENGINE_PORT": str(PORT or free_port()),
+                "COMMERCE_STOP_ON_STDIN_CLOSE": "1", "COMMERCE_ACTIVATION_INTERVAL_SECONDS": "0.2",
+                "FAULT_STEP": "publish", "FAULT_KIND": "stop"})
+    process = await asyncio.create_subprocess_exec(sys.executable, "-m", "commerce.server", stdin=asyncio.subprocess.PIPE,
+                                                   stderr=asyncio.subprocess.PIPE, env=env)
+    engine = Engine(process)
+
+    async def read() -> None:
+        while raw := await process.stderr.readline():
+            engine.lines.append(json.loads(raw))
+
+    engine.reader = asyncio.create_task(read())
+    try:
+        await until(lambda: world.owner.fetchval("select state = 'done' from launch where change_id = $1", change.id), 60,
+                    "the launch", engine)
+    finally:
+        code = await stop(engine)
+    assert code == 0
+    assert await world.owner.fetchval("select max(attempts) from launch_step") == 1
+    assert not [line for line in engine.lines if line.get("event") == "fault"]
