@@ -453,12 +453,16 @@ class Changes:
             ended = [p.market for p in content.periods
                      if p.ends is not None and to_instant(p.ends, ref.markets[p.market].zone) <= now]
             if ended:
-                raise Refused("INVALID", f"The offer's period has already ended in {', '.join(ended)}: save a version with new dates.",
+                period = "pass's period of sale" if isinstance(content, PrepaidPass) else "offer's period"
+                raise Refused("INVALID", f"The {period} has already ended in {', '.join(ended)}: save a version with new dates.",
                               {"markets": ",".join(ended)})
-            clash = await clashes.first_clash(tx, content, change.id, ("approved", "scheduled", "active"), ref, now)
-            if clash is not None:
-                raise Refused("INVALID", clash.words(ref.markets[clash.market].name, content.group)
-                              + " Cancel one of them, or save a version with other dates.", clash.facts())
+            # A prepaid pass is a product of its own, beside every other change (§9): no offer clashes with it, and its
+            # launch checks nothing more (launches.py).
+            if isinstance(content, Offer):
+                clash = await clashes.first_clash(tx, content, change.id, ("approved", "scheduled", "active"), ref, now)
+                if clash is not None:
+                    raise Refused("INVALID", clash.words(ref.markets[clash.market].name, content.group)
+                                  + " Cancel one of them, or save a version with other dates.", clash.facts())
         await self._move(tx, change, "scheduled", now)
         await self._event(tx, call, now, "change.scheduled", change,
                           {"version": change.current_version, "from": "approved", "to": "scheduled", "starts": starts})

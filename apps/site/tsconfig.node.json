@@ -1,0 +1,12 @@
+{
+  // What Node runs in the site's folder, as it is, with no build: the scripts,
+  // the unit tests (node --test) with the modules of src/ they import, the
+  // end-to-end tests and the Next.js config. erasableSyntaxOnly, from the
+  // repository's tsconfig, keeps them runnable without a build.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.ts", "test/**/*.ts", "e2e/**/*.ts", "playwright.config.ts", "next.config.ts"]
+}

@@ -1,0 +1,156 @@
+# The home: what waits, what launches, what broke, who pays, what comes in
+# (the owner's brief: every number leads to an action). The revenue fields
+# are asked for only in a role that reads them (§12.2): the gateway answers
+# FORBIDDEN on them to the others, so the console does not ask.
+
+query Home($readsRevenue: Boolean!) {
+  overview {
+    waitingForApproval {
+      ...SummaryFields
+      details {
+        id
+        sentence
+        versions {
+          version
+          author {
+            id
+          }
+        }
+        current {
+          version
+          author {
+            id
+          }
+          content {
+            __typename
+            ... on OfferContent {
+              plan
+            }
+            ... on ListPriceContent {
+              plan
+            }
+          }
+        }
+        approvals {
+          version
+          approver {
+            id
+          }
+        }
+      }
+    }
+    launchesNext7Days {
+      title
+      state
+      atRisk
+      risk
+      starts {
+        market
+        local
+        utc
+      }
+      change {
+        id
+        kind
+        currentVersion
+      }
+    }
+    incidentsToday {
+      title
+      run
+      state
+      summary
+      launchId
+      kind
+      openedAt
+      closedAt
+      resolution
+      change {
+        id
+      }
+    }
+    payingSubscribers {
+      market
+      plan
+      count
+    }
+    freeListeners {
+      market
+      plan
+      count
+    }
+    monthlyRevenue @include(if: $readsRevenue) {
+      market
+      revenue
+      revenueEur
+    }
+    monthlyRevenueEur @include(if: $readsRevenue)
+    monthlyTopUps @include(if: $readsRevenue)
+    exchangeRateNote
+  }
+  markets {
+    ...MarketFields
+  }
+}
+
+# The week's lanes: the list prices in force and the offers that run, start
+# or wait for a signature in the next seven days.
+query Week($states: [ChangeState!]) {
+  priceList {
+    id
+    plan
+    market
+    amount
+    validFrom
+    validUntil
+  }
+  changes(filter: { kind: OFFER, states: $states }, first: 50) {
+    nodes {
+      id
+      title
+      state
+      currentVersion
+      details {
+        id
+        current {
+          version
+          content {
+            __typename
+            ... on OfferContent {
+              plan
+              periods {
+                market
+                startsLocal
+                endsLocal
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# The launches page: what starts in the next seven days, at risk or not.
+query Launches {
+  overview {
+    launchesNext7Days {
+      title
+      state
+      atRisk
+      risk
+      starts {
+        market
+        local
+        utc
+      }
+      change {
+        id
+        currentVersion
+      }
+    }
+  }
+  markets {
+    ...MarketFields
+  }
+}
