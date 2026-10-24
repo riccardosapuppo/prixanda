@@ -12,12 +12,16 @@ rule of the dates shows: 203 on the 10th (from the seed), 205 on the 17th
 
 from __future__ import annotations
 
+import io
+import json
 from datetime import UTC, date, datetime
 
 import pytest
 
 from commerce.engine import migrations, outbox
 from commerce.engine.errors import InvalidArgument, NotFound
+from commerce.server.app import Jobs
+from commerce.server.logs import JsonLog
 from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2
 from engine_support import (
     AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, apply, create, eur, family_migration, scheduled, student_autumn,
@@ -250,6 +254,25 @@ async def test_the_end_of_the_window_acts_once_and_tells_each_listener(world):
     home = await world.call("GetOverview", overview_pb2.GetOverviewRequest(), FINANCE)
     [germany] = [r for r in home.monthly_revenue if r.market == "DE"]
     assert germany.revenue == eur(1596 + 1764 + 1596)  # 203 and 206 at €18.99 until they leave, 205 at €20.99
+
+
+async def test_the_server_s_jobs_settle_the_window_and_log_each_request_once(world):
+    await started(world)
+    world.clock.at = at(2026, 12, 17, 23, 0, 5)
+    logs = io.StringIO()
+    jobs = Jobs(world.engine, JsonLog(world.clock.now, logs))
+    for _ in range(3):
+        await jobs.run_pass()
+        world.clock.advance(seconds=5)
+    lines = [json.loads(line) for line in logs.getvalue().splitlines()]
+    settled = [line for line in lines if line["event"] == "price_change_settled"]
+    # Nobody answered: each leaves when the month paid at the deadline runs out, once, whatever the passes.
+    assert sorted((line["leaves_on"], line["subscription"], line["state"], line["effect"]) for line in settled) == [
+        ("2026-12-17", 205, "lapsed", "left"), ("2026-12-18", 207, "lapsed", "left"),
+        ("2027-01-05", 206, "lapsed", "left"), ("2027-01-10", 14, "lapsed", "left")]
+    assert {line["level"] for line in settled} == {"info"}
+    told = [line for line in lines if line["event"] == "outbox_delivered" and line["topic"] == migrations.OUTCOME]
+    assert len(told) == 4 and {line["consumer"] for line in told} == {"listeners"}
 
 
 # -- a notice market ---------------------------------------------------------------------
