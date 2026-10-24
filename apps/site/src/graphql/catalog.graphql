@@ -1,0 +1,51 @@
+# What is for sale: the markets, a market's plans with the price a new
+# subscriber pays, and the offers on sale there now (business book §2, §4, §6).
+# Every figure the site shows comes from these answers; the site computes no
+# price, share or date of its own.
+
+query SiteMarkets {
+  markets {
+    code
+    name
+    currency
+    timeZone
+  }
+}
+
+query SitePlans($market: MarketCode!) {
+  plans(market: $market) {
+    code
+    name
+    paid
+    listPrice
+    entitlements {
+      skipsPerHour
+      audio
+      offline
+      seats
+      needsStudentCheck
+    }
+  }
+}
+
+# Shown if and only if their prices are in force (§7.5): an offer is on the
+# site from the moment its launch publishes it.
+query SiteOffers($market: MarketCode!) {
+  offers(market: $market) {
+    id
+    market
+    plan
+    title
+    text
+    terms
+    price
+    listPrice
+    monthsAtOfferPrice
+    takeableUntil {
+      local
+      utc
+    }
+    audience
+    needsStudentCheck
+  }
+}

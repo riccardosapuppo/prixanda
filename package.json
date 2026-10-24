@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "packages/*",
-    "services/gateway"
+    "services/gateway",
+    "apps/site"
   ],
   "scripts": {
     "build": "node tools/setup.ts && tsc -p tsconfig.json",

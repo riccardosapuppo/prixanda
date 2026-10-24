@@ -1,0 +1,36 @@
+{
+  "name": "site",
+  "private": true,
+  "type": "module",
+  "description": "The public site of the fictional music service: plans and prices by market, the campaigns on sale, the demo listener's student check, demo subscription and account. A static Next.js build that asks the gateway's public schema for every figure.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node scripts/next.ts dev",
+    "build": "node scripts/next.ts build",
+    "serve": "node scripts/serve.ts",
+    "graphql": "node scripts/graphql.ts",
+    "typecheck": "node scripts/next.ts typegen && tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "e2e": "node scripts/e2e.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.104.1",
+    "design": "file:../../packages/design",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.0",
+    "@graphql-codegen/typescript-operations": "6.1.10",
+    "@playwright/test": "1.62.1",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "graphql": "16.14.2",
+    "tailwindcss": "4.3.3"
+  }
+}

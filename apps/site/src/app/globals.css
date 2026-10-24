@@ -1,0 +1,273 @@
+/* The site's styles: Tailwind with the shared identity as its only theme
+   (packages/design), Archivo as the one voice, and the few patterns every
+   page repeats. Colours, sizes and motion come from the tokens; nothing here
+   invents a colour or a font. */
+@import "tailwindcss";
+@import "design/theme.css";
+@import "design/fonts/archivo.css";
+
+@layer base {
+  html {
+    color-scheme: light;
+    accent-color: var(--color-indigo);
+    caret-color: var(--color-indigo);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    scrollbar-color: var(--color-ink-3) var(--color-stone-2);
+  }
+  body {
+    margin: 0;
+    background: var(--color-stone);
+    color: var(--color-ink);
+    font-family: var(--font-archivo);
+    font-size: 1.0625rem;
+    line-height: 1.55;
+    font-kerning: normal;
+    font-variant-numeric: lining-nums;
+    text-rendering: optimizeLegibility;
+    overflow-wrap: break-word;
+  }
+  a {
+    color: var(--color-indigo);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+  }
+  a:hover {
+    text-decoration-thickness: 2px;
+  }
+  ::selection {
+    background: var(--color-silk-saffron);
+    color: var(--color-ink);
+  }
+  :focus {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-indigo);
+    outline-offset: 2px;
+  }
+  [hidden] {
+    display: none !important;
+  }
+  svg.icon {
+    display: inline-block;
+    flex: none;
+    vertical-align: -0.2em;
+  }
+  @media (max-width: 760px) {
+    body {
+      font-size: 1rem;
+    }
+  }
+}
+
+@layer components {
+  /* The page's measure: 1360 px at most, a gutter that grows with the window. */
+  .wrap {
+    width: 100%;
+    max-width: 1360px;
+    margin-inline: auto;
+    padding-inline: clamp(1rem, 3.4vw, 3rem);
+  }
+
+  /* Type roles: wide and light for the voice, heavy for the facts, italic for the notes. */
+  .display {
+    font-stretch: 125%;
+    font-weight: 250;
+    letter-spacing: -0.03em;
+    line-height: 1.04;
+    font-size: clamp(2.125rem, 1.25rem + 2.15vw, 3.3rem);
+    text-wrap: balance;
+  }
+  .display b {
+    font-weight: 760;
+  }
+  .title-2 {
+    font-stretch: 125%;
+    font-weight: 280;
+    letter-spacing: -0.025em;
+    line-height: 1.05;
+    font-size: clamp(1.875rem, 1.25rem + 1.9vw, 3rem);
+    text-wrap: balance;
+  }
+  .num {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  @media (max-width: 760px) {
+    .display {
+      font-weight: 300;
+    }
+  }
+
+  /* Buttons: one shape everywhere, three weights. Only the press moves. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.5rem;
+    padding: 0 1rem;
+    border: 1px solid var(--color-edge);
+    border-radius: var(--radius-control);
+    background: var(--color-stone-0);
+    color: var(--color-ink);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    line-height: 1.15;
+    text-decoration: none;
+    text-align: center;
+    cursor: pointer;
+    transition: transform var(--duration-press) var(--ease-out);
+  }
+  .btn:active {
+    transform: scale(0.97);
+  }
+  .btn-primary {
+    background: var(--color-indigo);
+    border-color: var(--color-indigo);
+    color: var(--color-stone-0);
+  }
+  .btn-quiet {
+    background: transparent;
+    border-color: transparent;
+    color: var(--color-indigo);
+    padding: 0 0.6rem;
+  }
+  .btn-big {
+    min-height: 3.25rem;
+    padding: 0 1.4rem;
+    font-size: 1.0625rem;
+  }
+  .btn[disabled],
+  .btn[aria-disabled="true"] {
+    background: var(--color-stone-2);
+    border-color: var(--color-edge);
+    border-style: dashed;
+    color: var(--color-ink-2);
+    cursor: not-allowed;
+    transform: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn:hover {
+      background: var(--color-stone-2);
+    }
+    .btn-primary:hover {
+      background: var(--color-indigo-press);
+      border-color: var(--color-indigo-press);
+    }
+    .btn-quiet:hover {
+      background: var(--color-stone-2);
+    }
+    .cta .icon {
+      transition: transform 180ms var(--ease-out);
+    }
+    .cta:hover .icon {
+      transform: translateX(3px);
+    }
+  }
+
+  /* The pair every page carries at the top, and the disclaimer where a step could pass for a purchase. */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.12rem 0.5rem;
+    border: 1px solid var(--color-edge);
+    border-radius: var(--radius-control);
+    background: var(--color-stone-0);
+    color: var(--color-ink-2);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .tag-simulated {
+    border-style: dotted;
+  }
+  .disclaimer {
+    display: flex;
+    gap: 0.45rem;
+    align-items: baseline;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: var(--color-ink-2);
+  }
+  .disclaimer .icon {
+    transform: translateY(0.16em);
+  }
+
+  /* A swatch: the silk with its solid hem, beside the figure it stands for. */
+  .swatch {
+    display: block;
+    flex: none;
+    width: 1.25rem;
+    height: 0.8rem;
+    transform: translateY(0.1em);
+  }
+  .swatch-artists {
+    background: var(--color-silk-madder);
+    box-shadow: inset 0 2px 0 var(--color-madder);
+  }
+  .swatch-topup {
+    background: var(--color-chord-ms);
+    box-shadow: inset 0 2px 0 var(--color-madder);
+  }
+  .swatch-service {
+    background: var(--color-silk-saffron);
+    box-shadow: inset 0 2px 0 var(--color-saffron);
+  }
+  .swatch-vat {
+    background: var(--color-silk-indigo);
+    box-shadow: inset 0 2px 0 var(--color-indigo);
+  }
+  .swatch-payment {
+    background-color: var(--color-stone-2);
+    background-image: var(--weave-hatch);
+    box-shadow: inset 0 0 0 1px var(--color-ink-3);
+  }
+
+  /* A step that takes the place of the last one fades in from 4 px above. */
+  .is-entering {
+    animation: step-in var(--duration-ui) var(--ease-out);
+  }
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-only {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Motion discipline. Nothing moves while the visitor uses the keyboard
+   (html[data-input="keyboard"], set by the input watcher); with reduced
+   motion, movement gives way to short fades. */
+html[data-input="keyboard"] *,
+html[data-input="keyboard"] *::before,
+html[data-input="keyboard"] *::after {
+  transition-duration: 0s !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn:active {
+    transform: none;
+  }
+  .cta .icon {
+    transition: none;
+  }
+  .is-entering {
+    animation: fade-only var(--duration-reduced) ease;
+  }
+}
