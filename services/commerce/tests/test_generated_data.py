@@ -19,8 +19,8 @@ from helpers import add_subscription, new_change
 async def test_the_small_size_has_what_it_declares(generated):
     _, summary = generated
     counts = summary["counts"]
-    assert counts["subscribers"] == 5_000 + 4  # the generated people and the demo's four listeners
-    assert counts["demo_listeners"] == 4
+    assert counts["subscribers"] == 5_000 + 6  # the generated people and the demo's six listeners
+    assert counts["demo_listeners"] == 6
     assert counts["artists"] == 47
     assert counts["subscriptions"] >= counts["subscribers"]
     assert counts["student_verifications"] > 0 and counts["listening_days"] > 10_000
@@ -209,14 +209,23 @@ async def test_the_demo_s_listeners_show_what_their_labels_say(copy):
 
     rows = await copy.fetch("select d.subscriber_id, d.title, d.label, d.student, b.market from demo_listener d "
                             "join subscriber b on b.id = d.subscriber_id order by d.position")
-    assert [r["title"] for r in rows] == ["Student in Italy, verified", "Student in Italy, not verified yet",
-                                          "Student in Italy who paid before", "Free listener in France"]
+    assert [(r["subscriber_id"], r["title"]) for r in rows] == [
+        (5001, "Student in Italy, verified"), (5002, "Student in Italy, not verified yet"),
+        (5003, "Student in Italy who paid before"), (5004, "Free listener in France"),
+        (5005, "Family subscriber in Germany"), (5006, "Individual subscriber in Italy")]
     assert all(r["label"].startswith("Simulated listener.") for r in rows)
     autumn = Audience("never_paid", None, True)
     day = date(2026, 10, 24)
     inside = [await eligibility.includes(copy, autumn, r["market"], day, r["subscriber_id"]) for r in rows]
-    assert inside == [True, False, False, False]
+    assert inside == [True, False, False, False, False, False]
     never_paid = Audience("never_paid")
     assert await eligibility.includes(copy, never_paid, "IT", day, rows[1]["subscriber_id"])  # verifying would open it
     assert not await eligibility.includes(copy, never_paid, "IT", day, rows[2]["subscriber_id"])  # paid before
-    assert [r["student"] for r in rows] == [True, True, True, False]
+    assert [r["student"] for r in rows] == [True, True, True, False, False, False]
+    # The two who pay: Family in Germany since 15 June 2025 and Individual in Italy since 8 May 2026, each billed on
+    # the day it began, at the list price, the price a rise asks them about (§8.2, §8.3).
+    paying = await copy.fetch(
+        "select s.subscriber_id, s.plan_id, s.started_on::text as started_on, s.billing_day, h.price_minor from subscription s "
+        "join subscription_price h on h.subscription_id = s.id and h.from_on = s.started_on "
+        "where s.subscriber_id in (5005, 5006) and s.paid and s.ended_on is null order by s.subscriber_id")
+    assert [tuple(r) for r in paying] == [(5005, "family", "2025-06-15", 15, 1899), (5006, "individual", "2026-05-08", 8, 1049)]

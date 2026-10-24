@@ -106,7 +106,7 @@ describe("a request for consent in Germany (§8.2): nothing changes without a ye
       // The law and the music service's choice, each in its own words: the choice says it is no law.
       assert.match(asked.legalBasis, /consent/);
       assert.match(asked.ifNoAnswer, /Free/);
-      assert.match(asked.ifNoAnswer, /Not a legal requirement/);
+      assert.match(asked.ifNoAnswer, /not a legal requirement/);
       assert.ok(!asked.legalBasis.includes(asked.ifNoAnswer) && !asked.ifNoAnswer.includes(asked.legalBasis));
       // The subscription says when it ends if nothing more is done; November and December are charged at the old price.
       assert.deepEqual(subscription, {
@@ -139,15 +139,17 @@ describe("a request for consent in Germany (§8.2): nothing changes without a ye
       const again = await answer(family, priceChangeId, true);
       assert.deepEqual({ state: again.state, newPriceFrom: again.newPriceFrom }, { state: "ACCEPTED", newPriceFrom: "2026-12-15" });
       const answered = harness.engine.audit.filter((event) => event.action === "price_change.answered");
-      assert.deepEqual(answered.map((event) => [event.actor, event.subject]), [[`subscriber-${LISTENERS.familyInGermany}`, `price_change:${priceChangeId}`]]);
+      assert.deepEqual(answered.map((event) => event.actor), [`subscriber-${LISTENERS.familyInGermany}`]);
+      assert.match(answered[0]?.subject ?? "", /^subscription:\d+$/, "the engine's subject is the subscription the answer acts on");
+      assert.equal(JSON.parse(answered[0]?.bodyJson ?? "{}").price_change, priceChangeId);
     });
 
     test("a no after the yes is refused in the site's words, never the engine's", async () => {
       const family = await listener(harness, LISTENERS.familyInGermany);
       const reply = await family.graphql(ANSWER, { variables: { id: priceChangeId, accept: false } });
       assert.deepEqual(reply.body.data.answerPriceChange, CLOSED);
-      // The engine said "Price change #N was answered yes already.".
-      assert.ok(!reply.text.includes("answered yes already"), reply.text);
+      // The engine said "This price change was answered already, and the answer stays.".
+      assert.ok(!reply.text.includes("answer stays"), reply.text);
     });
 
     test("from the charge after 15 November, the next one is at the new price; from 15 December, the price itself", async () => {
@@ -170,10 +172,10 @@ describe("a request for consent in Germany (§8.2): nothing changes without a ye
       await harness.close();
     });
 
-    test("no: declined, the plan ends on 15 January; the day it leaves is decided when the window ends", async () => {
+    test("no: declined, and the end decided at once: the plan ends on 15 January, when the month paid for runs out", async () => {
       const family = await listener(harness, LISTENERS.familyInGermany);
       const declined = await answer(family, priceChangeId, false);
-      assert.deepEqual([declined.state, declined.newPriceFrom, declined.appliesFrom, declined.ifNoLeavesOn, declined.leavesOn], ["DECLINED", null, null, null, null]);
+      assert.deepEqual([declined.state, declined.newPriceFrom, declined.appliesFrom, declined.ifNoLeavesOn, declined.leavesOn], ["DECLINED", null, null, null, "2027-01-15"]);
       const { subscription } = await account(harness, LISTENERS.familyInGermany);
       assert.deepEqual([subscription.endsOn, subscription.nextBillingOn, subscription.nextCharge], ["2027-01-15", "2026-11-15", EUR("1899")]);
       const same = await answer(family, priceChangeId, false);
@@ -182,7 +184,7 @@ describe("a request for consent in Germany (§8.2): nothing changes without a ye
       assert.deepEqual(reply.body.data.answerPriceChange, CLOSED);
     });
 
-    test("at the deadline the day it leaves is set; after the December charge there is no next one", async () => {
+    test("at the deadline it stays declined; after the December charge there is no next one", async () => {
       moveTo(harness, "2026-12-17T22:59:00Z");
       const closed = await account(harness, LISTENERS.familyInGermany);
       assert.deepEqual([closed.priceChanges[0].state, closed.priceChanges[0].leavesOn], ["DECLINED", "2027-01-15"]);
@@ -217,8 +219,8 @@ describe("a request for consent in Germany (§8.2): nothing changes without a ye
       const family = await listener(harness, LISTENERS.familyInGermany);
       const reply = await family.graphql(ANSWER, { variables: { id: priceChangeId, accept: true } });
       assert.deepEqual(reply.body.data.answerPriceChange, CLOSED);
-      // The engine said when the window ended, with the change's number.
-      assert.ok(!reply.text.includes("window to answer"), reply.text);
+      // The engine said when the time to answer ended, in its own words.
+      assert.ok(!reply.text.includes("time to answer ended on"), reply.text);
     });
   });
 });
@@ -246,7 +248,7 @@ describe("a notice in France (§8.3 to §8.5): the new price applies unless the 
         appliesFrom: "2026-12-24", ifNoLeavesOn: "2026-12-24", leavesOn: null, newPriceFrom: null,
       });
       assert.match(told.legalBasis, /France/);
-      assert.match(told.ifNoAnswer, /Not a legal requirement/);
+      assert.match(told.ifNoAnswer, /not a legal requirement/);
       // A notice ends nothing by itself.
       assert.deepEqual([subscription.billingDay, subscription.nextBillingOn, subscription.nextCharge, subscription.endsOn], [24, "2026-11-24", EUR("1099"), null]);
     });

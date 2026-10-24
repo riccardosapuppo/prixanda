@@ -24,7 +24,6 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timedelta
 
-from commerce.domain import billing
 from commerce.domain.localtime import format_instant
 from commerce.domain.money import Money
 from commerce.engine import charging, contract, outbox, records, reference
@@ -185,9 +184,8 @@ class ProviderEvents:
         back_on_free = market.today(now) + timedelta(days=1)
         await tx.execute("update subscription set ended_on = $2::text::date where id = $1", subscription["id"],
                          back_on_free.isoformat())
-        free = await charging.write_subscription(
-            tx, market, subscriber_id=subscription["subscriber_id"], plan_id="free", paid=False,
-            price=Money.zero(market.currency), started_on=back_on_free, billing_day=billing.billing_day_for(back_on_free))
+        free = await charging.write_free_subscription(tx, market, subscriber_id=subscription["subscriber_id"],
+                                                      started_on=back_on_free)
         await records.record(tx, at=now, actor=ACTOR, role=ROLE, action="payment.failed", subject=f"payment:{payment['id']}",
                              request_id=payment["request_id"], body={
                                  "payment": payment["id"], "subscription": subscription["id"], "subscriber": subscription["subscriber_id"],

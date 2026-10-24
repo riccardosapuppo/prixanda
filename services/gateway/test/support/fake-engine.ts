@@ -216,6 +216,16 @@ export type StoredPayment = {
   receipt: { id: string; issuedAt: string; reference: string } | null;
 };
 
+/** Codes are written for people: no 0 or O, no 1, I or L; three groups of four (commerce/domain/prepaid.py). */
+const CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+const CODE_SHAPE = /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/;
+
+/** A code as people type it, in the form it is kept in: upper case, groups of four joined by dashes. */
+function normalCode(text: string): string {
+  const letters = [...text.toUpperCase()].filter((character) => /[A-Z0-9]/.test(character)).join("");
+  return (letters.match(/.{1,4}/g) ?? []).join("-");
+}
+
 /** A prepaid pass's single-use code (§9.1), as the engine keeps it: bought by one listener, activated by any of its market. */
 export type StoredCode = {
   id: string;
@@ -386,12 +396,7 @@ function contentCase(content: Content) {
   }
 }
 
-/** Whole months from one day to another, as anniversaries of the first: 2026-11-02 to 2027-01-01 is one. */
-function monthsBetween(from: string, to: string): number {
-  let months = 0;
-  while (addMonths(from, months + 1) <= to) months += 1;
-  return months;
-}
+
 
 // ----- price changes for existing subscribers (stage 7, §8, §14.3) -----
 
@@ -414,7 +419,22 @@ export type StoredPriceChange = {
   answeredOn: string;
 };
 
-const NOT_LAW = "The music service's choice, configurable per market. Not a legal requirement.";
+const NOT_LAW = "The music service's choice, configurable per market; not a legal requirement.";
+
+/** The roles as the engine's sentences name them (commerce/domain/policy.py). */
+const ROLE_WORDS: Record<string, string> = {
+  marketing: "marketing", commercial_lead: "the commercial lead", finance: "finance", catalog_manager: "the catalog manager",
+  on_call: "the on-call engineer", auditor: "the auditor",
+};
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** A local time for sentences, as the engine writes it: 17 December 2026, 23:59 (Europe/Berlin). */
+function describeLocal(local: string, timeZone: string): string {
+  const [day = "", time = "00:00"] = local.split("T");
+  const [year = 0, month = 1, date = 1] = day.split("-").map(Number);
+  return `${date} ${MONTH_NAMES[month - 1]} ${year}, ${time.slice(0, 5)} (${timeZone})`;
+}
 
 /** The markets' policies as the engine's ListMarkets gives them: the law and the music service's choice, never mixed (§8.1). */
 const POLICIES: Record<string, { legalRequirement: "consent" | "notice"; legalBasis: string; legalSources: string[]; windowDays: number; afterWindow: string; commercialChoice: string; alternatives: string[] }> = {
@@ -469,9 +489,6 @@ function localOf(instant: Date, timeZone: string): string {
   const part = (type: string) => parts.find((candidate) => candidate.type === type)?.value ?? "00";
   return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
 }
-
-/** A day as the engine writes it in a sentence: 17 December 2026. */
-const longDay = (day: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${day}T00:00:00Z`));
 
 /** The day after, or before, in the calendar. */
 function addDays(day: string, days: number): string {
@@ -922,7 +939,9 @@ export class FakeEngine {
         row.expired += 1n;
       } else if (state === "activated") {
         row.activated += 1n;
-        const parts = Math.min(code.months, 1 + monthsBetween(code.activatedOn, this.#today(code.market)));
+        const billingDay = billingDayFor(code.activatedOn);
+        const today = this.#today(code.market);
+        const parts = Array.from({ length: code.months }, (_, charge) => billingDate(code.activatedOn, billingDay, charge)).filter((day) => day <= today).length;
         const earned = parts >= code.months ? net : (net / BigInt(code.months)) * BigInt(parts);
         row.unearned += net - earned;
       } else {
@@ -1010,23 +1029,24 @@ export class FakeEngine {
     const startsDay = change.startsLocal.slice(0, 10);
     const view = { state: "waiting", newPriceFrom: "", appliesFrom: "", ifNoLeavesOn: "", leavesOn: "", endsOn: "" };
     if (change.kind === "consent") {
-      // The end of the paid period the deadline falls in: the first billing day on or after it.
-      const deadlineEnd = onOrAfter(change.windowEndsDay);
+      // Without a yes, the first charge on or after the deadline's day, not before new subscribers pay the new price
+      // and outside an offer's months: a paid month is never cut short. A no decides it at once.
+      const leaving = onOrAfter(outsideOffer(later(change.windowEndsDay, startsDay)));
       if (change.answer === true) {
         view.state = "accepted";
         view.newPriceFrom = onOrAfter(outsideOffer(later(addDays(change.answeredOn, 1), startsDay)));
       } else if (change.answer === false) {
         view.state = "declined";
-        view.endsOn = deadlineEnd;
-        if (closed) view.leavesOn = deadlineEnd;
+        view.leavesOn = leaving;
+        view.endsOn = leaving;
       } else if (closed) {
         view.state = "lapsed";
-        view.leavesOn = deadlineEnd;
-        view.endsOn = deadlineEnd;
+        view.leavesOn = leaving;
+        view.endsOn = leaving;
       } else {
         view.appliesFrom = onOrAfter(outsideOffer(later(addDays(today, 1), startsDay)));
-        view.ifNoLeavesOn = deadlineEnd;
-        view.endsOn = deadlineEnd;
+        view.ifNoLeavesOn = leaving;
+        view.endsOn = leaving;
       }
     } else {
       // The first charge after the notice ends.
@@ -1057,7 +1077,8 @@ export class FakeEngine {
       windowEnds: { market: change.market, local: windowEnds, utc: utcOf(windowEnds, market.timeZone) },
       newSubscribersFrom: { market: change.market, local: change.startsLocal, utc: utcOf(change.startsLocal, market.timeZone) },
       state: view.state, newPriceFrom: view.newPriceFrom, appliesFrom: view.appliesFrom, ifNoLeavesOn: view.ifNoLeavesOn, leavesOn: view.leavesOn,
-      ifNoAnswer: `${policy?.commercialChoice ?? ""} ${NOT_LAW}`, legalBasis: policy?.legalBasis ?? "",
+      ifNoAnswer: `${policy?.commercialChoice ?? ""} This is the music service's choice for the market, not a legal requirement.`,
+      legalBasis: `${policy?.legalBasis ?? ""} Sources: ${(policy?.legalSources ?? []).join("; ")}.`,
     });
   }
 
@@ -1337,6 +1358,7 @@ export class FakeEngine {
       message.price = money(0n, currency);
       message.prepaidCode = stored.prepaid.code;
       message.prepaidPrice = money(stored.prepaid.priceMinor, currency);
+      message.billingDay = stored.billingDay;
       message.endsOn = stored.endedOn ?? "";
       return message;
     }
@@ -1508,9 +1530,11 @@ export class FakeEngine {
       listMarkets: () => ({ markets: MARKETS.map((market) => this.#marketMessage(market)) }),
       listPlans: (request) => ({ plans: this.#plans(request.market) }),
       getPriceList: (request) => ({ entries: this.#priceList(request.market, request.plan) }),
-      // The prepaid passes on sale now (§9); a market code that cannot be one is INVALID_ARGUMENT, an unknown one NOT_FOUND.
+      // The prepaid passes on sale now (§9); no market, or one that cannot be a code, is INVALID_ARGUMENT; an unknown one has none.
       listPrepaidPasses: (request) => {
-        if (!/^[A-Z]{2}$/.test(request.market)) throw new ConnectError("market is a two-letter market code", Code.InvalidArgument);
+        if (request.market === "") throw new ConnectError("name the market: IT, FR, DE or GB", Code.InvalidArgument);
+        if (!/^[A-Z]{2}$/.test(request.market)) throw new ConnectError(`'${request.market}' is not a market code`, Code.InvalidArgument);
+        if (!MARKETS.some((market) => market.code === request.market)) return { passes: [] };
         return { passes: this.#passesOnSale(request.market) };
       },
       listOffers: (request) => {
@@ -1711,15 +1735,16 @@ export class FakeEngine {
         const market = this.#market(listener.market);
         const onSale = this.#passesOnSale(market.code).find((candidate) => candidate.passId === pass.id);
         if (onSale === undefined) {
-          return this.#refuse(RefusalCode.NOT_ELIGIBLE, `Prepaid pass #${pass.id} is not on sale in ${market.name}.`, { market: market.code });
+          const title = pass.versions.at(-1)?.content.title ?? "";
+          return this.#refuse(RefusalCode.NOT_ELIGIBLE, `${title} is not on sale in ${market.name}.`, { pass_id: pass.id, market: market.code });
         }
         const content = pass.versions.at(-1)?.content;
         const id = String(this.#nextCode++);
-        const digest = hex(sha256(`prepaid-code-${id}`)).toUpperCase();
+        const digest = [...sha256(`prepaid-code-${id}`).subarray(0, 12)].map((byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length]).join("");
         const soldOn = this.#today(market.code);
         const priceMinor = onSale.price.amountMinor;
         const code: StoredCode = {
-          id, code: `GIFT-${digest.slice(0, 4)}-${digest.slice(4, 8)}-${digest.slice(8, 12)}`, passId: pass.id, buyerId: listener.id,
+          id, code: `${digest.slice(0, 4)}-${digest.slice(4, 8)}-${digest.slice(8, 12)}`, passId: pass.id, buyerId: listener.id,
           market: market.code, plan: onSale.plan, title: onSale.title, months: onSale.months, priceMinor, soldAt: this.#now(), soldOn,
           validUntil: addDays(addMonths(soldOn, content?.$typeName === "commerce.v1.PrepaidPassContent" ? content.codeValidMonths : 12), -1),
           payment: {
@@ -1729,38 +1754,50 @@ export class FakeEngine {
           activatedBy: "", activatedOn: "", subscriptionId: "",
         };
         this.prepaidCodes.set(code.code, code);
-        this.#log(context, "prepaid.bought", `prepaid_code:${id}`, "", { subscriber: listener.id, pass: pass.id, price: priceMinor, payment: code.payment.id }, {
+        this.#log(context, "prepaid.sold", `prepaid:${id}`, "", { subscriber: listener.id, pass: pass.id, price: priceMinor, payment: code.payment.id }, {
           actor: `subscriber-${listener.id}`, role: "subscriber",
         });
         return { outcome: { case: "code" as const, value: this.#codeMessage(code) } };
       },
-      // §9: the code (not found); the same listener again gets the same answer; then the market, a paid plan running, a code not ready.
+      // §9, the engine's order: the code's shape, the code (not found); a code used (the same listener's again: the same
+      // answer); a code not ready or past its last day; then the market, the plan running, a free plan started today.
       activatePrepaidPass: (request, context) => {
         const listener = this.#listener(request.subscriberId);
-        const code = this.prepaidCodes.get(request.code);
-        if (code === undefined) throw new ConnectError("no prepaid code like that", Code.NotFound);
+        const typed = normalCode(request.code);
+        if (!CODE_SHAPE.test(typed)) throw new ConnectError("a code is three groups of four letters and digits, like K7QM-3XTP-9WAD", Code.InvalidArgument);
+        const code = this.prepaidCodes.get(typed);
+        if (code === undefined) throw new ConnectError("no such code", Code.NotFound);
         const today = this.#today(listener.market);
-        if (code.activatedBy === listener.id) {
-          const activated = listener.subscriptions.find((subscription) => subscription.id === code.subscriptionId);
-          if (activated === undefined) throw new Error(`code ${code.id} has no subscription`);
-          return { outcome: { case: "subscription" as const, value: this.#subscription(listener, activated, today) } };
-        }
-        if (code.market !== listener.market) {
-          return this.#refuse(RefusalCode.NOT_ELIGIBLE, `Code ${code.id} is for a pass of ${this.#market(code.market).name}.`, { market: code.market });
-        }
         const current = this.#current(listener, today);
-        if (current === undefined) throw new ConnectError(`subscriber #${listener.id} is on no plan on ${today}`, Code.FailedPrecondition);
-        if (current.paid) {
-          return this.#refuse(RefusalCode.ALREADY_SUBSCRIBED, `A ${current.plan} subscription is already running for subscriber #${listener.id}.`, { plan: current.plan });
+        if (code.activatedOn !== "") {
+          if (code.activatedBy === listener.id && current?.prepaid?.code === code.code) {
+            return { outcome: { case: "subscription" as const, value: this.#subscription(listener, current, today) } };
+          }
+          return this.#refuse(RefusalCode.WRONG_STATE, "This code was used already: a code works once.", { state: "activated" });
         }
         const state = this.#codeState(code);
-        if (state !== "ready") return this.#refuse(RefusalCode.WRONG_STATE, `Code ${code.id} is ${state}.`, { state });
-        if (current.startedOn >= today) throw new ConnectError("the free plan started today and cannot end today: activate tomorrow", Code.FailedPrecondition);
+        if (state !== "ready") {
+          const why = { pending: "Its payment is not settled yet: try again in a moment.", failed: "Its payment was declined: this code never works." }[state as "pending" | "failed"]
+            ?? `It could be activated until ${code.validUntil}.`;
+          return this.#refuse(RefusalCode.WRONG_STATE, why, { state });
+        }
+        if (code.market !== listener.market) {
+          return this.#refuse(RefusalCode.NOT_ELIGIBLE, `This code is for ${this.#market(code.market).name}, and this listener is in ${this.#market(listener.market).name}.`, {
+            subscriber: listener.id, market: listener.market,
+          });
+        }
+        if (current === undefined) throw new ConnectError(`subscriber #${listener.id} is on no plan on ${today}`, Code.FailedPrecondition);
+        if (current.paid) {
+          return this.#refuse(RefusalCode.ALREADY_SUBSCRIBED, `A ${current.plan} subscription is already running for this listener: activate the code when it ends.`, { plan: current.plan });
+        }
+        if (current.startedOn >= today) throw new ConnectError("the free plan started today and cannot end today: activate the code tomorrow", Code.FailedPrecondition);
         current.endedOn = today;
-        const endsOn = addMonths(today, code.months);
+        // Its months end as a subscription's charges fall: on the billing day, 28 at the latest (domain/billing.py).
+        const billingDay = billingDayFor(today);
+        const endsOn = billingDate(today, billingDay, code.months);
         const stored: StoredSubscription = {
           id: String(this.#nextSubscription++), plan: code.plan, paid: true, priceMinor: 0n, startedOn: today, endedOn: endsOn,
-          billingDay: 0, quoteId: null, offerId: null, offerMonths: 0, payment: null, prepaid: { code: code.code, priceMinor: code.priceMinor },
+          billingDay, quoteId: null, offerId: null, offerMonths: 0, payment: null, prepaid: { code: code.code, priceMinor: code.priceMinor },
         };
         listener.subscriptions.push(stored, {
           id: String(this.#nextSubscription++), plan: "free", paid: false, priceMinor: 0n, startedOn: endsOn, endedOn: null,
@@ -1769,7 +1806,7 @@ export class FakeEngine {
         code.activatedBy = listener.id;
         code.activatedOn = today;
         code.subscriptionId = stored.id;
-        this.#log(context, "prepaid.activated", `prepaid_code:${code.id}`, "", { subscriber: listener.id, plan: code.plan, months: code.months, ends_on: endsOn }, {
+        this.#log(context, "prepaid.activated", `prepaid:${code.id}`, "", { subscriber: listener.id, plan: code.plan, months: code.months, ends: endsOn }, {
           actor: `subscriber-${listener.id}`, role: "subscriber",
         });
         return { outcome: { case: "subscription" as const, value: this.#subscription(listener, stored, today) } };
@@ -1780,20 +1817,25 @@ export class FakeEngine {
         if (request.priceChangeId === "" || request.priceChangeId === "0") throw new ConnectError("price_change_id names a price change of the listener", Code.InvalidArgument);
         const change = this.priceChanges.get(request.priceChangeId);
         if (change === undefined || change.listenerId !== listener.id) throw new ConnectError(`no price change #${request.priceChangeId} for this listener`, Code.NotFound);
-        const windowEnds = utcOf(`${change.windowEndsDay}T23:59`, this.#market(change.market).timeZone);
-        if (this.#options.clock().getTime() >= Date.parse(windowEnds)) {
-          return this.#refuse(RefusalCode.WRONG_STATE, `The window to answer price change #${change.id} ended at ${windowEnds}.`, { window_ends: windowEnds });
+        const said = (answer: boolean) => (answer ? "yes" : "no");
+        const before = this.#priceChangeView(change).state;
+        // An answer given stays: the same one comes back the same, at any time; another is refused.
+        if (change.answer !== null) {
+          if (change.answer === request.accept) return { outcome: { case: "priceChange" as const, value: this.#priceChangeMessage(change) } };
+          return this.#refuse(RefusalCode.WRONG_STATE, "This price change was answered already, and the answer stays.", { state: before, answer: said(change.answer) });
         }
-        if (change.answer !== null && change.answer !== request.accept) {
-          return this.#refuse(RefusalCode.WRONG_STATE, `Price change #${change.id} was answered ${change.answer ? "yes" : "no"} already.`, { answered: change.answer ? "yes" : "no" });
+        const windowEnds = `${change.windowEndsDay}T23:59`;
+        const timeZone = this.#market(change.market).timeZone;
+        if (this.#options.clock().getTime() >= Date.parse(utcOf(windowEnds, timeZone))) {
+          return this.#refuse(RefusalCode.WRONG_STATE, `The time to answer ended on ${describeLocal(windowEnds, timeZone)}.`, { state: before });
         }
-        if (change.answer === null) {
-          change.answer = request.accept;
-          change.answeredOn = this.#today(change.market);
-          this.#log(context, "price_change.answered", `price_change:${change.id}`, "", { subscriber: listener.id, accept: request.accept, kind: change.kind }, {
-            actor: `subscriber-${listener.id}`, role: "subscriber",
-          });
-        }
+        change.answer = request.accept;
+        change.answeredOn = this.#today(change.market);
+        const after = this.#priceChangeView(change);
+        this.#log(context, "price_change.answered", `subscription:${change.subscriptionId}`, "", {
+          subscriber: listener.id, price_change: change.id, change: change.changeId, kind: change.kind, answer: said(request.accept), from: before, to: after.state,
+          ...(after.newPriceFrom ? { new_price_from: after.newPriceFrom } : {}), ...(after.leavesOn ? { leaves_on: after.leavesOn } : {}),
+        }, { actor: `subscriber-${listener.id}`, role: "subscriber" });
         return { outcome: { case: "priceChange" as const, value: this.#priceChangeMessage(change) } };
       },
     });
@@ -1983,12 +2025,20 @@ export class FakeEngine {
         const version = request.version === 0 ? stored.versions.at(-1) : stored.versions.find((candidate) => candidate.version === request.version);
         if (version === undefined) throw new ConnectError(`change ${stored.id} has no version ${request.version}`, Code.NotFound);
         const content = version.content;
-        if (content.$typeName !== "commerce.v1.PriceMigrationContent") return this.#refuse(RefusalCode.INVALID, "Only a price migration is simulated here.");
+        if (content.$typeName !== "commerce.v1.PriceMigrationContent") {
+          throw new ConnectError(`change #${stored.id} is not a price migration${stored.kind === "offer" ? "; a campaign has SimulateOffer" : ""}`, Code.InvalidArgument);
+        }
         const market = this.#market(content.market);
         const policy = POLICIES[content.market];
         const overridden = new Map(request.overrides.map((override) => [override.name, override.value]));
-        const existing = overridden.get("existing") ?? BigInt(Math.max(this.#paidOf(content.plan, content.market).length, 8_412));
-        const acceptance = overridden.get("acceptance") ?? 9_300n;
+        for (const name of overridden.keys()) {
+          if (!["existing", "acceptance"].includes(name)) throw new ConnectError(`'${name}' is not an assumption; they are existing, acceptance`, Code.InvalidArgument);
+        }
+        // Counted in the data, or typed; the book's illustrative 90% (§16), or typed.
+        const existing = overridden.get("existing") ?? BigInt(this.#paidOf(content.plan, content.market).length);
+        const acceptance = overridden.get("acceptance") ?? 9_000n;
+        const typedBy = `typed by ${ROLE_WORDS[context.requestHeader.get("x-actor-role") ?? ""] ?? "someone"} at ${this.#now()}`;
+        const keep = policy?.afterWindow === "keep_old_price";
         const before = breakdownOf(PRICES[content.market]?.[content.plan] ?? 0n, market);
         const after = breakdownOf(content.amount?.amountMinor ?? 0n, market);
         const minor = (value: Money | undefined) => value?.amountMinor ?? 0n;
@@ -1999,7 +2049,8 @@ export class FakeEngine {
         const [b, a] = [step(before), step(after)];
         const accepting = (existing * acceptance + 5_000n) / 10_000n;
         const notAccepting = existing - accepting;
-        const ceilBp = (part: bigint, whole: bigint) => (whole <= 0n ? -1 : Number((10_000n * part + whole - 1n) / whole));
+        // The acceptance at which the new price makes up for those who leave, rounded half up (domain/migration.py).
+        const breakEven = (part: bigint, whole: bigint) => (keep || whole <= 0n ? -1 : Math.min(10_000, Math.max(0, Number(halfUp(part * 10_000n, whole)))));
         const windowEndsDay = addDays(content.noticesLocal.slice(0, 10), policy?.windowDays ?? 0);
         const at = (local: string) => ({ market: content.market, local, utc: utcOf(local, market.timeZone) });
         return {
@@ -2008,22 +2059,26 @@ export class FakeEngine {
             value: {
               before: b, after: a, newSubscribersFrom: at(content.startsLocal), noticesFrom: at(content.noticesLocal), windowEnds: at(`${windowEndsDay}T23:59`),
               existingFrom: policy?.legalRequirement === "consent"
-                ? `from their first charge after they consent, by ${longDay(windowEndsDay)}`
-                : `from their first charge after the notice ends on ${longDay(windowEndsDay)}`,
-              existing, accepting, notAccepting, movingToFree: policy?.afterWindow === "move_to_free" ? notAccepting : 0n,
-              monthlyRevenueChange: money(accepting * (minor(a.net) - minor(b.net)) - notAccepting * minor(b.net), market.currency),
-              monthlyContributionChange: money(accepting * (minor(a.contribution) - minor(b.contribution)) - notAccepting * minor(b.contribution), market.currency),
-              revenueAtRiskMonthly: money(notAccepting * minor(b.net), market.currency),
-              breakEvenAcceptanceRevenueBp: ceilBp(minor(b.net), minor(a.net)),
-              breakEvenAcceptanceContributionBp: ceilBp(minor(b.contribution), minor(a.contribution)),
+                ? `from their first charge after they consent, and not before new subscribers pay it; they answer by ${describeLocal(`${windowEndsDay}T23:59`, market.timeZone)}`
+                : `from their first charge after the ${policy?.windowDays ?? 0} days of notice, ending ${describeLocal(`${windowEndsDay}T23:59`, market.timeZone)}, unless they leave before it`,
+              existing, accepting, notAccepting, movingToFree: keep ? 0n : notAccepting,
+              monthlyRevenueChange: money(accepting * (minor(a.net) - minor(b.net)) - (keep ? 0n : notAccepting * minor(b.net)), market.currency),
+              monthlyContributionChange: money(accepting * (minor(a.contribution) - minor(b.contribution)) - (keep ? 0n : notAccepting * minor(b.contribution)), market.currency),
+              revenueAtRiskMonthly: money(keep ? 0n : notAccepting * minor(b.net), market.currency),
+              breakEvenAcceptanceRevenueBp: breakEven(minor(b.net), minor(a.net)),
+              breakEvenAcceptanceContributionBp: breakEven(minor(b.contribution), minor(a.contribution)),
               prepaidPassesUntouched: this.#untouchedPasses(content.plan, content.market),
               assumptions: [
-                { name: "existing", value: existing, source: overridden.has("existing") ? "typed" : "counted in the data" },
-                { name: "acceptance", value: acceptance, source: overridden.has("acceptance") ? "typed" : "illustrative default (§16)" },
+                { name: "existing", value: existing, source: overridden.has("existing") ? typedBy : `counted in the data at ${this.#now()}` },
+                { name: "acceptance", value: acceptance, source: overridden.has("acceptance") ? typedBy : "default: business book §16 (illustrative)" },
               ],
+              // The five conditions of §7.3, each met or not: a migration sets a list price and asks for consent.
               financeConditions: [
-                { number: 1, rule: "a list price is created or changed", met: true, detail: "" },
-                { number: 5, rule: "a price migration asks existing subscribers to accept a higher price", met: true, detail: "" },
+                { number: 1, rule: "a list price is created or changed", met: true, detail: "This change sets a list price." },
+                { number: 2, rule: "an offer price is below the floor", met: false, detail: "Every offer price is at or above its market's floor." },
+                { number: 3, rule: "the discount and top-up cost is over the threshold", met: false, detail: "Nothing to simulate." },
+                { number: 4, rule: "the simulated contribution is negative", met: false, detail: "Nothing to simulate." },
+                { number: 5, rule: "a price migration asks existing subscribers to accept a higher price", met: true, detail: "Existing subscribers are asked to accept a higher price." },
               ],
             },
           },

@@ -44,9 +44,9 @@ async def add_subscription(conn: asyncpg.Connection, subscriber: int, market: st
     async with conn.transaction():
         number = await conn.fetchval(
             "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, started_on, ended_on, billing_day, "
-            "quote_id, offer_change_id, offer_months) values (coalesce($1, nextval('subscription_id_seq')), $2, $3, $4, $5, $6, "
-            "$7::text::date, $8::text::date, $9, $10, $11, $12) returning id",
-            subscription, subscriber, market, CURRENCIES[market], plan, plan != "free", str(started),
+            "quote_id, offer_change_id, offer_months) values (coalesce($1, nextval('subscription_id_seq')), $2, $3, $4, $5, "
+            "(select paid from plan where id = $5), $6::text::date, $7::text::date, $8, $9, $10, $11) returning id",
+            subscription, subscriber, market, CURRENCIES[market], plan, str(started),
             None if ended is None else str(ended), billing_day, quote_id, offer_change_id, offer_months)
         await conn.execute("insert into subscription_price (subscription_id, from_on, price_minor) values ($1, $2::text::date, $3)",
                            number, str(started), price)

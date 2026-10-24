@@ -13,7 +13,7 @@ import { ChangeState } from "contracts/commerce/v1/changes";
 import { type GraphQLObjectType } from "graphql";
 import { buildInternalSchema } from "../src/core/schemas.ts";
 import { LISTENERS } from "./support/fake-engine.ts";
-import { type Client, type Harness, startHarness } from "./support/harness.ts";
+import { type Client, codes, type Harness, startHarness } from "./support/harness.ts";
 
 const EUR = (amountMinor: string) => ({ amountMinor, currency: "EUR" });
 const MIGRATION = {
@@ -210,10 +210,12 @@ describe("the simulation of a price migration (§8.7)", () => {
     await harness.close();
   });
 
-  test("has the book's numbers: €15.96 net to €17.64, the artists' €9.58 to €10.58, the revenue at risk at 93% acceptance", async () => {
+  test("has the book's numbers: €15.96 net to €17.64, the artists' €9.58 to €10.58, the revenue at risk for 8,412 subscribers at 93% acceptance", async () => {
     const finance = await person(harness, "finance-1");
     harness.engine.clearCalls();
-    const answer = await finance.graphql(`query ($id: ID!) { simulateMigration(changeId: $id) { ${SIMULATION} } }`, { variables: { id: changeId } });
+    const answer = await finance.graphql(`query ($id: ID!) { simulateMigration(changeId: $id, overrides: [{ name: EXISTING, value: 8412 }, { name: ACCEPTANCE, value: 9300 }]) { ${SIMULATION} } }`, {
+      variables: { id: changeId },
+    });
     assert.equal(answer.body.errors, undefined, answer.text);
     const simulation = answer.body.data.simulateMigration;
     assert.deepEqual({ before: simulation.before, after: simulation.after }, {
@@ -229,28 +231,40 @@ describe("the simulation of a price migration (§8.7)", () => {
       monthlyRevenueChange: EUR("374220"), monthlyContributionChange: EUR("144916"), revenueAtRiskMonthly: EUR("940044"),
       breakEvenAcceptanceRevenueBasisPoints: 9048, breakEvenAcceptanceContributionBasisPoints: 9042, prepaidPassesUntouched: 0,
       assumptions: [
-        { name: "EXISTING", value: 8412, source: "counted in the data" },
-        { name: "ACCEPTANCE", value: 9300, source: "illustrative default (§16)" },
+        { name: "EXISTING", value: 8412, source: "typed by finance at 2026-10-24T08:00:00Z" },
+        { name: "ACCEPTANCE", value: 9300, source: "typed by finance at 2026-10-24T08:00:00Z" },
       ],
-      financeConditions: [{ number: 1, met: true }, { number: 5, met: true }],
+      // The five conditions of §7.3: a migration sets a list price (1) and asks for consent (5).
+      financeConditions: [{ number: 1, met: true }, { number: 2, met: false }, { number: 3, met: false }, { number: 4, met: false }, { number: 5, met: true }],
     });
     assert.match(simulation.existingFrom, /17 December 2026/);
     const call = harness.engine.calls.find((candidate) => candidate.method === "SimulateMigration");
     assert.deepEqual([call?.actor, call?.role, (call?.message as { version: number }).version], ["finance-1", "finance", 0], "no version: the current one");
   });
 
+  test("without assumptions typed, the subscribers counted in the data, and the book's illustrative 90% (§16)", async () => {
+    const lead = await person(harness, "commercial-lead-1");
+    const answer = await lead.graphql(`query ($id: ID!) { simulateMigration(changeId: $id) { ${SIMULATION} } }`, { variables: { id: changeId } });
+    assert.equal(answer.body.errors, undefined, answer.text);
+    // The fake engine's one Family subscriber in Germany: the demo's listener.
+    assert.deepEqual(answer.body.data.simulateMigration.assumptions, [
+      { name: "EXISTING", value: 1, source: "counted in the data at 2026-10-24T08:00:00Z" },
+      { name: "ACCEPTANCE", value: 9000, source: "default: business book §16 (illustrative)" },
+    ]);
+  });
+
   test("an acceptance typed as an assumption: at the break-even rate the monthly revenue barely moves", async () => {
     const lead = await person(harness, "commercial-lead-1");
     harness.engine.clearCalls();
-    const answer = await lead.graphql(`query ($id: ID!) { simulateMigration(changeId: $id, version: 1, overrides: [{ name: ACCEPTANCE, value: 9048 }]) { ${SIMULATION} } }`, {
+    const answer = await lead.graphql(`query ($id: ID!) { simulateMigration(changeId: $id, version: 1, overrides: [{ name: EXISTING, value: 8412 }, { name: ACCEPTANCE, value: 9048 }]) { ${SIMULATION} } }`, {
       variables: { id: changeId },
     });
     assert.equal(answer.body.errors, undefined, answer.text);
     const simulation = answer.body.data.simulateMigration;
     assert.deepEqual([simulation.accepting, simulation.notAccepting, simulation.monthlyRevenueChange], [7611, 801, EUR("252")]);
-    assert.deepEqual(simulation.assumptions[1], { name: "ACCEPTANCE", value: 9048, source: "typed" });
+    assert.deepEqual(simulation.assumptions[1], { name: "ACCEPTANCE", value: 9048, source: "typed by the commercial lead at 2026-10-24T08:00:00Z" });
     const sent = harness.engine.calls.find((candidate) => candidate.method === "SimulateMigration")?.message as { version: number; overrides: Array<{ name: string; value: bigint }> };
-    assert.deepEqual([sent.version, sent.overrides.map((override) => [override.name, override.value])], [1, [["acceptance", 9048n]]]);
+    assert.deepEqual([sent.version, sent.overrides.map((override) => [override.name, override.value])], [1, [["existing", 8412n], ["acceptance", 9048n]]]);
   });
 
   test("counts the prepaid passes of the plan in the market, which it never touches: paid for and not used yet, or running (§9.1)", async () => {
@@ -275,14 +289,12 @@ describe("the simulation of a price migration (§8.7)", () => {
     assert.equal(await untouched(), 1);
   });
 
-  test("an offer is no migration: refused, with the change it is about", async () => {
+  test("an offer is no migration: a malformed request, in the engine's words, which the console reads", async () => {
     const offer = harness.engine.seedOffer("Student Winter Pass", "marketing-1", ChangeState.DRAFT);
     const marketing = await person(harness, "marketing-1");
     const answer = await marketing.graphql(`query ($id: ID!) { simulateMigration(changeId: $id) { ${SIMULATION} } }`, { variables: { id: offer.id } });
-    assert.equal(answer.body.errors, undefined, answer.text);
-    assert.deepEqual(answer.body.data.simulateMigration, {
-      __typename: "Refusal", code: "INVALID", reason: "Only a price migration is simulated here.", change: { id: offer.id },
-    });
+    assert.deepEqual(codes(answer), ["BAD_USER_INPUT"], answer.text);
+    assert.equal(answer.body.errors[0].message, `The engine refused the request as malformed. change #${offer.id} is not a price migration; a campaign has SimulateOffer`);
   });
 });
 
@@ -315,7 +327,7 @@ describe("each market's policy for price changes (§8.1): the law and the music 
     assert.equal(germany.law.sources.length, 2);
     assert.deepEqual({ ...germany.choice, alternatives: germany.choice.alternatives.length }, {
       windowDays: 45, afterWindow: "MOVE_TO_FREE", words: "Move the account to Free at the consent deadline, keeping playlists and library.", alternatives: 2,
-      label: "The music service's choice, configurable per market. Not a legal requirement.",
+      label: "The music service's choice, configurable per market; not a legal requirement.",
     });
     for (const code of ["IT", "FR", "GB"]) {
       const policy = policies[code];
@@ -325,7 +337,7 @@ describe("each market's policy for price changes (§8.1): the law and the music 
     // The law says nothing of the choice, and the choice says it is no law.
     for (const [code, policy] of Object.entries(policies) as Array<[string, { law: { basis: string }; choice: { words: string; label: string } }]>) {
       assert.ok(!policy.law.basis.includes(policy.choice.words), code);
-      assert.match(policy.choice.label, /Not a legal requirement/, code);
+      assert.match(policy.choice.label, /not a legal requirement/, code);
     }
   });
 });

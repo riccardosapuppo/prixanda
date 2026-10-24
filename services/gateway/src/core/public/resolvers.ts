@@ -27,8 +27,12 @@ const AUDIO = new Map<string, AudioQuality>([["standard", "STANDARD"], ["lossles
 
 /** A quote's id is the engine's and opaque; the gateway refuses only what cannot be one. */
 const QUOTE_ID = /^[A-Za-z0-9_-]{1,100}$/;
-/** So is a prepaid pass's code. */
-const PREPAID_CODE = /^[A-Za-z0-9_-]{1,100}$/;
+/**
+ * A prepaid pass's code as people type it: the engine reads it in upper case,
+ * without spaces or dashes, and decides whether it is one. The gateway refuses
+ * only what cannot be: anything but letters, digits, spaces and dashes.
+ */
+const PREPAID_CODE = /^(?=.*[A-Za-z0-9])[A-Za-z0-9 -]{1,100}$/;
 
 /**
  * What the site says for a refusal of the engine: its own code, and a
@@ -391,7 +395,8 @@ export const publicResolvers: Resolvers = {
     paid: (subscription) => subscription.paid,
     price: (subscription) => money(subscription.price, "the subscription's price"),
     startedOn: (subscription) => subscription.startedOn,
-    billingDay: (subscription) => (subscription.billingDay === 0 ? null : subscription.billingDay),
+    // A prepaid pass is never charged: the engine keeps the day its months turn, which is no charge to show.
+    billingDay: (subscription) => (subscription.billingDay === 0 || subscription.prepaidCode !== "" ? null : subscription.billingDay),
     offerTitle: (subscription) => orNull(subscription.offerTitle),
     offerMonths: (subscription) => subscription.offerMonths,
     offerMonthsLeft: (subscription) => subscription.offerMonthsLeft,

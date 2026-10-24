@@ -477,8 +477,8 @@ describe("the site's API, answered by an engine that plants marked values in eve
     answers.push(asked, accepted, closed);
     // A prepaid pass (§9, §14.4): the verified student, who now pays for
     // Student, buys one and gives its code to the unverified student, who
-    // activates it; the buyer's account then shows the code activated, and a
-    // second activation by the buyer is refused.
+    // activates it; the buyer's account then shows the code activated, and
+    // the code, used once, is refused to the buyer.
     assert.equal(catalog["prepaidPasses"].length, 1);
     const bought = await site.graphql(`mutation ($p: ID!) { buyPrepaidPass(passId: $p) ${all("PrepaidPurchaseResult")} }`, { variables: { p: pass.id } });
     const giftCode: unknown = bought.body?.data?.buyPrepaidPass?.prepaidCode?.code;
@@ -495,7 +495,7 @@ describe("the site's API, answered by an engine that plants marked values in eve
     for (const reply of [bought, activated, buyerTries, buyer, holder]) assert.equal(reply.body.errors, undefined, reply.text);
     assert.deepEqual({ code: activated.body.data.activatePrepaidPass.prepaidCode, price: activated.body.data.activatePrepaidPass.price },
       { code: giftCode, price: { amountMinor: "0", currency: "EUR" } });
-    assert.equal(buyerTries.body.data.activatePrepaidPass.code, "ALREADY_SUBSCRIBED");
+    assert.equal(buyerTries.body.data.activatePrepaidPass.code, "CODE_NOT_USABLE");
     assert.deepEqual(buyer.body.data.me.account.prepaidCodes.map((code: { state: string }) => code.state), ["ACTIVATED"]);
     assert.equal(holder.body.data.me.account.subscription.prepaidCode, giftCode);
     answers.push(bought, activated, buyerTries, buyer, holder);
