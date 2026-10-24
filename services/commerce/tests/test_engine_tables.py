@@ -7,8 +7,9 @@ list price or below it with an offer (V9)."""
 from __future__ import annotations
 
 import json
+from datetime import date
 
-from helpers import T0, add_people, approve, move, new_change, new_version, sqlstate_of
+from helpers import T0, add_people, approve, audit, move, new_change, new_version, sqlstate_of
 
 VALIDATION = ("insert into change_validation (change_id, version, validated_at, validated_by, valid, eligible, sentence, report) "
               "values ($1, $2, $3, 'marketing-1', true, 10, 'Italy, Student: ...', '{}'::jsonb)")
@@ -146,3 +147,70 @@ async def test_a_quote_is_at_the_list_price_or_below_it_with_an_offer(db):
     assert await sqlstate_of(db.app.execute(QUOTE, "not-a-quote-id", T0, later, 579, 0, None, None, None)) == "23514"
     assert await sqlstate_of(db.owner.execute("update quote set price_minor = 1")) == "RL005"
     assert await sqlstate_of(db.app.execute("delete from quote")) == "42501"
+
+
+# V10: the subscriber's side.
+
+async def test_a_subscriber_is_an_author_of_the_audit_log_and_nobody_else_new_is(db):
+    await audit(db.app, "student.verified", actor="subscriber-101", role="subscriber", subject="subscriber:101")
+    assert await sqlstate_of(audit(db.app, actor="someone", role="visitor")) == "23514"
+
+
+async def a_listener_with_a_quote(db, price: int = 299) -> str:
+    await db.owner.execute("insert into subscriber (id, market, joined_on) values (1, 'IT', '2026-01-10')")
+    quote_id = "q_" + "b" * 32
+    await db.app.execute(QUOTE, quote_id, T0, T0.replace(hour=9), price, 0, None, None, None)
+    return quote_id
+
+
+SUBSCRIPTION = ("insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, "
+                "billing_day, quote_id, offer_change_id, offer_months) "
+                "values (nextval('subscription_id_seq'), 1, 'IT', 'EUR', 'student', true, $1, $2, 26, $3, $4, $5) returning id")
+
+
+async def test_engine_subscriptions_are_numbered_above_the_generated_ones_and_a_quote_is_confirmed_once(db):
+    quote_id = await a_listener_with_a_quote(db, price=579)
+    first = await db.app.fetchval(SUBSCRIPTION, 579, date(2026, 10, 26), quote_id, None, None)
+    assert first >= 1_000_000_000
+    await db.app.execute("update subscription set ended_on = '2027-01-26' where id = $1", first)
+    assert await sqlstate_of(db.app.fetchval(SUBSCRIPTION, 579, date(2027, 1, 26), quote_id, None, None)) == "23505"
+
+
+async def test_an_offer_on_a_subscription_comes_with_its_months_and_its_quote(db):
+    await add_people(db.owner)
+    change = await new_change(db.app)
+    quote_id = await a_listener_with_a_quote(db, price=579)
+    assert await sqlstate_of(db.app.fetchval(SUBSCRIPTION, 299, date(2026, 10, 26), quote_id, change, None)) == "23514"
+    assert await sqlstate_of(db.app.fetchval(SUBSCRIPTION, 299, date(2026, 10, 26), None, change, 3)) == "23514"
+    assert await sqlstate_of(db.app.fetchval(SUBSCRIPTION, 299, date(2026, 10, 26), quote_id, change, 37)) == "23514"
+
+
+RECEIPT = ("insert into receipt (id, subscription_id, quote_id, subscriber_id, amount_minor, currency, issued_at, provider, "
+           "provider_reference, demonstration, note) values ($1, $2, $3, 1, 579, 'EUR', $4, $5, 'sim-pay-0123456789abcdef', "
+           "$6, 'Demonstration receipt.')")
+
+
+async def test_a_receipt_is_a_demonstration_of_the_simulated_provider_written_once(db):
+    quote_id = await a_listener_with_a_quote(db, price=579)
+    subscription = await db.app.fetchval(SUBSCRIPTION, 579, date(2026, 10, 26), quote_id, None, None)
+    assert await sqlstate_of(db.app.execute(RECEIPT, "r_" + "1" * 32, subscription, quote_id, T0, "simulated", False)) == "23514"
+    assert await sqlstate_of(db.app.execute(RECEIPT, "r_" + "2" * 32, subscription, quote_id, T0, "a-real-bank", True)) == "23514"
+    await db.app.execute(RECEIPT, "r_" + "3" * 32, subscription, quote_id, T0, "simulated", True)
+    assert await sqlstate_of(db.owner.execute("update receipt set amount_minor = 1")) == "RL005"
+    assert await sqlstate_of(db.app.execute("delete from receipt")) == "42501"
+
+
+async def test_a_demo_listener_is_labelled_as_simulated_and_only_the_owner_writes_them(db):
+    await db.owner.execute("insert into subscriber (id, market, joined_on) values (1, 'IT', '2026-01-10')")
+    statement = "insert into demo_listener (subscriber_id, position, title, label, student) values (1, 1, 'A student', $1, true)"
+    assert await sqlstate_of(db.owner.execute(statement, "A student in Italy.")) == "23514"
+    await db.owner.execute(statement, "Simulated listener. A student in Italy.")
+    assert await sqlstate_of(db.app.execute("update demo_listener set student = false")) == "42501"
+
+
+async def test_a_verification_reference_has_the_provider_s_shape(db):
+    await db.owner.execute("insert into subscriber (id, market, joined_on) values (1, 'IT', '2026-01-10')")
+    statement = ("insert into student_verification (subscriber_id, verified_on, valid_until, provider, reference) "
+                 "values (1, $1, $2, 'simulated', $3)")
+    assert await sqlstate_of(db.app.execute(statement, date(2026, 10, 24), date(2027, 10, 24), "anything")) == "23514"
+    await db.app.execute(statement, date(2026, 10, 24), date(2027, 10, 24), "sim-student-0123456789abcdef")
