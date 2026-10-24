@@ -219,7 +219,9 @@
 [data-input="keyboard"] *, [data-input="keyboard"] *::before, [data-input="keyboard"] *::after {
   transition-duration: 0s !important; animation-duration: 0s !important; animation-delay: 0s !important;
 }
+/* A button held with the keyboard (Space) does not jump either: the press is a pointer's feedback. */
+[data-input="keyboard"] .btn:active:not([disabled]) { transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .btn:active:not([disabled]) { transform: none; }
-  dialog.confirm[open] { animation: fade-only var(--duration-reduced) ease; }
+  dialog.confirm[open] { animation: fade-only var(--duration-reduced) var(--ease-out); }
 }
