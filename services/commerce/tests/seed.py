@@ -11,7 +11,7 @@ Italy
   105  Free, never paid, verification expired         out: verification over
   106  Individual since March
 Germany
-  201  Free, 4 hours of Doppelfenster this month     in the release campaign audience (over 3 hours)
+  201  Free, 7 hours of Doppelfenster, 10-23 October  in the release campaign audience (over 3 hours)
   202  Free, 2 hours of Doppelfenster                out: under 3 hours
   203  Family since February
   204  Free, 5 hours of Doppelfenster in early September  out: before the 30 days
@@ -53,7 +53,7 @@ SUBSCRIBERS = {
 DOPPELFENSTER = 4
 # subscriber: (first day, days, seconds a day) of Doppelfenster
 LISTENING = {
-    201: (date(2026, 10, 1), 8, 1_800),  # 4 hours inside the last 30 days
+    201: (date(2026, 10, 10), 14, 1_800),  # 7 hours, inside the 30 days on 24 October and on 6 November
     202: (date(2026, 10, 10), 2, 3_600),  # 2 hours
     204: (date(2026, 9, 1), 5, 3_600),  # 5 hours, before the window
 }
