@@ -17,6 +17,11 @@
 //   5. A student who paid before is told the pass is not for them.
 //   6. The audit log holds every step, each with the request id that caused
 //      it: the console's for the launch, the browser's own for the student.
+//   7. A verified student takes the pass from the home on the keyboard alone,
+//      and nothing moves while they do.
+//   8. The home, the campaign, a listening session and the account fit 1440,
+//      1280, 720 (1440 at 200 %), 390 and 320 pixels: no sideways scroll, no
+//      text cut off.
 //
 // Every page is checked with axe (no serious or critical violation), no page
 // may ask anything of another host, and none may log an error. Run by
@@ -26,7 +31,7 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
 import { AxeBuilder } from "@axe-core/playwright";
-import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import { type Browser, type BrowserContext, chromium, type Locator, type Page } from "playwright";
 import { ConsoleSession, launchOffer, studentAutumnPass } from "./support/console.ts";
 import { CONSOLE_API, PUBLIC_API, SITE_URL, type Stack, startStack } from "./support/stack.ts";
 
@@ -38,6 +43,8 @@ const BEFORE = "2026-10-26T07:58:00Z";
 const PAST_THE_START = "2026-10-26T08:00:05Z";
 /** How long an open page may take to show a launched campaign: its refresh, the activation, a margin. */
 const SITE_LIMIT_MS = 30_000;
+/** The widths every page must fit: desktop, laptop, 1440 at 200 % zoom, phone, narrow phone. */
+const WIDTHS = [1440, 1280, 720, 390, 320] as const;
 
 const SUMMARY = process.env["SITE_E2E_SUMMARY"] ?? "";
 
@@ -53,6 +60,7 @@ const summary = {
   listenerId: "",
   auditEvents: 0,
   pagesChecked: 0,
+  layoutChecks: 0,
   seriousViolations: 0,
   otherViolations: 0,
   externalRequests: 0,
@@ -63,9 +71,9 @@ const consoleIds: Record<string, string> = {};
 const siteRequests: Seen[] = [];
 
 /** A browser of its own (cookies included) that counts what it must not do. */
-async function newVisitor(): Promise<{ context: BrowserContext; page: Page }> {
+async function newVisitor(width = 1280): Promise<{ context: BrowserContext; page: Page }> {
   assert.ok(browser);
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "en-GB", timezoneId: "Europe/Rome" });
+  const context = await browser.newContext({ viewport: { width, height: width < 600 ? 844 : 900 }, locale: "en-GB", timezoneId: "Europe/Rome" });
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== "127.0.0.1") {
@@ -110,6 +118,41 @@ async function publicOffers(): Promise<Array<{ id: string }>> {
 
 /** The page's main text, with the no-break spaces a price is written with read as spaces. */
 const text = async (page: Page) => (await page.locator("main").innerText()).replace(/[  ]/g, " ");
+
+/** Presses Tab until the target has the focus, as a visitor on the keyboard would. */
+async function tabTo(page: Page, target: Locator, most = 80): Promise<void> {
+  for (let presses = 0; presses < most; presses += 1) {
+    if (await target.evaluate((element) => element === document.activeElement)) return;
+    await page.keyboard.press("Tab");
+  }
+  assert.fail(`${String(target)} is not reached with Tab in ${most} presses`);
+}
+
+/** What does not fit the window: a sideways scroll, text past its edge, text cut off by its box. */
+async function misfits(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const root = document.documentElement;
+    const found: string[] = [];
+    if (root.scrollWidth > root.clientWidth) found.push(`the page scrolls sideways by ${root.scrollWidth - root.clientWidth} px`);
+    const name = (element: Element) => `${element.tagName.toLowerCase()}${[...element.classList].map((each) => `.${each}`).join("")}`;
+    for (const element of document.querySelectorAll<HTMLElement>("body *")) {
+      if (element.closest("svg, [class*='sr-only']")) continue;
+      const style = getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden") continue;
+      const words = [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "");
+      if (!words) continue;
+      const box = element.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      if (box.right > root.clientWidth + 1 || box.left < -1) found.push(`past the edge: ${name(element)} "${(element.textContent ?? "").trim().slice(0, 40)}"`);
+      const hidesX = style.overflowX === "hidden" || style.overflowX === "clip";
+      const hidesY = style.overflowY === "hidden" || style.overflowY === "clip";
+      if ((hidesX && element.scrollWidth > element.clientWidth + 1) || (hidesY && element.scrollHeight > element.clientHeight + 1)) {
+        found.push(`cut off: ${name(element)} "${(element.textContent ?? "").trim().slice(0, 40)}"`);
+      }
+    }
+    return found;
+  });
+}
 
 describe("the Student Autumn Pass from its launch to a student's demo subscription (§14.1)", () => {
   before(async () => {
@@ -278,9 +321,67 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     assert.deepEqual(verifiedChain.body?.data?.verifyAuditChain, { ok: true, brokenAt: null }, verifiedChain.text);
   });
 
-  test("7. no page asked anything of another host, and none logged an error", () => {
+  test("7. on the keyboard alone, a verified student takes the pass from the home, and nothing moves", async () => {
+    const { page } = await newVisitor();
+    await page.goto(`${SITE_URL}/?market=IT`);
+    const flag = page.getByRole("link", { name: /Student Autumn Pass/ });
+    await flag.waitFor();
+    await tabTo(page, flag);
+    assert.equal(await page.evaluate(() => document.documentElement.dataset["input"]), "keyboard");
+    await page.keyboard.press("Enter");
+
+    await page.getByRole("heading", { level: 1, name: "Student Autumn Pass" }).waitFor();
+    await tabTo(page, page.getByRole("button", { name: "Check I'm a student" }));
+    await page.keyboard.press("Enter");
+    const entrance = page.getByRole("heading", { name: "Enter as a demo listener" });
+    await entrance.waitFor();
+    assert.ok(await entrance.evaluate((element) => element === document.activeElement), "the entrance takes the focus");
+    // The steps' panel has an entrance; on the keyboard it does not move.
+    assert.equal(await page.locator(".is-entering").first().evaluate((element) => getComputedStyle(element).animationDuration), "0s");
+    assert.equal(await page.getByLabel(/Student in Italy, verified/).isChecked(), true, "the market's first listener is preselected");
+    await tabTo(page, page.getByRole("button", { name: "Enter as this listener" }));
+    await page.keyboard.press("Enter");
+
+    const confirmTitle = page.getByRole("heading", { name: "Confirm your demo subscription" });
+    await confirmTitle.waitFor();
+    assert.ok(await confirmTitle.evaluate((element) => element === document.activeElement), "the confirmation takes the focus");
+    await tabTo(page, page.getByRole("button", { name: "Confirm demo subscription" }));
+    await page.keyboard.press("Enter");
+    await page.waitForURL(`${SITE_URL}/account/`);
+    await page.locator("[data-payment-state='SUCCEEDED']").waitFor({ timeout: 30_000 });
+    const account = await text(page);
+    assert.match(account, /Plan\s*Student, Italy/);
+    assert.match(account, /Price\s*2,99 € a month/);
+    assert.match(account, /Offer\s*Student Autumn Pass: 3 of 3 months left at this price/);
+  });
+
+  test("8. the home, the campaign, a listening session and the account fit every width, without a sideways scroll or text cut off", async () => {
+    const pages = [
+      { path: "/?market=IT&plan=student", ready: ".plan.is-open .decision", axe: "the home with the pass on sale" },
+      { path: `/campaign/?market=IT&offer=${summary.changeId}`, ready: "h1", axe: null },
+      { path: "/session/?label=coldframe-records", ready: ".player", axe: "a listening session" },
+      { path: "/account/", ready: "h1", axe: null },
+    ];
+    const misfit: string[] = [];
+    for (const width of WIDTHS) {
+      const { context, page } = await newVisitor(width);
+      for (const each of pages) {
+        await page.goto(`${SITE_URL}${each.path}`);
+        await page.locator(each.ready).first().waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        for (const problem of await misfits(page)) misfit.push(`${width} px, ${each.path}: ${problem}`);
+        summary.layoutChecks += 1;
+        if (width === 1440 && each.axe !== null) await accessible(page, each.axe);
+      }
+      await context.close();
+    }
+    assert.deepEqual(misfit, []);
+  });
+
+  test("9. no page asked anything of another host, and none logged an error", () => {
     assert.equal(summary.externalRequests, 0);
     assert.deepEqual(summary.pageErrors, []);
-    assert.ok(summary.pagesChecked >= 7, `axe ran on ${summary.pagesChecked} pages`);
+    assert.ok(summary.pagesChecked >= 9, `axe ran on ${summary.pagesChecked} pages`);
+    assert.equal(summary.layoutChecks, WIDTHS.length * 4);
   });
 });

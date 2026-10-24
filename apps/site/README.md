@@ -1,11 +1,12 @@
 # Site
 
 The public site of the fictional music service (Rione, a provisional name):
-the plans and their prices in each market, the campaigns on sale, and the
-journey of a demo listener who checks as a student, subscribes at the price
-the engine quotes, and finds it all in their account. It is a static Next.js
-build: HTML, CSS and JavaScript that any web server can serve, with every
-figure asked for by the browser from the gateway's public API.
+records from small labels and their listening sessions, the promise to the
+artists, the plans and their prices in each market, the campaigns on sale,
+and the journey of a demo listener who checks as a student, subscribes at the
+price the engine quotes, and finds it all in their account. It is a static
+Next.js build: HTML, CSS and JavaScript that any web server can serve, with
+every figure asked for by the browser from the gateway's public API.
 
 Nothing here is a real purchase. The listeners are invented, the student
 verifier and the payment provider are simulated, and the receipt says so.
@@ -37,13 +38,23 @@ The build calls the API written into it at build time: `NEXT_PUBLIC_SITE_API`,
 
 | Page | What it shows |
 |---|---|
-| `/?market=IT` | A market's plans and the campaigns on sale there. Its design is being redrawn in the mock-ups: this is the working structure, on the data it will keep |
+| `/?market=IT&plan=individual` | The home. It opens on music: a record of the market's label printed large, its liner note, and that label's listening session. Then the promise to the artists, one sail per paid plan with the minimum as a cord; then the plans, the chosen one open on where its money goes, what it includes and the way to take it, with a flag on each plan that has a campaign on sale; then the labels' new records and their listening sessions. The market and the plan are in the address; a listener who has entered sees their own market |
 | `/campaign/?market=IT&offer=42` | One campaign as the engine published it: its months drawn as sails, the price struck through and the offer price, the promise to the artists from the engine's breakdown of the offer price, and the steps of taking it |
+| `/session/?label=casa-lenta` | A label's listening session, simulated: the running order, the lengths, the position, play and pause, the previous and next record. Nothing plays, and the page says so next to the button: play moves a clock. A record's time is split evenly among its tracks, which have no titles |
 | `/account/` | The demo listener's plan, price, months left at an offer's price, the day the full price starts, the student check, and the first month's payment with its demo receipt |
 
 A campaign page exists if and only if its offer is on sale (business book
 §7.5): asked for one that is not, it says so. An open page asks for the
-offers on sale every 10 seconds, so a launch shows up without a reload.
+offers on sale every 10 seconds, so a launch shows up without a reload. The
+home asks for the plans of the other markets once its own are shown, so
+changing market shows prices at once.
+
+Every figure on the promise and on "Where your € goes" is the engine's
+breakdown of the plan's price (`Plan.breakdown`) and the market's minimum
+(`Market.artistsMinimum`); the counts in a plan's line ("Two accounts, one
+bill") are the plan's own entitlements. A listener of another market who
+chooses a plan is told that a listener subscribes at their own market's
+prices, with a way to them, before any quote is asked.
 
 ## How a page gets its data
 
@@ -93,6 +104,36 @@ and titles are the ones the data generator writes into the database, with
 the same ids, and a test reads them from the generator itself: the fan
 campaigns of §14.2 aim at these artists' listeners.
 
+## The drawings
+
+Two kinds of picture, kept apart. Money is drawn as silk: translucent sails
+of madder, saffron and indigo tied along a rope, whose lengths are the
+amounts and whose overlaps show the chord of two dyes, as on the promise,
+the canopy of a price and the months of an offer. Everything else is drawn as
+print: each record's cover is generated from its seed in its label's
+technique (a linocut for Casa Lenta, a pochoir for Disques Pareil, a
+scraperboard for Kellerlicht, a cyanotype for Coldframe Records), so the same
+seed draws the same cover on every machine, and a test holds each cover to its
+fingerprint. The geometry is pure functions (`src/components/art`), so tests
+hold the drawings to the figures they stand for. No picture comes from
+outside the repository.
+
+The courtyard behind the pages is one stretch of white flagstones
+(`src/app/courtyard.svg`, written by `scripts/courtyard.ts` from a seed),
+centred under the page; on a screen wider than the stretch it fades into
+plain stone towards the sides, so its repeat does not show.
+
+## Motion
+
+Little moves, and only for a reason. Changing market cross-fades the record
+of the opening (220 ms); the plan that opens and the steps of a subscription
+come in with a fade from 4 px above (220 ms). A button gives under the
+press. Nothing moves while the visitor uses the
+keyboard (`html[data-input="keyboard"]`, set by the input watcher), and with
+reduced motion every entrance is a 140 ms fade. The listening session
+changes in place, as a player does: its clock, buttons and running order
+never animate.
+
 ## Checks
 
 ```
@@ -102,11 +143,11 @@ npm run e2e -w site
 
 | Suite | What it checks | Floor |
 |---|---|---|
-| `site-types` | `tsc` over the pages and components as Next.js builds them, then over what Node runs | 30 and 21 files |
+| `site-types` | `tsc` over the pages and components as Next.js builds them, then over what Node runs | 40 and 27 files |
 | `site-codegen` | every operation validates against the public schema, and the generated types equal a fresh generation | 10 operations |
-| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings, the build's correction, the editorial catalogue against the generator | 42 tests |
-| `site-build` | the static export, every page in it, the API it calls written in | 4 pages |
-| `site-e2e` | the whole system and a headless Chromium, below | 7 tests, 9 audit events, axe on 7 pages |
+| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, the build's correction, the editorial catalogue against the generator | 60 tests |
+| `site-build` | the static export, every page in it, the API it calls written in | 5 pages |
+| `site-e2e` | the whole system and a headless Chromium, below | 9 tests, 9 audit events, axe on 9 pages, 20 pages fitted |
 
 `site-e2e` starts the engine on a clock the test moves, the gateway and the
 site's build, launches the Student Autumn Pass through the console's API
@@ -118,15 +159,20 @@ yet then enters as a demo listener, is verified by the simulated provider,
 subscribes at 2,99 € a month for 3 months, then 5,79 €, and sees the first
 month settle with a demo receipt; a student who paid before is told the pass
 is not for them. The audit log must hold every step with the request id that
-caused it, the browser's own for the student's, and its chain must hold. axe
+caused it, the browser's own for the student's, and its chain must hold. A
+verified student then takes the pass from the home on the keyboard alone,
+with nothing moving while they do. The home, the campaign, a listening
+session and the account are loaded at 1440, 1280, 720 (1440 at 200 %), 390
+and 320 pixels, and none may scroll sideways or cut off a line of text. axe
 runs on every page and state (no serious or critical violation), and no page
 may ask another host for anything.
 
 One run on 24 October 2026, on a Windows virtual machine with 8 CPUs and
 12 GB shared with other work (so under load, not a benchmark): the engine
-published the pass 0.1 s after 09:00, the open page showed it 8.0 s after
-(it asks every 10 s), the first month was paid 0.1 s after the confirmation,
-9 audit events, axe on 7 pages with no violation.
+published the pass 0.2 s after 09:00, the open page showed it 6.0 s after
+(it asks every 10 s), the first month was paid 0.2 s after the confirmation,
+9 audit events, axe on 9 pages with no violation, and 20 pages fitted at the
+five widths.
 
 The end-to-end test needs Playwright's Chromium for playwright 1.62.1; the
 check reports the suite as not run, never as passed, when it is missing.
@@ -150,7 +196,5 @@ check reports the suite as not run, never as passed, when it is missing.
   (`campaign/__next.campaign.__PAGE__.txt`): the path it renames is joined
   with backslashes. `scripts/segments.ts` moves the files into place after
   every build; on Linux it finds nothing to move.
-- **Not yet here.** The plans page in its final design, the listening
-  sessions and the page that plays one (silently, said to be simulated) wait
-  for the next round of the mock-ups. The gift pass and the German consent
-  to a price rise come with stage 7.
+- **Not yet here.** The gift pass and the German consent to a price rise
+  come with stage 7; until then the site has no section for them.

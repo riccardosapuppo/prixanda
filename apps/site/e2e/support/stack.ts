@@ -168,6 +168,10 @@ function startGateway(token: string): { child: ChildProcessWithoutNullStreams; l
       GATEWAY_INTERNAL_PORT: String(STACK_PORTS.internal),
       GATEWAY_PUBLIC_PORT: String(STACK_PORTS.public),
       GATEWAY_SITE_ORIGINS: SITE_URL,
+      // One address drives every page of the run, the layout sweep included:
+      // the per-address limit of a real deployment would count them as one visitor.
+      GATEWAY_RATE_PER_ADDRESS: "3000/60",
+      GATEWAY_RATE_PER_SESSION: "1200/60",
     },
   });
   const log: LogLine[] = [];

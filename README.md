@@ -105,7 +105,8 @@ The site's suites (stage 5) check its types, its GraphQL operations against
 the public schema, its unit tests, its static build, and, end to end, the
 whole system with a headless Chromium: the Student Autumn Pass launched, on
 the site within a measured time, a student subscribed at the right price,
-every step in the audit log. Run them alone with
+every step in the audit log, the same journey on the keyboard alone, and the
+pages fitted at five widths. Run them alone with
 `npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e`;
 the end-to-end test needs Playwright's Chromium (`npx playwright install
 chromium`, a download) and is reported as not run without it. Details in

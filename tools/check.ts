@@ -403,16 +403,17 @@ const SUITES: Suite[] = [
         if (!existsSync(summaryFile)) return failed(`${tests} tests, ${failures} failed`, "the test wrote no summary");
         const summary = JSON.parse(await readFile(summaryFile, "utf8")) as {
           activationMs: number | null; siteMs: number | null; paymentMs: number | null; auditEvents: number; pagesChecked: number;
-          seriousViolations: number; otherViolations: number; externalRequests: number; engineExit: number | null;
+          layoutChecks: number; seriousViolations: number; otherViolations: number; externalRequests: number; engineExit: number | null;
         };
         const seconds = (ms: number | null) => (ms === null ? "never" : `${(ms / 1000).toFixed(1)} s`);
         const counted = `${tests} tests, ${failures} failed; published ${seconds(summary.activationMs)} and on the open page ${seconds(summary.siteMs)} after 09:00;`
           + ` paid ${seconds(summary.paymentMs)} after the confirmation; ${summary.auditEvents} audit events; axe on ${summary.pagesChecked} pages,`
-          + ` ${summary.seriousViolations} serious, ${summary.otherViolations} other`;
+          + ` ${summary.seriousViolations} serious, ${summary.otherViolations} other; ${summary.layoutChecks} pages fitted at 5 widths`;
         if (ran.code !== 0 || failures > 0) return failed(counted, `node --test exited ${ran.code}`);
         if (tests < SITE_FLOOR.e2eTests) return failed(counted, `fewer than ${SITE_FLOOR.e2eTests} tests`);
         if (summary.auditEvents < SITE_FLOOR.e2eAuditEvents) return failed(counted, `fewer than ${SITE_FLOOR.e2eAuditEvents} audit events of the journey`);
         if (summary.pagesChecked < SITE_FLOOR.e2ePagesChecked) return failed(counted, `axe ran on fewer than ${SITE_FLOOR.e2ePagesChecked} pages`);
+        if (summary.layoutChecks < SITE_FLOOR.e2eLayoutChecks) return failed(counted, `fewer than ${SITE_FLOOR.e2eLayoutChecks} pages fitted to the widths`);
         if (summary.externalRequests > 0) return failed(counted, `${summary.externalRequests} requests to other hosts`);
         if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
         return passed(counted);
@@ -470,8 +471,10 @@ async function nodeTests(suite: string, files: string[], floor: number, env: Rec
 // pages its static build must hold. Its build calls the gateway's public API
 // where the end-to-end test starts it (CHECK_GATEWAY_PUBLIC_PORT).
 const siteDir = join(repoRoot, "apps", "site");
-const SITE_FLOOR = { files: 30, nodeFiles: 21, operations: 10, unitTests: 42, e2eTests: 7, e2eAuditEvents: 9, e2ePagesChecked: 7 };
-const SITE_PAGES = ["index.html", "campaign/index.html", "account/index.html", "404.html"];
+const SITE_FLOOR = {
+  files: 40, nodeFiles: 27, operations: 10, unitTests: 60, e2eTests: 9, e2eAuditEvents: 9, e2ePagesChecked: 9, e2eLayoutChecks: 20,
+};
+const SITE_PAGES = ["index.html", "campaign/index.html", "account/index.html", "session/index.html", "404.html"];
 const SITE_CHECK_API = `http://127.0.0.1:${PORTS.gatewayCheckPublic}/graphql`;
 
 /** Whether the Chromium of the site's Playwright is on this machine: the check never downloads it. */
