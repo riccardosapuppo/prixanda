@@ -164,8 +164,9 @@ const SUITES: Suite[] = [
     },
   },
   // The gateway (stage 3). Its tests start a fake engine on 127.0.0.1:4613
-  // and the gateway on 4621 and 4622, after asking the system that nobody
-  // listens there; they need no database.
+  // and the gateway on 4621 and 4622 (CHECK_FAKE_ENGINE_PORT,
+  // CHECK_GATEWAY_INTERNAL_PORT and CHECK_GATEWAY_PUBLIC_PORT move them),
+  // after asking the system that nobody listens there; they need no database.
   {
     name: "gw-types",
     what: "tsc over the gateway (strict, erasable), then its core again with a browser's types and none of Node's",
@@ -253,7 +254,7 @@ const GATEWAY_FLOOR = { files: 43, coreFiles: 19, generated: 3, schemaTests: 18,
 
 /**
  * Node's test runner over some of the gateway's test files, one file at a
- * time (they share the ports 4613, 4621 and 4622), counting the test cases
+ * time (they share the fake engine's and the gateway's ports), counting the test cases
  * of its JUnit report: a file that failed to load is a failure there too.
  */
 async function nodeTests(suite: string, files: string[], floor: number): Promise<Omit<Result, "suite" | "seconds">> {

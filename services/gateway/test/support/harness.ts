@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PORTS as REPO_PORTS } from "../../../../tools/lib/paths.ts";
 import { run } from "../../../../tools/lib/run.ts";
 import { type GatewayConfig, loadConfig } from "../../src/node/config.ts";
 import { type Gateway, startGateway } from "../../src/node/gateway.ts";
@@ -16,7 +17,13 @@ import { createLogger } from "../../src/node/log.ts";
 import { COOKIE } from "../../src/node/sessions.ts";
 import { FAKE_ENGINE_PORT, FakeEngine, type FakeEngineOptions } from "./fake-engine.ts";
 
-export const PORTS = { engine: FAKE_ENGINE_PORT, internal: 4621, public: 4622 } as const;
+/**
+ * The ports of the gateway's tests: 4613 for the fake engine, 4621 and 4622
+ * for the gateway, unless CHECK_FAKE_ENGINE_PORT, CHECK_GATEWAY_INTERNAL_PORT
+ * and CHECK_GATEWAY_PUBLIC_PORT say otherwise, so that two copies of the
+ * repository can run their tests side by side.
+ */
+export const PORTS = { engine: FAKE_ENGINE_PORT, internal: REPO_PORTS.gatewayCheckInternal, public: REPO_PORTS.gatewayCheckPublic } as const;
 export const CONSOLE_ORIGIN = "http://console.test:4631";
 export const SITE_ORIGIN = "http://site.test:4632";
 
@@ -155,6 +162,8 @@ export async function startHarness(options: {
     const config = await loadConfig({
       COMMERCE_INTERNAL_TOKEN: engine.token,
       ENGINE_URL: engine.url,
+      GATEWAY_INTERNAL_PORT: String(PORTS.internal),
+      GATEWAY_PUBLIC_PORT: String(PORTS.public),
       GATEWAY_SESSION_SECRET: "5e".repeat(32),
       GATEWAY_CONSOLE_ORIGINS: CONSOLE_ORIGIN,
       GATEWAY_SITE_ORIGINS: SITE_ORIGIN,

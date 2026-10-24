@@ -267,6 +267,20 @@ coordinator fixed them (codes, metadata, idempotency, refusals, the role
 matrix written again on its own). The clock is injected, so sessions expire
 and rate limits refill without waiting.
 
+The tests listen on 127.0.0.1: the fake engine on 4613, the gateway on 4621
+and 4622, after asking the system that nobody else listens there. Two copies
+of the repository can run their tests side by side by moving them:
+
+| Variable | Default | |
+|---|---|---|
+| `CHECK_FAKE_ENGINE_PORT` | 4613 | the fake engine of the gateway's tests |
+| `CHECK_GATEWAY_INTERNAL_PORT` | 4621 | the console's API in the tests |
+| `CHECK_GATEWAY_PUBLIC_PORT` | 4622 | the site's API in the tests |
+| `CHECK_ENGINE_PORT` | 4612 | the real engine, in the engine's own tests and in the integration tests |
+
+They are not `GATEWAY_` settings on purpose: `npm run gateway` refuses any
+`GATEWAY_` variable it does not know, and these belong to the tests alone.
+
 The fake engine was written with the gateway, so the two could agree on a
 mistake. The integration tests against the real engine come when the
 engine's branch joins this one.

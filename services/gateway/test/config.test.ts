@@ -190,9 +190,10 @@ describe("npm run gateway", () => {
   });
 });
 
-/** `npm run gateway`'s entry point as a child process, its log lines read as they come. */
+/** `npm run gateway`'s entry point as a child process on the tests' ports, its log lines read as they come. */
 async function startProcess(env: Record<string, string>) {
-  const child = spawn(process.execPath, [MAIN], { env: cleanEnvironment(env), windowsHide: true });
+  const ports = { GATEWAY_INTERNAL_PORT: String(PORTS.internal), GATEWAY_PUBLIC_PORT: String(PORTS.public) };
+  const child = spawn(process.execPath, [MAIN], { env: cleanEnvironment({ ...ports, ...env }), windowsHide: true });
   const lines: Array<Record<string, unknown>> = [];
   let raw = "";
   let pending = "";

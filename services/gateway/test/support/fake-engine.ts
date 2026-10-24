@@ -1,5 +1,6 @@
 // A fake commerce engine for the gateway's tests: every service of the gRPC
-// contract, in memory, served over real gRPC (HTTP/2) on 127.0.0.1:4613.
+// contract, in memory, served over real gRPC (HTTP/2) on 127.0.0.1:4613
+// (CHECK_FAKE_ENGINE_PORT moves it).
 //
 // It mirrors the engine's behaviours as the coordinator fixed them on 24
 // October (BRIEF-TAPPE-2-3.md, §4): the gRPC codes, the metadata rules, the
@@ -29,8 +30,10 @@ import { OverviewService, PeopleService, PersonSchema, type Person } from "contr
 import { QuoteSchema, QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
 import { Health, HealthCheckResponse_ServingStatus } from "contracts/grpc/health/v1/health";
+import { PORTS as REPO_PORTS } from "../../../../tools/lib/paths.ts";
 
-export const FAKE_ENGINE_PORT = Number(process.env["FAKE_ENGINE_PORT"] ?? 4613);
+/** 4613 unless CHECK_FAKE_ENGINE_PORT says otherwise (tools/lib/paths.ts). */
+export const FAKE_ENGINE_PORT = REPO_PORTS.fakeEngineCheck;
 export const FAKE_TOKEN = "fake-engine-token-for-the-gateway-tests";
 
 const SHAPE = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,99}$/;
