@@ -33,7 +33,7 @@ from commerce.domain.economics import (
     Book, Campaign, CampaignResult, FinanceCondition, SignatureNeed, finance_conditions, signatures_needed, simulate,
 )
 from commerce.domain.localtime import AmbiguousLocalTime, describe_local, format_local, to_instant
-from commerce.domain.money import Money, format_money, round_half_up, BASIS_POINTS
+from commerce.domain.money import BASIS_POINTS, Money, format_money, round_half_up
 from commerce.domain.offers import Audience, Content, ListPrice, Offer, OfferPeriod, OfferPrice
 from commerce.domain.sentence import OfferClause, audience_short, list_price_sentence, offer_clause
 

@@ -20,12 +20,12 @@ from datetime import timedelta
 from commerce.domain.economics import Book
 from commerce.domain.localtime import add_months, format_instant, to_local
 from commerce.domain.offers import Audience, ListeningRule
+from commerce.domain.validation import resolve_price
 from commerce.engine import contract, eligibility, reference
 from commerce.engine.call import Call, Clock
-from commerce.engine.catalog import LIVE_OFFER, Catalog, list_price_at, live_offer, market_code, plan_id, breakdown
+from commerce.engine.catalog import LIVE_OFFER, Catalog, breakdown, list_price_at, live_offer, market_code, plan_id
 from commerce.engine.database import Connection
 from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound, Refused
-from commerce.domain.validation import resolve_price
 from commerce.v1 import quotes_pb2
 
 

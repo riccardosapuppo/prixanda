@@ -22,7 +22,7 @@ from commerce.domain.validation import resolve_price
 from commerce.engine import contract, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import Connection, local_text, utc_text
-from commerce.engine.errors import InvalidArgument, NotFound
+from commerce.engine.errors import InvalidArgument
 from commerce.engine.publication import Publisher
 from commerce.v1 import catalog_pb2, common_pb2
 

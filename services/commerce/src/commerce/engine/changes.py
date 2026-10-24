@@ -30,7 +30,7 @@ from commerce.engine.call import Call, Clock
 from commerce.engine.database import (
     CHECK_VIOLATION, FOREIGN_KEY_VIOLATION, UNIQUE_VIOLATION, Connection, DatabaseError, utc_text,
 )
-from commerce.engine.errors import InvalidArgument, NotFound, Refused
+from commerce.engine.errors import InvalidArgument, Refused
 from commerce.engine.publication import Publisher
 from commerce.v1 import changes_pb2
 

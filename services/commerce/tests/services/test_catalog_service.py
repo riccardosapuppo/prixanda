@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from commerce.engine.errors import InvalidArgument, NotFound
-from commerce.v1 import catalog_pb2, changes_pb2, common_pb2
+from commerce.v1 import catalog_pb2, changes_pb2
 from engine_support import FINANCE, LEAD, MARKETING, PUBLIC, family_rise, scheduled, student_autumn
 
 

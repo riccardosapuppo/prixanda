@@ -10,10 +10,9 @@ writes them deterministically; the same key with anything else is refused.
 from __future__ import annotations
 
 import hashlib
-
-from commerce.domain.localtime import format_instant
 from datetime import datetime
 
+from commerce.domain.localtime import format_instant
 from commerce.engine.call import Call
 from commerce.engine.database import Connection
 from commerce.engine.errors import Aborted, InvalidArgument

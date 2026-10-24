@@ -254,3 +254,16 @@ async def test_a_refusal_writes_nothing(world):
     await reject(world, change, reason="")
     assert await world.owner.fetchval("select count(*) from audit_event") == before
     assert await world.owner.fetchval("select state from change where id = $1", change.id) == "in_approval"
+
+
+async def test_a_state_moved_by_hand_in_the_database_does_not_skip_the_review(world):
+    # The database lets its owner move a draft along without a validation; the
+    # engine still asks for a passing validation before a submission, and for
+    # a report to sign against before an approval.
+    change = await create(world, student_autumn())
+    await world.owner.execute("update change set state = 'validated' where id = $1", change.id)
+    response = await submit(world, change)
+    assert response.refusal.code == REFUSAL.REFUSAL_CODE_WRONG_STATE and "no passing validation" in response.refusal.reason
+    await world.owner.execute("update change set state = 'in_approval' where id = $1", change.id)
+    response = await approve(world, change)
+    assert response.refusal.code == REFUSAL.REFUSAL_CODE_WRONG_STATE and "no validation" in response.refusal.reason

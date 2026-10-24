@@ -22,7 +22,7 @@ from commerce.domain import policy
 from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, format_local, to_instant
 from commerce.domain.money import Money
-from commerce.domain.offers import ListPrice, from_json
+from commerce.domain.offers import from_json
 from commerce.engine import contract, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.changes import starts_of

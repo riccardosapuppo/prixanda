@@ -7,7 +7,7 @@ import pytest
 
 from commerce.engine.errors import InvalidArgument, NotFound
 from commerce.v1 import changes_pb2, common_pb2
-from engine_support import AUDITOR, LEAD, MARKETING, ON_CALL, create, family_rise, student_autumn, submitted
+from engine_support import AUDITOR, LEAD, ON_CALL, create, family_rise, student_autumn, submitted
 
 STATE = changes_pb2
 
