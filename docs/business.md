@@ -263,11 +263,11 @@ live is still protected one by one: a subscriber holds at most one offer of
 a group, and confirming a quote for a second one is refused with
 NOT_COMBINABLE (§10.3).
 
-§6.5 **The difference, in business words.** Before anyone approves, Box
-Office states the change as a sentence, in this shape: "Italy, Student: from
-€5.79 to €2.99 for 3 months, new subscribers only; N eligible; conflicts:
-none." N, the number of eligible people, is counted in the data when the
-sentence is written, never typed by the author.
+§6.5 **The difference, in business words.** Before anyone approves, Plancia
+states the change as a sentence, in this shape: "Italy, Student: from €5.79
+to €2.99 for 3 months, new subscribers only; N eligible; conflicts: none."
+N, the number of eligible people, is counted in the data when the sentence
+is written, never typed by the author.
 
 §6.6 **The simulation of a campaign.** A campaign is compared with not
 running it, over a horizon of `H` months. An offer that lasts longer than
@@ -501,8 +501,8 @@ it was sold.
 sold but not yet earned, by market. A pass's net amount is recognized in
 equal monthly parts from activation, the last part taking the remainder: an
 Italian pass, net €24.58, is recognized as €8.19, €8.19 and €8.20. Unused
-codes stay unearned until they expire. This is the only accounting Box
-Office does (§15).
+codes stay unearned until they expire. This is the only accounting Plancia
+does (§15).
 
 §9.3 **Selling and activating a code.** The commercial lead writes a pass
 (its plan, months, price and period of sale in each market, its page, and
