@@ -35,7 +35,7 @@ from datetime import date, datetime
 
 from commerce.domain import billing
 from commerce.domain.economics import Book
-from commerce.domain.localtime import format_instant
+from commerce.domain.localtime import format_instant, to_local
 from commerce.domain.money import Money
 from commerce.domain.validation import resolve_price
 from commerce.engine import contract, eligibility, payments, records, reference
@@ -219,7 +219,8 @@ class Subscribers:
                 raise Refused("QUOTE_EXPIRED", f"Offer #{offer_id} is no longer on sale in {market.name}.",
                               {"offer_id": offer_id, "state": state})
             offer = live_offer(row)
-            list_price = await list_price_at(tx, offer.plan, market, datetime.combine(today, datetime.min.time()))
+            # The list price in force at this instant of the market's day, as GetQuote and the catalog read it.
+            list_price = await list_price_at(tx, offer.plan, market, to_local(now, market.zone))
             if list_price is None or resolve_price(offer.price_rule, list_price) >= list_price:
                 raise Refused("QUOTE_EXPIRED", f"Offer #{offer_id} no longer costs less than the list price.", {"offer_id": offer_id})
         if home != market.code:

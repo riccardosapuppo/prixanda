@@ -15,7 +15,7 @@ from commerce.engine import payments
 from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound
 from commerce.engine.providers import FAILED, ChargeResult, ProviderEvent
 from commerce.invariants import check
-from commerce.v1 import changes_pb2, common_pb2, quotes_pb2, subscriptions_pb2
+from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, quotes_pb2, subscriptions_pb2
 from engine_support import FINANCE, MARKETING, ON_CALL, PUBLIC, new_key, scheduled, student_autumn
 
 REFUSAL = common_pb2.RefusalCode
@@ -398,3 +398,24 @@ async def test_a_confirmation_decides_at_the_time_it_holds_its_locks(world):
     await holding.commit()
     response = await confirming
     assert response.refusal.code == REFUSAL.REFUSAL_CODE_QUOTE_EXPIRED
+
+
+async def test_a_confirmation_reads_the_list_price_in_force_at_that_moment(world):
+    # Individual at 8,99 €, quoted at 08:55 in Rome. At 09:00 the list price drops from 10,49 € to 8,49 €: from then the
+    # offer no longer costs less than the list price, the catalog stops selling it, and a confirmation at 09:05 is refused.
+    content = student_autumn(title="Individual for less", plan="individual",
+                             audience=changes_pb2.Audience(segment=changes_pb2.SEGMENT_NEVER_PAID),
+                             prices=[changes_pb2.OfferPrice(market="IT", fixed=common_pb2.Money(amount_minor=899, currency="EUR"))])
+    offer = await autumn_on_sale(world, content)
+    world.clock.at = at(2026, 10, 27, 7, 55)
+    q = await quote(world, plan="individual", market="IT", offer_id=offer, subscriber_id=101)
+    assert (q.price.amount_minor, q.list_price.amount_minor) == (899, 1_049)
+    await world.owner.execute("update list_price set valid = tsrange(lower(valid), '2026-10-27 09:00') "
+                              "where plan_id = 'individual' and market = 'IT'")
+    await world.owner.execute("insert into list_price (plan_id, market, currency, amount_minor, valid) "
+                              "values ('individual', 'IT', 'EUR', 849, tsrange('2026-10-27 09:00', null))")
+    world.clock.at = at(2026, 10, 27, 8, 5)
+    on_sale = await world.call("ListOffers", catalog_pb2.ListOffersRequest(market="IT"), PUBLIC)
+    assert list(on_sale.offers) == []
+    response = await confirm(world, q.quote_id, 101)
+    assert response.refusal.code == REFUSAL.REFUSAL_CODE_QUOTE_EXPIRED and "no longer costs less" in response.refusal.reason
