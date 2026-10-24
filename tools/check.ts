@@ -2,8 +2,12 @@
 // PostgreSQL 18 that the check starts for the run and removes afterwards.
 //
 //   npm run check                     every suite
-//   npm run check -- --only rules     some of them, by name (comma separated)
+//   npm run check -- --only pytest    some of them, by name (comma separated)
 //   npm run check -- --list           the suites
+//
+// A suite that needs the database reads the template the migrations suite
+// builds, so selecting one brings the migrations along, and a failed
+// migration stops the suites after it.
 //
 // Each suite counts what it checked, reading what its tool wrote (pytest's
 // JUnit report, Flyway's summary, the files tsc listed), and the count must
@@ -166,7 +170,12 @@ if (unknown.length) {
   console.log(`no suite called ${unknown.join(", ")}; npm run check -- --list`);
   process.exit(2);
 }
-const selected = SUITES.filter((suite) => !only || only.includes(suite.name));
+const wanted = new Set(only ?? SUITES.map((suite) => suite.name));
+if (!wanted.has("migrations") && SUITES.some((suite) => suite.needsDatabase && wanted.has(suite.name))) {
+  wanted.add("migrations");
+  say("migrations added: the database suites read the template it builds");
+}
+const selected = SUITES.filter((suite) => wanted.has(suite.name));
 await mkdir(reports, { recursive: true });
 
 const context: Context = {};
