@@ -123,6 +123,11 @@ message PublishedOffer {
   // Who may take it, in words for the page.
   string audience = 12;
   bool needs_student_check = 13;
+  // Where the offer price goes, per subscription per month in the offer's
+  // market (§3.5, §5), as ListPlans gives it for a list price: below the
+  // market's floor, top_up is what the music service adds so that the artists
+  // get their minimum (§5.4).
+  PriceBreakdown breakdown = 14;
 }
 
 message ListOffersRequest {

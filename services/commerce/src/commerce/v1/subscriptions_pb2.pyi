@@ -1,11 +1,23 @@
 from commerce.v1 import common_pb2 as _common_pb2
 from google.protobuf.internal import containers as _containers
+from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class PaymentState(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PAYMENT_STATE_UNSPECIFIED: _ClassVar[PaymentState]
+    PAYMENT_STATE_PENDING: _ClassVar[PaymentState]
+    PAYMENT_STATE_SUCCEEDED: _ClassVar[PaymentState]
+    PAYMENT_STATE_FAILED: _ClassVar[PaymentState]
+PAYMENT_STATE_UNSPECIFIED: PaymentState
+PAYMENT_STATE_PENDING: PaymentState
+PAYMENT_STATE_SUCCEEDED: PaymentState
+PAYMENT_STATE_FAILED: PaymentState
 
 class DemoListener(_message.Message):
     __slots__ = ("subscriber_id", "market", "title", "label", "plan", "student_verified")
@@ -113,13 +125,35 @@ class Receipt(_message.Message):
     note: str
     def __init__(self, receipt_id: _Optional[str] = ..., amount: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., issued_at: _Optional[str] = ..., provider: _Optional[str] = ..., provider_reference: _Optional[str] = ..., demonstration: bool = ..., note: _Optional[str] = ...) -> None: ...
 
+class Payment(_message.Message):
+    __slots__ = ("payment_id", "state", "amount", "provider", "requested_at", "settled_at", "failure_reason", "receipt")
+    PAYMENT_ID_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    AMOUNT_FIELD_NUMBER: _ClassVar[int]
+    PROVIDER_FIELD_NUMBER: _ClassVar[int]
+    REQUESTED_AT_FIELD_NUMBER: _ClassVar[int]
+    SETTLED_AT_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_REASON_FIELD_NUMBER: _ClassVar[int]
+    RECEIPT_FIELD_NUMBER: _ClassVar[int]
+    payment_id: str
+    state: PaymentState
+    amount: _common_pb2.Money
+    provider: str
+    requested_at: str
+    settled_at: str
+    failure_reason: str
+    receipt: Receipt
+    def __init__(self, payment_id: _Optional[str] = ..., state: _Optional[_Union[PaymentState, str]] = ..., amount: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., provider: _Optional[str] = ..., requested_at: _Optional[str] = ..., settled_at: _Optional[str] = ..., failure_reason: _Optional[str] = ..., receipt: _Optional[_Union[Receipt, _Mapping]] = ...) -> None: ...
+
 class Confirmation(_message.Message):
-    __slots__ = ("subscription", "receipt")
+    __slots__ = ("subscription", "receipt", "payment")
     SUBSCRIPTION_FIELD_NUMBER: _ClassVar[int]
     RECEIPT_FIELD_NUMBER: _ClassVar[int]
+    PAYMENT_FIELD_NUMBER: _ClassVar[int]
     subscription: Subscription
     receipt: Receipt
-    def __init__(self, subscription: _Optional[_Union[Subscription, _Mapping]] = ..., receipt: _Optional[_Union[Receipt, _Mapping]] = ...) -> None: ...
+    payment: Payment
+    def __init__(self, subscription: _Optional[_Union[Subscription, _Mapping]] = ..., receipt: _Optional[_Union[Receipt, _Mapping]] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ...) -> None: ...
 
 class ConfirmQuoteRequest(_message.Message):
     __slots__ = ("quote_id", "subscriber_id")
@@ -138,16 +172,18 @@ class ConfirmQuoteResponse(_message.Message):
     def __init__(self, confirmation: _Optional[_Union[Confirmation, _Mapping]] = ..., refusal: _Optional[_Union[_common_pb2.Refusal, _Mapping]] = ...) -> None: ...
 
 class Account(_message.Message):
-    __slots__ = ("subscriber_id", "market", "subscription", "student_verification")
+    __slots__ = ("subscriber_id", "market", "subscription", "student_verification", "payment")
     SUBSCRIBER_ID_FIELD_NUMBER: _ClassVar[int]
     MARKET_FIELD_NUMBER: _ClassVar[int]
     SUBSCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STUDENT_VERIFICATION_FIELD_NUMBER: _ClassVar[int]
+    PAYMENT_FIELD_NUMBER: _ClassVar[int]
     subscriber_id: int
     market: str
     subscription: Subscription
     student_verification: StudentVerification
-    def __init__(self, subscriber_id: _Optional[int] = ..., market: _Optional[str] = ..., subscription: _Optional[_Union[Subscription, _Mapping]] = ..., student_verification: _Optional[_Union[StudentVerification, _Mapping]] = ...) -> None: ...
+    payment: Payment
+    def __init__(self, subscriber_id: _Optional[int] = ..., market: _Optional[str] = ..., subscription: _Optional[_Union[Subscription, _Mapping]] = ..., student_verification: _Optional[_Union[StudentVerification, _Mapping]] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ...) -> None: ...
 
 class GetAccountRequest(_message.Message):
     __slots__ = ("subscriber_id",)

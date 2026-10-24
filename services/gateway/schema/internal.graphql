@@ -101,7 +101,7 @@ enum Role {
   AUDITOR
 }
 
-"Who wrote an audit event: a role of the book, or the engine's own jobs."
+"Who wrote an audit event: a role of the book, the engine's own jobs, or a subscriber of the site (§11.1)."
 enum ActorRole {
   MARKETING
   COMMERCIAL_LEAD
@@ -110,6 +110,7 @@ enum ActorRole {
   ON_CALL
   AUDITOR
   SYSTEM
+  SUBSCRIBER
 }
 
 "A person of the demo, named by role, never by a person's name (§12.1)."
@@ -480,6 +481,14 @@ enum RefusalCode {
   QUOTE_EXPIRED
   "The person is not in the offer's audience."
   NOT_ELIGIBLE
+  "A paid subscription of this listener is already running."
+  ALREADY_SUBSCRIBED
+  "The listener already took an offer of the same non-combinability group (§10.3)."
+  NOT_COMBINABLE
+  "The offer's cap on redemptions is reached (§6.1)."
+  CAP_REACHED
+  "The payment provider declined the charge (the simulated one never does)."
+  PAYMENT_DECLINED
 }
 
 "The rules said no: an answer, not an error."
@@ -498,6 +507,7 @@ union ChangeResult = Change | Refusal
 type Overview {
   waitingForApproval: [ChangeSummary!]!
   launchesNext7Days: [Launch!]!
+  "The incidents open at this instant, and those opened or closed on its day (UTC), newest first."
   incidentsToday: [Incident!]!
   payingSubscribers: [SubscriberCount!]!
   freeListeners: [SubscriberCount!]!
@@ -527,9 +537,13 @@ type Launch {
   risk: String
 }
 
+"How an incident of a launch stands."
 enum IncidentState {
+  "Its launch went through on its own, and nobody had to act."
   RECOVERED
   OPEN
+  "A person retried or cancelled the launch."
+  RESOLVED
 }
 
 type Incident {

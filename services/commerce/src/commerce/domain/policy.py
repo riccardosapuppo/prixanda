@@ -31,6 +31,8 @@ CANCELLERS: dict[str, frozenset[str]] = {
     "list_price": frozenset({"commercial_lead", "on_call"}),
 }
 SUSPENDERS = frozenset({"on_call"})
+# Retrying or cancelling a launch that stopped: "roll back a launch" (§12).
+LAUNCH_OPERATORS = frozenset({"on_call"})
 SIMULATORS = frozenset({"marketing", "commercial_lead", "finance"})
 CHAIN_VERIFIERS = frozenset({"auditor", "on_call"})
 HEAD_EXPORTERS = frozenset({"auditor"})

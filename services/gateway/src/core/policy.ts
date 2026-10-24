@@ -1,20 +1,23 @@
-// Authorization of the console's API, on the server, for every operation.
+// Authorization of both APIs, on the server, for every operation.
 //
-// Authorized by default: guardInternalSchema() refuses to build a schema with
-// a root field that has no entry here, so a new operation cannot ship without
-// saying who may call it. The few that need no session are listed as such.
-// The roles come from the matrix in roles.ts, the same as the engine's.
+// Authorized by default: guardInternalSchema() and guardPublicSchema() refuse
+// to build a schema with a root field that has no entry here, so a new
+// operation cannot ship without saying who may call it. The ones that need no
+// session are listed as such. The console's roles come from the matrix in
+// roles.ts, the same as the engine's.
 //
 // A person without a session gets UNAUTHENTICATED. A person whose roles may
 // not do something gets the answer the engine would give: a ROLE_NOT_ALLOWED
 // refusal where the operation answers with an outcome (mutations,
-// simulateOffer), FORBIDDEN on reads (the engine's behaviour 6).
+// simulateOffer), FORBIDDEN on reads (the engine's behaviour 6). On the site,
+// what acts for a listener needs the site's session, and nothing else: it
+// acts for that listener only.
 import { create } from "@bufbuild/protobuf";
 import { RefusalCode, RefusalSchema } from "contracts/commerce/v1/common";
 import {
   defaultFieldResolver, getNamedType, type GraphQLFieldResolver, type GraphQLObjectType, type GraphQLSchema, isObjectType, isUnionType,
 } from "graphql";
-import type { InternalContext, Viewer } from "./context.ts";
+import type { InternalContext, Listener, PublicContext, Viewer } from "./context.ts";
 import type { Actor } from "./engine.ts";
 import { gatewayError } from "./errors.ts";
 import type { RefusalModel } from "./models.ts";
@@ -159,5 +162,59 @@ export function guardInternalSchema(schema: GraphQLSchema): void {
       }
       return resolve(parent, args, context, info);
     };
+  }
+}
+
+/** Who may call a root field of the site's schema: any visitor, or the listener of the site's session. */
+export type PublicAccess = "anyone" | "listener";
+
+/** Who may call each root field of the site's schema. */
+export const PUBLIC_ACCESS: { readonly Query: Record<string, PublicAccess>; readonly Mutation: Record<string, PublicAccess> } = {
+  Query: {
+    markets: "anyone",
+    plans: "anyone",
+    prices: "anyone",
+    offers: "anyone",
+    demoListeners: "anyone",
+    // Null without a session: asking who is signed in needs no session.
+    me: "anyone",
+  },
+  Mutation: {
+    // A visitor gets an anonymous quote, a listener their own (eligibility checked).
+    requestQuote: "anyone",
+    signInAsListener: "anyone",
+    signOutListener: "anyone",
+    verifyStudent: "listener",
+    confirmSubscription: "listener",
+  },
+};
+
+export function listenerOf(context: PublicContext): Listener | null {
+  return context.sessions?.current()?.viewer ?? null;
+}
+
+/**
+ * Wraps the site's root fields that act for a listener in the session check.
+ * Throws when a root field has no entry, or an entry names a field that does
+ * not exist. The engine's binding checks the session again (engine.ts).
+ */
+export function guardPublicSchema(schema: GraphQLSchema): void {
+  for (const rootName of ["Query", "Mutation"] as const) {
+    const root = schema.getType(rootName);
+    if (!isObjectType(root)) throw new Error(`the site's schema has no ${rootName}`);
+    const table = PUBLIC_ACCESS[rootName];
+    const fields = root.getFields();
+    const missing = Object.keys(fields).filter((name) => !Object.hasOwn(table, name));
+    const stale = Object.keys(table).filter((name) => !Object.hasOwn(fields, name));
+    if (missing.length) throw new Error(`no access rule for ${missing.map((name) => `${rootName}.${name}`).join(", ")} (policy.ts)`);
+    if (stale.length) throw new Error(`access rules for fields that do not exist: ${stale.map((name) => `${rootName}.${name}`).join(", ")}`);
+    for (const [name, field] of Object.entries(fields)) {
+      if (table[name] !== "listener") continue;
+      const resolve: GraphQLFieldResolver<unknown, PublicContext> = field.resolve ?? defaultFieldResolver;
+      field.resolve = (parent, args, context, info) => {
+        if (listenerOf(context) === null) throw gatewayError("UNAUTHENTICATED", "Choose a listener first: this needs the site's session.");
+        return resolve(parent, args, context, info);
+      };
+    }
   }
 }

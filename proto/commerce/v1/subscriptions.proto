@@ -35,8 +35,11 @@ service SubscriberService {
   // is still on sale, the listener is in its audience (§6, §10), the offer's
   // cap on redemptions is not reached, the listener never took another offer
   // of the same non-combinability group (§10.3), and no paid subscription is
-  // already running. The first month is charged through the simulated
-  // provider, and the receipt says it is a demonstration.
+  // already running. The subscription starts at once and its first month's
+  // payment comes back PENDING: the engine asks the simulated provider for it
+  // after the confirmation commits, through the outbox, as it would ask a real
+  // one. The provider's events settle the payment, and GetAccount then shows
+  // it succeeded, with a receipt that says it is a demonstration.
   rpc ConfirmQuote(ConfirmQuoteRequest) returns (ConfirmQuoteResponse);
   rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
 }
@@ -124,9 +127,44 @@ message Receipt {
   string note = 7;
 }
 
+// The first month's payment of a subscription confirmed from a quote (§4.5).
+// The provider's events settle it, each counted once however often and in
+// whatever order it arrives. No money moves: the provider is simulated, and
+// it accepts every charge.
+enum PaymentState {
+  PAYMENT_STATE_UNSPECIFIED = 0;
+  // Asked for and not settled yet; the subscription runs meanwhile.
+  PAYMENT_STATE_PENDING = 1;
+  // Taken: the receipt is issued.
+  PAYMENT_STATE_SUCCEEDED = 2;
+  // Declined: the paid subscription ends at the end of that day, and the
+  // listener is back on the free plan the day after.
+  PAYMENT_STATE_FAILED = 3;
+}
+
+message Payment {
+  string payment_id = 1;
+  PaymentState state = 2;
+  Money amount = 3;
+  // "simulated": no money moves.
+  string provider = 4;
+  // ISO 8601 with Z.
+  string requested_at = 5;
+  // When the provider's event settled it; empty while pending.
+  string settled_at = 6;
+  // Why the provider declined it; empty otherwise.
+  string failure_reason = 7;
+  // Issued when the payment succeeds; absent before.
+  Receipt receipt = 8;
+}
+
 message Confirmation {
   Subscription subscription = 1;
-  Receipt receipt = 2;
+  // Always empty: the charge happens after the confirmation, and its receipt
+  // is in Account.payment once the payment succeeded.
+  Receipt receipt = 2 [deprecated = true];
+  // PENDING: the provider is asked after this answer.
+  Payment payment = 3;
 }
 
 message ConfirmQuoteRequest {
@@ -148,6 +186,9 @@ message Account {
   Subscription subscription = 3;
   // The latest student verification; absent when there has been none.
   StudentVerification student_verification = 4;
+  // The first month's payment of the running subscription; absent on the free
+  // plan and for subscriptions that came with the data.
+  Payment payment = 5;
 }
 
 message GetAccountRequest {

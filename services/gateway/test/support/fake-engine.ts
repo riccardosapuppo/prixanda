@@ -1,5 +1,6 @@
 // A fake commerce engine for the gateway's tests: every service of the gRPC
-// contract, in memory, served over real gRPC (HTTP/2) on 127.0.0.1:4613.
+// contract, in memory, served over real gRPC (HTTP/2) on 127.0.0.1:4613
+// (CHECK_FAKE_ENGINE_PORT moves it).
 //
 // It mirrors the engine's behaviours as the coordinator fixed them on 24
 // October (BRIEF-TAPPE-2-3.md, §4): the gRPC codes, the metadata rules, the
@@ -11,7 +12,7 @@
 import { createHash } from "node:crypto";
 import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
 import { setTimeout as sleep } from "node:timers/promises";
-import { create, toBinary } from "@bufbuild/protobuf";
+import { create, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ConnectRouter, type HandlerContext, type Interceptor, type UnaryResponse } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { AuditEventSchema, AuditService, ChainHeadSchema, type AuditEvent } from "contracts/commerce/v1/audit";
@@ -25,19 +26,29 @@ import {
   Severity, ValidationReportSchema, type ValidationReport,
 } from "contracts/commerce/v1/changes";
 import { type Money, MoneySchema, type Refusal, RefusalCode, RefusalSchema, Role } from "contracts/commerce/v1/common";
-import { OverviewService, PeopleService, PersonSchema, type Person } from "contracts/commerce/v1/overview";
+import { IncidentSchema, OverviewService, PeopleService, PersonSchema, type Person } from "contracts/commerce/v1/overview";
 import { QuoteSchema, QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
+import {
+  AccountSchema, DemoListenerSchema, type Payment, PaymentSchema, PaymentState, ReceiptSchema, StudentVerificationSchema, SubscriberService,
+  type Subscription, SubscriptionSchema,
+} from "contracts/commerce/v1/subscriptions";
 import { Health, HealthCheckResponse_ServingStatus } from "contracts/grpc/health/v1/health";
+import { PORTS as REPO_PORTS } from "../../../../tools/lib/paths.ts";
 
-export const FAKE_ENGINE_PORT = Number(process.env["FAKE_ENGINE_PORT"] ?? 4613);
+/** 4613 unless CHECK_FAKE_ENGINE_PORT says otherwise (tools/lib/paths.ts). */
+export const FAKE_ENGINE_PORT = REPO_PORTS.fakeEngineCheck;
 export const FAKE_TOKEN = "fake-engine-token-for-the-gateway-tests";
 
 const SHAPE = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,99}$/;
-const PUBLIC = new Set(["ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote"]);
+/** Served without a person of the team: the site's catalog, quotes and subscriber calls, and the list of people. */
+const PUBLIC = new Set([
+  "ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote",
+  "ListDemoListeners", "VerifyStudent", "ConfirmQuote", "GetAccount",
+]);
 const IDEMPOTENT = new Set([
   "CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange", "ScheduleChange",
-  "CancelChange", "SuspendChange", "GetQuote", "ExportHead",
+  "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent", "ConfirmQuote",
 ]);
 /** Reads without an outcome: a role that may not call them gets PERMISSION_DENIED instead of a refusal. */
 const READS = new Set(["GetChange", "BatchGetChanges", "ListChanges", "GetOverview", "ListEvents", "VerifyChain"]);
@@ -120,6 +131,179 @@ type StoredChange = {
   authorReason: string;
 };
 
+// ----- the subscriber's side (stage 5), as the engine keeps it -----
+
+/** A subscription, from startedOn until endedOn excluded (null: still running). Days are the market's, ISO 8601. */
+export type StoredSubscription = {
+  id: string;
+  plan: string;
+  paid: boolean;
+  priceMinor: bigint;
+  startedOn: string;
+  endedOn: string | null;
+  /** 0 on the free plan. */
+  billingDay: number;
+  quoteId: string | null;
+  offerId: string | null;
+  offerMonths: number;
+  /** The first month's payment, asked after the confirmation; null when charged at it, on the free plan, and for the data's own. */
+  payment?: StoredPayment | null;
+};
+
+/** The first month's payment as the engine of stage 6 keeps it, settled by the provider's events. */
+export type StoredPayment = {
+  id: string;
+  state: "pending" | "succeeded" | "failed";
+  amountMinor: bigint;
+  requestedAt: string;
+  settledAt: string;
+  failureReason: string;
+  receipt: { id: string; issuedAt: string; reference: string } | null;
+};
+
+export type StoredListener = {
+  id: string;
+  market: string;
+  title: string;
+  label: string;
+  /** What the demo says: the simulated verifier finds no student record when false. */
+  student: boolean;
+  verifications: Array<{ verifiedOn: string; validUntil: string; provider: string; reference: string }>;
+  subscriptions: StoredSubscription[];
+};
+
+export type StoredQuote = {
+  id: string;
+  market: string;
+  plan: string;
+  priceMinor: bigint;
+  listMinor: bigint;
+  months: number;
+  offerId: string | null;
+  /** Null for a quote asked without a listener, which any listener may confirm. */
+  subscriberId: string | null;
+  expiresAt: string;
+};
+
+/** What the engine knows of a published offer beyond its page: who may take it, its non-combinability group, its cap (0: none). */
+export type OfferRules = { neverPaid: boolean; group: string; cap: number };
+
+/** The demo's listeners by what they show, as the engine's generator labels them. */
+export const LISTENERS = { verified: "5001", unverified: "5002", paidBefore: "5003", freeInFrance: "5004" } as const;
+
+const RECEIPT_NOTE = "Demonstration receipt from a simulated payment provider: no payment was taken, no money moved, "
+  + "and no subscription contract was made.";
+
+/**
+ * The engine's four demo listeners (its generator's DEMO_LISTENERS), with
+ * their days fixed around the tests' 24 October 2026 instead of counted back
+ * from the data's last day.
+ */
+function demoListeners(): StoredListener[] {
+  const free = (id: string, startedOn: string, endedOn: string | null = null): StoredSubscription => ({
+    id, plan: "free", paid: false, priceMinor: 0n, startedOn, endedOn, billingDay: 0, quoteId: null, offerId: null, offerMonths: 0,
+  });
+  return [
+    {
+      id: LISTENERS.verified, market: "IT", title: "Student in Italy, verified", student: true,
+      label: "Simulated listener. A verified student in Italy who has never paid: the Student Autumn Pass is for them.",
+      verifications: [{ verifiedOn: "2026-09-04", validUntil: "2027-09-04", provider: "simulated", reference: "" }],
+      subscriptions: [free("1", "2026-04-07")],
+    },
+    {
+      id: LISTENERS.unverified, market: "IT", title: "Student in Italy, not verified yet", student: true,
+      label: "Simulated listener. A student in Italy who has never paid and has not verified yet: verifying opens the student offers.",
+      verifications: [],
+      subscriptions: [free("2", "2026-05-27")],
+    },
+    {
+      id: LISTENERS.paidBefore, market: "IT", title: "Student in Italy who paid before", student: true,
+      label: "Simulated listener. A verified student in Italy who paid for Student before: offers for people who have never paid are not for them.",
+      verifications: [
+        { verifiedOn: "2025-10-14", validUntil: "2026-10-14", provider: "simulated", reference: "" },
+        { verifiedOn: "2026-09-24", validUntil: "2027-09-24", provider: "simulated", reference: "" },
+      ],
+      subscriptions: [
+        free("3", "2025-09-19", "2025-10-19"),
+        { id: "4", plan: "student", paid: true, priceMinor: 579n, startedOn: "2025-10-19", endedOn: "2026-06-26", billingDay: 19, quoteId: null, offerId: null, offerMonths: 0 },
+        free("5", "2026-06-26"),
+      ],
+    },
+    {
+      id: LISTENERS.freeInFrance, market: "FR", title: "Free listener in France", student: false,
+      label: "Simulated listener. On Free in France and not a student: list prices, and no offer for them.",
+      verifications: [],
+      subscriptions: [free("6", "2025-12-28")],
+    },
+  ];
+}
+
+/** A day of the calendar moved by whole months, the end of a month kept as PostgreSQL's date + interval does. */
+function addMonths(day: string, months: number): string {
+  const [year = 0, month = 1, date = 1] = day.split("-").map(Number);
+  const index = month - 1 + months;
+  const y = year + Math.floor(index / 12);
+  const m = (index % 12) + 1;
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(Math.min(date, last)).padStart(2, "0")}`;
+}
+
+/** a / b rounded half up, for amounts that are not negative (the business book's round_half_up). */
+const halfUp = (a: bigint, b: bigint): bigint => (2n * a + b) / (2n * b);
+
+/**
+ * Where a price goes, by the business book's formulas (§3.5, §5): the net
+ * amount without VAT, the artists' pool at 60% of it but never less than the
+ * market's minimum (the difference is the top-up), payment costs at 1.8% of
+ * the price, and what is left.
+ */
+function breakdownOf(price: bigint, market: (typeof MARKETS)[number]) {
+  const net = halfUp(price * 10_000n, 10_000n + BigInt(market.vatBp));
+  const pool = halfUp(net * 60n, 100n);
+  const artists = pool > market.minimum ? pool : market.minimum;
+  const paymentCosts = halfUp(price * 18n, 1_000n);
+  const amount = (value: bigint) => money(value, market.currency);
+  return create(PriceBreakdownSchema, {
+    price: amount(price), vat: amount(price - net), net: amount(net), artists: amount(artists), topUp: amount(artists - pool),
+    paymentCosts: amount(paymentCosts), encoreKeeps: amount(net - artists - paymentCosts),
+  });
+}
+
+/** The day after, or before, in the calendar. */
+function addDays(day: string, days: number): string {
+  const [year = 0, month = 1, date = 1] = day.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, date + days)).toISOString().slice(0, 10);
+}
+
+/** The engine's billing schedule (commerce/domain/billing.py): charged on the first day, then on the billing day each month. */
+const LAST_BILLING_DAY = 28;
+const billingDayFor = (start: string) => Math.min(Number(start.slice(8, 10)), LAST_BILLING_DAY);
+
+function billingDate(start: string, billingDay: number, charge: number): string {
+  if (charge === 0) return start;
+  const [year = 0, month = 1] = start.split("-").map(Number);
+  const index = month - 1 + charge;
+  return `${year + Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}-${String(billingDay).padStart(2, "0")}`;
+}
+
+function chargesBy(start: string, billingDay: number, day: string): number {
+  if (day < start) return 0;
+  const [sy = 0, sm = 0] = start.split("-").map(Number);
+  const [dy = 0, dm = 0] = day.split("-").map(Number);
+  let count = Math.max(1, (dy - sy) * 12 + dm - sm - 1);
+  while (billingDate(start, billingDay, count) <= day) count += 1;
+  while (count > 1 && billingDate(start, billingDay, count - 1) > day) count -= 1;
+  return count;
+}
+
+function schedule(start: string, billingDay: number, offerMonths: number, day: string) {
+  const made = chargesBy(start, billingDay, day);
+  const next = billingDate(start, billingDay, made);
+  if (offerMonths <= 0) return { next, nextAtOfferPrice: false, offerMonthsLeft: 0, fullPriceFrom: null };
+  const left = made >= 1 ? Math.max(0, offerMonths - made + 1) : offerMonths;
+  return { next, nextAtOfferPrice: made < offerMonths, offerMonthsLeft: left, fullPriceFrom: billingDate(start, billingDay, offerMonths) };
+}
+
 export type Call = {
   readonly method: string;
   readonly requestId: string | null;
@@ -139,6 +323,13 @@ export type FakeEngineOptions = {
   readonly extraPeople?: Record<string, { label: string; roles: string[] }>;
   /** Plant SENTINEL values in every internal field the catalog's messages carry. */
   readonly sentinels?: boolean;
+  /**
+   * When the first month is charged: after the confirmation (the default),
+   * through the engine's outbox as in stage 6, the payment PENDING until a
+   * test settles it as the provider's events would; or at the confirmation,
+   * as the engine of stage 5 did, the receipt in the answer itself.
+   */
+  readonly payments?: "after-confirmation" | "at-confirmation";
 };
 
 const money = (amountMinor: bigint, currency: string): Money => create(MoneySchema, { amountMinor, currency });
@@ -151,6 +342,13 @@ export class FakeEngine {
   readonly changes = new Map<string, StoredChange>();
   readonly audit: AuditEvent[] = [];
   readonly published: PublishedOffer[] = [];
+  /** The rules of each published offer; an offer the tests publish needs its entry here. */
+  readonly offerRules = new Map<string, OfferRules>([["9001", { neverPaid: true, group: "student", cap: 0 }]]);
+  readonly listeners = new Map<string, StoredListener>(demoListeners().map((listener) => [listener.id, listener]));
+  readonly quotes = new Map<string, StoredQuote>();
+  /** The home's incidents of today, as GetOverview answers them; none unless a test adds them. */
+  readonly incidents: MessageInitShape<typeof IncidentSchema>[] = [];
+  readonly receipts: Array<{ id: string; subscriptionId: string; quoteId: string; subscriberId: string }> = [];
   /** Idempotency keys and what they answered (the engine's behaviour 2). */
   readonly #idempotency = new Map<string, { method: string; actor: string; role: string; fingerprint: string; response: UnaryResponse }>();
   readonly #faults = new Map<string, { code: Code; message: string }>();
@@ -159,6 +357,8 @@ export class FakeEngine {
   #server: Http2Server | null = null;
   #nextId = 1;
   #quotes = 0;
+  #nextSubscription = 100;
+  #declineNext: string | null = null;
   replays = 0;
 
   constructor(options: FakeEngineOptions) {
@@ -178,6 +378,8 @@ export class FakeEngine {
       takeableUntil: { market: "IT", local: "2026-11-30T23:59", utc: "2026-11-30T22:59:00Z" },
       audience: "Verified students who have never paid",
       needsStudentCheck: true,
+      // §14.1: €1.47 of the artists' €3.00 comes from the subscriber, and the music service adds €1.53.
+      breakdown: breakdownOf(299n, MARKETS[0]),
     }));
     for (let index = 0; index < (options.offers ?? 0); index += 1) {
       this.seedOffer(`Seeded offer ${index + 1}`, "marketing-1", ChangeState.DRAFT);
@@ -217,6 +419,68 @@ export class FakeEngine {
   /** The next call of `method` answers after this many milliseconds. */
   delayNext(method: string, ms: number): void {
     this.#delays.set(method, ms);
+  }
+
+  /**
+   * With payments at the confirmation (the engine of stage 5): the simulated
+   * provider declines the next charge with this reason, as a real provider
+   * may, and the confirmation is refused with PAYMENT_DECLINED.
+   */
+  declineNextCharge(reason: string): void {
+    this.#declineNext = reason;
+  }
+
+  /**
+   * With payments after the confirmation (stage 6): the provider's answer to
+   * every pending payment, as its events settle them. Succeeded issues the
+   * receipt; failed ends the paid subscription at the end of that day, with
+   * the free plan from the day after. Returns how many it settled.
+   */
+  settlePayments(outcome: "succeeded" | "failed" = "succeeded", reason = "The simulated provider declined the charge."): number {
+    let settled = 0;
+    for (const listener of this.listeners.values()) {
+      for (const subscription of [...listener.subscriptions]) {
+        const payment = subscription.payment;
+        if (payment?.state !== "pending") continue;
+        payment.settledAt = this.#now();
+        if (outcome === "succeeded") {
+          payment.state = "succeeded";
+          payment.receipt = {
+            id: `r_${hex(sha256(`receipt-${payment.id}`)).slice(0, 32)}`, issuedAt: this.#now(),
+            reference: `sim-pay-${hex(sha256(payment.id)).slice(0, 24)}`,
+          };
+          this.receipts.push({ id: payment.receipt.id, subscriptionId: subscription.id, quoteId: subscription.quoteId ?? "", subscriberId: listener.id });
+        } else {
+          payment.state = "failed";
+          payment.failureReason = reason;
+          const tomorrow = addDays(this.#today(listener.market), 1);
+          subscription.endedOn = tomorrow;
+          listener.subscriptions.push({
+            id: String(this.#nextSubscription++), plan: "free", paid: false, priceMinor: 0n, startedOn: tomorrow, endedOn: null,
+            billingDay: 0, quoteId: null, offerId: null, offerMonths: 0,
+          });
+        }
+        settled += 1;
+      }
+    }
+    return settled;
+  }
+
+  /**
+   * Ends a listener's paid subscription today, back to the free plan from
+   * today: a cancellation, which the engine does not model yet, to set up a
+   * listener who took an offer before.
+   */
+  endPaidSubscription(listenerId: string): void {
+    const listener = this.#listener(listenerId);
+    const today = this.#today(listener.market);
+    const current = this.#current(listener, today);
+    if (!current?.paid) throw new Error(`listener ${listenerId} has no paid subscription to end`);
+    current.endedOn = today;
+    listener.subscriptions.push({
+      id: String(this.#nextSubscription++), plan: "free", paid: false, priceMinor: 0n, startedOn: today, endedOn: null,
+      billingDay: 0, quoteId: null, offerId: null, offerMonths: 0,
+    });
   }
 
   /** An offer in Italy at `price` cents, with its page unless `withPage` is false (validation then refuses it). */
@@ -259,20 +523,19 @@ export class FakeEngine {
     return market;
   }
 
-  #breakdown(price: bigint, currency: string) {
-    const planted = this.#options.sentinels;
-    const amount = (value: bigint) => money(planted ? SENTINEL.amount : value, currency);
-    return create(PriceBreakdownSchema, {
-      price: money(price, currency), vat: amount(price / 6n), net: amount(price - price / 6n), artists: amount(300n),
-      topUp: amount(0n), paymentCosts: amount(price / 50n), encoreKeeps: amount(price / 4n),
-    });
+  /** A quote's breakdown, which the site never shows: with sentinels, every amount is the mark. */
+  #quoteBreakdown(price: bigint, market: (typeof MARKETS)[number]) {
+    if (!this.#options.sentinels) return breakdownOf(price, market);
+    const mark = money(SENTINEL.amount, market.currency);
+    return create(PriceBreakdownSchema, { price: mark, vat: mark, net: mark, artists: mark, topUp: mark, paymentCosts: mark, encoreKeeps: mark });
   }
 
+  // The artists' minimum and the VAT rate are public (§1.2); the floor is the console's alone, and carries the mark.
   #marketMessage(market: (typeof MARKETS)[number]): Market {
     const planted = this.#options.sentinels;
     return create(MarketSchema, {
       code: market.code, name: market.name, currency: market.currency, minorUnits: 2, timeZone: market.timeZone, vatBp: market.vatBp,
-      artistsMinimum: money(planted ? SENTINEL.amount : market.minimum, market.currency),
+      artistsMinimum: money(market.minimum, market.currency),
       floor: money(planted ? SENTINEL.amount : market.floor, market.currency),
     });
   }
@@ -284,7 +547,7 @@ export class FakeEngine {
       return create(PlanSchema, {
         id: plan.id, name: plan.name, paid: plan.paid,
         entitlements: { skipsPerHour: plan.skips, audio: plan.audio, offline: plan.offline, seats: plan.seats, needsStudentCheck: plan.student },
-        ...(price === undefined ? {} : { listPrice: money(price, market.currency), breakdown: this.#breakdown(price, market.currency) }),
+        ...(price === undefined ? {} : { listPrice: money(price, market.currency), breakdown: breakdownOf(price, market) }),
       });
     });
   }
@@ -358,14 +621,15 @@ export class FakeEngine {
       : [create(RequiredSignatureSchema, { role: Role.COMMERCIAL_LEAD, conditions: [], why: "commercial lead or finance", signed: false })];
   }
 
-  #log(context: HandlerContext, action: string, subject: string, reason = "", body: Record<string, unknown> = {}): void {
+  /** An audit event; its author is the call's person, or `by` for the subscriber's calls, which carry none. */
+  #log(context: HandlerContext, action: string, subject: string, reason = "", body: Record<string, unknown> = {}, by?: { actor: string; role: string }): void {
     const previous = this.audit.at(-1);
     const seq = BigInt(this.audit.length + 1);
     const prevHash = previous?.hash ?? new Uint8Array(32);
     const fields = {
-      seq: String(seq), at: this.#now(), actor: context.requestHeader.get("x-actor") ?? "system",
-      actorRole: context.requestHeader.get("x-actor-role") ?? "system", action, subject,
-      requestId: context.requestHeader.get("x-request-id") ?? "", reason, bodyJson: JSON.stringify(body),
+      seq: String(seq), at: this.#now(), actor: by?.actor ?? context.requestHeader.get("x-actor") ?? "system",
+      actorRole: by?.role ?? context.requestHeader.get("x-actor-role") ?? "system", action, subject,
+      requestId: context.requestHeader.get("x-request-id") ?? "", reason, bodyJson: JSON.stringify(body, (_key, value: unknown) => (typeof value === "bigint" ? value.toString() : value)),
     };
     this.audit.push(create(AuditEventSchema, { ...fields, prevHash, hash: sha256(Buffer.concat([prevHash, Buffer.from(JSON.stringify(fields))])) }));
   }
@@ -383,6 +647,89 @@ export class FakeEngine {
     const stored = this.changes.get(id);
     if (stored === undefined) throw new ConnectError(`no change ${id}`, Code.NotFound);
     return stored;
+  }
+
+  // ----- the subscriber's side -----
+
+  /** The listener a subscriber call names: 0 is no one (INVALID_ARGUMENT), an unknown one NOT_FOUND, as the engine says. */
+  #listener(subscriberId: string): StoredListener {
+    if (subscriberId === "" || subscriberId === "0") throw new ConnectError("subscriber_id names the listener of the site's session", Code.InvalidArgument);
+    const listener = this.listeners.get(subscriberId);
+    if (listener === undefined) throw new ConnectError(`no subscriber #${subscriberId}`, Code.NotFound);
+    return listener;
+  }
+
+  /** The market's day of the engine's clock. */
+  #today(market: string): string {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: this.#market(market).timeZone, year: "numeric", month: "2-digit", day: "2-digit" })
+      .format(this.#options.clock());
+  }
+
+  #current(listener: StoredListener, today: string): StoredSubscription | undefined {
+    return listener.subscriptions.find((subscription) => subscription.startedOn <= today && (subscription.endedOn === null || subscription.endedOn > today));
+  }
+
+  #latestVerification(listener: StoredListener, today: string) {
+    const latest = [...listener.verifications].sort((a, b) => b.verifiedOn.localeCompare(a.verifiedOn))[0];
+    if (latest === undefined) return undefined;
+    return create(StudentVerificationSchema, {
+      ...latest,
+      reference: this.#options.sentinels ? SENTINEL.text : latest.reference,
+      valid: latest.verifiedOn <= today && today < latest.validUntil,
+    });
+  }
+
+  #verifiedOn(listener: StoredListener, today: string): boolean {
+    return listener.verifications.some((verification) => verification.verifiedOn <= today && today < verification.validUntil);
+  }
+
+  /** The audience of every offer here asks for people who have never paid, when its rules say so. */
+  #inAudience(listener: StoredListener, offerId: string): boolean {
+    return !this.offerRules.get(offerId)?.neverPaid || !listener.subscriptions.some((subscription) => subscription.paid);
+  }
+
+  /** A subscription as the engine answers it on a day: its price, its offer's months, its next charge (§4.3, §6.1). */
+  #subscription(listener: StoredListener, stored: StoredSubscription, today: string): Subscription {
+    const currency = this.#market(listener.market).currency;
+    const message = create(SubscriptionSchema, {
+      subscriptionId: this.#options.sentinels ? SENTINEL.changeId : stored.id, plan: stored.plan, market: listener.market, paid: stored.paid,
+      price: money(stored.priceMinor, currency), startedOn: stored.startedOn, offerId: stored.offerId ?? "0",
+    });
+    if (!stored.paid) return message;
+    const at = schedule(stored.startedOn, stored.billingDay, stored.offerMonths, today);
+    message.billingDay = stored.billingDay;
+    message.nextBillingOn = at.next;
+    let nextCharge = money(stored.priceMinor, currency);
+    if (stored.offerMonths > 0 && at.fullPriceFrom !== null) {
+      const full = money(PRICES[listener.market]?.[stored.plan] ?? 0n, currency);
+      message.offerTitle = this.published.find((offer) => offer.offerId === stored.offerId)?.title ?? "";
+      message.offerMonths = stored.offerMonths;
+      message.offerMonthsLeft = at.offerMonthsLeft;
+      message.fullPriceFrom = at.fullPriceFrom;
+      message.fullPrice = full;
+      if (at.offerMonthsLeft === 0) message.price = full;
+      if (!at.nextAtOfferPrice) nextCharge = full;
+    }
+    message.nextCharge = nextCharge;
+    return message;
+  }
+
+  /** A payment as the engine of stage 6 answers it, with its receipt once it succeeded. */
+  #payment(stored: StoredPayment, currency: string): Payment {
+    const planted = this.#options.sentinels;
+    const state = { pending: PaymentState.PENDING, succeeded: PaymentState.SUCCEEDED, failed: PaymentState.FAILED }[stored.state];
+    return create(PaymentSchema, {
+      paymentId: planted ? SENTINEL.text : stored.id, state, amount: money(stored.amountMinor, currency), provider: "simulated",
+      requestedAt: stored.requestedAt, settledAt: stored.settledAt, failureReason: planted ? SENTINEL.text : stored.failureReason,
+      ...(stored.receipt
+        ? {
+          receipt: create(ReceiptSchema, {
+            receiptId: stored.receipt.id, amount: money(stored.amountMinor, currency), issuedAt: stored.receipt.issuedAt, provider: "simulated",
+            providerReference: stored.receipt.reference, demonstration: true, note: RECEIPT_NOTE,
+          }),
+        }
+        : {}),
+    });
   }
 
   /** A role check on a method with an outcome: a refusal, never an error (the engine's behaviour 6). */
@@ -490,25 +837,175 @@ export class FakeEngine {
         const market = this.#market(request.market);
         const list = PRICES[market.code]?.[request.plan];
         if (list === undefined) throw new ConnectError(`no paid plan ${request.plan}`, Code.NotFound);
+        // With a listener, eligibility is checked now and again when they subscribe; without one, only then.
+        const subscriber = request.subscriberId === "0" || request.subscriberId === "" ? null : request.subscriberId;
+        const listener = subscriber === null ? null : this.listeners.get(subscriber);
+        if (listener === undefined) throw new ConnectError(`no subscriber #${subscriber}`, Code.NotFound);
+        if (listener !== null) {
+          if (listener.market !== market.code) {
+            return this.#refuse(RefusalCode.NOT_ELIGIBLE, `Subscriber #${listener.id} is in ${this.#market(listener.market).name}, and this quote is for ${market.name}.`, { market: listener.market });
+          }
+          if (request.plan === "student" && !this.#verifiedOn(listener, this.#today(market.code))) {
+            return this.#refuse(RefusalCode.NOT_ELIGIBLE, "Student needs a valid student verification (§10).", { check: "student" });
+          }
+        }
         let price = list;
         let months = 0;
         if (request.offerId !== "0") {
           const offer = this.published.find((candidate) => candidate.offerId === request.offerId && candidate.market === market.code && candidate.plan === request.plan);
           if (offer === undefined) return this.#refuse(RefusalCode.QUOTE_EXPIRED, "This offer is no longer on sale.", { offer_id: request.offerId });
+          if (listener !== null && !this.#inAudience(listener, offer.offerId)) {
+            return this.#refuse(RefusalCode.NOT_ELIGIBLE, `Subscriber #${listener.id} is not among ${offer.audience.toLowerCase()}.`, { offer_id: offer.offerId, audience: offer.audience });
+          }
           price = offer.price?.amountMinor ?? list;
           months = offer.monthsAtOfferPrice;
         }
         this.#quotes += 1;
+        const quoteId = `q_${hex(sha256(`quote-${this.#quotes}`)).slice(0, 32)}`;
         const expires = new Date(this.#options.clock().getTime() + 15 * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+        this.quotes.set(quoteId, {
+          id: quoteId, market: market.code, plan: request.plan, priceMinor: price, listMinor: list, months,
+          offerId: request.offerId === "0" ? null : request.offerId, subscriberId: subscriber, expiresAt: expires,
+        });
         return {
           outcome: {
             case: "quote" as const,
             value: create(QuoteSchema, {
-              quoteId: `quote-${this.#quotes}`, plan: request.plan, market: market.code, price: money(price, market.currency),
+              quoteId, plan: request.plan, market: market.code, price: money(price, market.currency),
               listPrice: money(list, market.currency), monthsAtPrice: months, thenPrice: money(list, market.currency), expiresAt: expires,
-              offerId: request.offerId, breakdown: this.#breakdown(this.#options.sentinels ? SENTINEL.amount : price, market.currency),
+              offerId: request.offerId, breakdown: this.#quoteBreakdown(price, market),
             }),
           },
+        };
+      },
+    });
+    router.service(SubscriberService, {
+      listDemoListeners: () => ({
+        listeners: [...this.listeners.values()].map((listener) => {
+          const today = this.#today(listener.market);
+          return create(DemoListenerSchema, {
+            subscriberId: listener.id, market: listener.market, title: listener.title, label: listener.label,
+            plan: this.#current(listener, today)?.plan ?? "", studentVerified: this.#verifiedOn(listener, today),
+          });
+        }),
+      }),
+      // A verification still valid comes back as it is, and nothing is written.
+      verifyStudent: (request, context) => {
+        const listener = this.#listener(request.subscriberId);
+        const today = this.#today(listener.market);
+        const latest = this.#latestVerification(listener, today);
+        if (latest?.valid) return { outcome: { case: "verification" as const, value: latest } };
+        const reference = `sim-student-${hex(sha256(`${listener.id}/${today}`)).slice(0, 24)}`;
+        if (!listener.student) {
+          return this.#refuse(RefusalCode.NOT_ELIGIBLE, "The simulated provider found no student record for this listener.", { provider: "simulated" });
+        }
+        const verification = { verifiedOn: today, validUntil: addMonths(today, 12), provider: "simulated", reference };
+        listener.verifications.push(verification);
+        this.#log(context, "student.verified", `subscriber:${listener.id}`, "", { subscriber: listener.id, ...verification }, {
+          actor: `subscriber-${listener.id}`, role: "subscriber",
+        });
+        return { outcome: { case: "verification" as const, value: create(StudentVerificationSchema, { ...verification, valid: true }) } };
+      },
+      // The engine's order of checks (commerce/engine/subscribers.py), each at the moment of confirming.
+      confirmQuote: (request, context) => {
+        const listener = this.#listener(request.subscriberId);
+        if (!/^q_[0-9a-f]{32}$/.test(request.quoteId)) throw new ConnectError("quote_id is the identifier GetQuote returned", Code.InvalidArgument);
+        const quote = this.quotes.get(request.quoteId);
+        if (quote === undefined || (quote.subscriberId !== null && quote.subscriberId !== listener.id)) {
+          throw new ConnectError(`no quote ${request.quoteId} for this listener`, Code.NotFound);
+        }
+        const now = this.#options.clock();
+        const market = this.#market(quote.market);
+        const today = this.#today(market.code);
+        if (now.getTime() >= Date.parse(quote.expiresAt)) {
+          return this.#refuse(RefusalCode.QUOTE_EXPIRED, `The quote expired at ${quote.expiresAt}: ask for a new one.`, { expired_at: quote.expiresAt });
+        }
+        const current = this.#current(listener, today);
+        if (current === undefined) throw new ConnectError(`subscriber #${listener.id} is on no plan on ${today}`, Code.FailedPrecondition);
+        if (current.paid) {
+          const plan = PLANS.find((candidate) => candidate.id === current.plan)?.name ?? current.plan;
+          return this.#refuse(RefusalCode.ALREADY_SUBSCRIBED, `A ${plan} subscription is already running for this listener.`, { plan: current.plan });
+        }
+        const offer = quote.offerId === null ? undefined : this.published.find((candidate) => candidate.offerId === quote.offerId && candidate.market === market.code);
+        if (quote.offerId !== null && offer === undefined) {
+          return this.#refuse(RefusalCode.QUOTE_EXPIRED, `Offer #${quote.offerId} is no longer on sale in ${market.name}.`, { offer_id: quote.offerId });
+        }
+        if (listener.market !== market.code) {
+          return this.#refuse(RefusalCode.NOT_ELIGIBLE, `This listener is in ${this.#market(listener.market).name}, and the quote is for ${market.name}.`, { market: listener.market });
+        }
+        if (quote.plan === "student" && !this.#verifiedOn(listener, today)) {
+          return this.#refuse(RefusalCode.NOT_ELIGIBLE, "Student needs a valid student verification (§10).", { check: "student" });
+        }
+        if (offer !== undefined) {
+          const rules = this.offerRules.get(offer.offerId) ?? { neverPaid: false, group: "", cap: 0 };
+          if (!this.#inAudience(listener, offer.offerId)) {
+            return this.#refuse(RefusalCode.NOT_ELIGIBLE, `The offer is for ${offer.audience.toLowerCase()}.`, { offer_id: offer.offerId, audience: offer.audience });
+          }
+          const taken = listener.subscriptions.find((subscription) => subscription.offerId !== null && this.offerRules.get(subscription.offerId)?.group === rules.group);
+          if (taken !== undefined) {
+            const title = this.published.find((candidate) => candidate.offerId === taken.offerId)?.title ?? `offer #${taken.offerId}`;
+            return this.#refuse(RefusalCode.NOT_COMBINABLE, `This listener already took ${title}, of the same group ${rules.group}: offers of a group never stack (§10.3).`, { group: rules.group, taken: title });
+          }
+          if (rules.cap > 0) {
+            const redeemed = [...this.listeners.values()].flatMap((other) => other.subscriptions).filter((subscription) => subscription.offerId === offer.offerId).length;
+            if (redeemed >= rules.cap) {
+              return this.#refuse(RefusalCode.CAP_REACHED, `Offer #${offer.offerId} has had its ${rules.cap} redemptions.`, { offer_id: offer.offerId, cap: String(rules.cap) });
+            }
+          }
+        }
+        if (current.startedOn >= today) throw new ConnectError("the free plan started today and cannot end today: subscribe again tomorrow", Code.FailedPrecondition);
+        const atConfirmation = this.#options.payments === "at-confirmation";
+        if (atConfirmation) {
+          const declined = this.#declineNext;
+          this.#declineNext = null;
+          if (declined !== null) return this.#refuse(RefusalCode.PAYMENT_DECLINED, declined, { provider: "simulated" });
+        }
+        current.endedOn = today;
+        const stored: StoredSubscription = {
+          id: String(this.#nextSubscription++), plan: quote.plan, paid: true, priceMinor: quote.priceMinor, startedOn: today, endedOn: null,
+          billingDay: billingDayFor(today), quoteId: quote.id, offerId: quote.offerId, offerMonths: quote.months, payment: null,
+        };
+        listener.subscriptions.push(stored);
+        const subscription = this.#subscription(listener, stored, today);
+        const confirmed = {
+          subscriber: listener.id, quote: quote.id, offer: quote.offerId, plan: quote.plan, market: market.code, price: quote.priceMinor,
+          offer_months: quote.months, full_price_from: subscription.fullPriceFrom || null, from: current.plan,
+        };
+        const by = { actor: `subscriber-${listener.id}`, role: "subscriber" };
+        if (atConfirmation) {
+          // The engine of stage 5: the provider charged inside the confirmation, and the receipt came back with it.
+          const reference = `sim-pay-${hex(sha256(quote.id)).slice(0, 24)}`;
+          const receiptId = `r_${hex(sha256(`receipt-${stored.id}`)).slice(0, 32)}`;
+          this.receipts.push({ id: receiptId, subscriptionId: stored.id, quoteId: quote.id, subscriberId: listener.id });
+          this.#log(context, "subscription.confirmed", `subscription:${stored.id}`, "", { ...confirmed, receipt: receiptId, provider: "simulated", provider_reference: reference }, by);
+          const receipt = create(ReceiptSchema, {
+            receiptId, amount: money(quote.priceMinor, market.currency), issuedAt: this.#now(), provider: "simulated",
+            providerReference: reference, demonstration: true, note: RECEIPT_NOTE,
+          });
+          return { outcome: { case: "confirmation" as const, value: { subscription, receipt } } };
+        }
+        // Stage 6: the payment is asked for after the confirmation commits, through the outbox, and comes back PENDING.
+        stored.payment = {
+          id: `pay_${hex(sha256(`payment-${stored.id}`)).slice(0, 32)}`, state: "pending", amountMinor: quote.priceMinor, requestedAt: this.#now(),
+          settledAt: "", failureReason: "", receipt: null,
+        };
+        this.#log(context, "subscription.confirmed", `subscription:${stored.id}`, "", { ...confirmed, payment: stored.payment.id }, by);
+        return { outcome: { case: "confirmation" as const, value: { subscription, payment: this.#payment(stored.payment, market.currency) } } };
+      },
+      getAccount: (request) => {
+        const listener = this.#listener(request.subscriberId);
+        const today = this.#today(listener.market);
+        const current = this.#current(listener, today);
+        if (current === undefined) throw new ConnectError(`subscriber #${listener.id} is on no plan on ${today}`, Code.FailedPrecondition);
+        const verification = this.#latestVerification(listener, today);
+        const currency = this.#market(listener.market).currency;
+        return {
+          account: create(AccountSchema, {
+            subscriberId: this.#options.sentinels ? SENTINEL.changeId : listener.id, market: listener.market,
+            subscription: this.#subscription(listener, current, today),
+            ...(verification ? { studentVerification: verification } : {}),
+            ...(current.payment ? { payment: this.#payment(current.payment, currency) } : {}),
+          }),
         };
       },
     });
@@ -725,7 +1222,7 @@ export class FakeEngine {
             changeId: stored.id, title: stored.versions.at(-1)?.content.title ?? "", state: stored.state, atRisk: false, risk: "",
             starts: { market: "IT", local: "2026-11-02T09:00", utc: "2026-11-02T08:00:00Z" },
           })),
-          incidentsToday: [],
+          incidentsToday: this.incidents.map((incident) => create(IncidentSchema, incident)),
           payingSubscribers: [{ market: "IT", plan: "student", count: 12_480n }, { market: "DE", plan: "family", count: 9_310n }],
           freeListeners: [{ market: "IT", plan: "free", count: 51_200n }],
           ...(revenue

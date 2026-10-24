@@ -9,14 +9,16 @@ other roles those fields stay empty.
 "This month's revenue" is the monthly revenue of the subscriptions current at
 the instant: each subscription's price net of VAT (§5.1), summed per market,
 and in euros at the declared rate (§3.6). It is not accounting (§15).
-Incidents arrive with the activation jobs of stage 6; until then the list is
-empty.
+
+Today's incidents are those of the launches (launches.py): the ones open at
+the instant, and those opened or closed on its day in UTC, each in the state
+it was in at the instant.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, time, timedelta
 
 from commerce.domain import policy
 from commerce.domain.economics import Book
@@ -25,7 +27,6 @@ from commerce.domain.money import Money
 from commerce.domain.offers import from_json
 from commerce.engine import contract, records, reference
 from commerce.engine.call import Call, Clock
-from commerce.engine.changes import starts_of
 from commerce.engine.database import Connection, utc_text
 from commerce.v1 import common_pb2, overview_pb2
 
@@ -60,7 +61,7 @@ class Overview:
         launches = []
         for row in upcoming:
             content = from_json(json.loads(row["content"]))
-            for market, moment in starts_of(content):
+            for market, moment in records.starts_of(content):
                 instant = to_instant(moment, ref.markets[market].zone)
                 if at <= instant < at + LAUNCH_WINDOW:
                     launches.append((instant, overview_pb2.Launch(
@@ -69,6 +70,22 @@ class Overview:
                         state=contract.state_to_proto(row["state"]), at_risk=row["state"] != "scheduled",
                         risk=RISKS.get(row["state"], ""))))
         response.launches_next_7_days.extend(launch for _, launch in sorted(launches, key=lambda pair: (pair[0], pair[1].change_id)))
+
+        day = datetime.combine(at.astimezone(UTC).date(), time.min, tzinfo=UTC)
+        for row in await tx.fetch(
+                f"select i.id, i.launch_id, i.kind, i.state, i.summary, {utc_text('i.opened_at')} as opened_at, "
+                f"{utc_text('i.closed_at')} as closed_at, i.resolution, l.change_id, c.title from incident i "
+                "join launch l on l.id = i.launch_id join change c on c.id = l.change_id "
+                "where i.opened_at <= $1::text::timestamptz and (i.closed_at is null or i.closed_at > $1::text::timestamptz "
+                "or i.opened_at >= $2::text::timestamptz or i.closed_at >= $2::text::timestamptz) "
+                "order by i.opened_at desc, i.id desc", format_instant(at), format_instant(day)):
+            closed = row["closed_at"] is not None and records.iso(row["closed_at"]) <= format_instant(at)
+            response.incidents_today.append(overview_pb2.Incident(
+                change_id=row["change_id"], title=row["title"], run=f"launch-{row['launch_id']}",
+                state=row["state"] if closed else "open", summary=row["summary"], launch_id=row["launch_id"],
+                kind=row["kind"], opened_at=records.iso(row["opened_at"]),
+                closed_at=records.iso(row["closed_at"]) if closed else "",
+                resolution=(row["resolution"] or "") if closed else ""))
 
         # Subscriptions current on each market's own calendar day.
         days = {code: m.today(at).isoformat() for code, m in ref.markets.items()}

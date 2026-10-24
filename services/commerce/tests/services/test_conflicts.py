@@ -14,7 +14,8 @@ import pytest
 
 from commerce.v1 import changes_pb2, common_pb2
 from engine_support import (
-    FINANCE, LEAD, MARKETING, MARKETING_2, approved, create, family_rise, nordflur, scheduled, student_autumn,
+    FINANCE, LEAD, MARKETING, MARKETING_2, approved, create, family_rise, nordflur, past_validation_by_hand, scheduled,
+    student_autumn,
 )
 
 REFUSAL = common_pb2.RefusalCode
@@ -64,20 +65,6 @@ async def test_campaigns_in_different_groups_are_validated_at_the_same_moment(wo
     meet_after_reading(world, monkeypatch, wait=5.0)
     one, two = await asyncio.gather(validate(world, first), validate(world, second, MARKETING_2))
     assert one.WhichOneof("outcome") == two.WhichOneof("outcome") == "change"
-
-
-async def past_validation_by_hand(world, content, who=MARKETING_2) -> changes_pb2.Change:
-    """A second campaign moved along by the database's owner, as a validation
-    race before this check, or a hand edit, could leave one."""
-    change = await create(world, content, who)
-    for state in ("validated", "in_approval"):
-        await world.owner.execute("update change set state = $2 where id = $1", change.id, state)
-    await world.owner.execute(
-        "insert into approval (change_id, version, author, content_hash, approver, role, decided_at) "
-        "select change_id, version, author, content_hash, 'finance-1', 'finance', $2 from change_version where change_id = $1",
-        change.id, world.clock.now())
-    await world.owner.execute("update change set state = 'approved' where id = $1", change.id)
-    return change
 
 
 async def test_scheduling_checks_the_conflict_again(world):

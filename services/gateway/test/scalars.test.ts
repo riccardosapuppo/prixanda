@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { Kind, parseValue } from "graphql";
 import {
-  DateTimeScalar, LocalDateTimeScalar, MarketCodeScalar, MoneyScalar, PlanCodeScalar, Sha256Scalar,
+  DateScalar, DateTimeScalar, LocalDateTimeScalar, MarketCodeScalar, MoneyScalar, PlanCodeScalar, Sha256Scalar,
 } from "../src/core/scalars.ts";
 import { codes, type Harness, startHarness } from "./support/harness.ts";
 
@@ -65,6 +65,17 @@ describe("dates and times", () => {
       assert.throws(() => DateTimeScalar.parseValue(value), /DateTime/, value);
     }
     assert.throws(() => DateTimeScalar.serialize("2026-10-24T09:00:00+02:00"), /the engine answered/);
+  });
+
+  test("Date takes a day of the calendar, and nothing more or less", () => {
+    for (const value of ["2026-10-26", "2027-01-26", "2028-02-29"]) {
+      assert.equal(DateScalar.parseValue(value), value);
+      assert.equal(DateScalar.serialize(value), value);
+    }
+    for (const value of ["2026-02-29", "2026-13-01", "2026-10-32", "2026-10-26T00:00", "26/10/2026", "2026-1-26", ""]) {
+      assert.throws(() => DateScalar.parseValue(value), /Date/, value);
+    }
+    assert.throws(() => DateScalar.serialize("2026-10-26T09:00:00Z"), /the engine answered/);
   });
 });
 

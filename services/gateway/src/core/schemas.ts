@@ -6,7 +6,7 @@ import { buildSchema, type GraphQLSchema } from "graphql";
 import { bindResolvers } from "./bind.ts";
 import { internalSdl, publicSdl } from "./generated/sdl.ts";
 import { internalResolvers } from "./internal/resolvers.ts";
-import { guardInternalSchema } from "./policy.ts";
+import { guardInternalSchema, guardPublicSchema } from "./policy.ts";
 import { publicResolvers } from "./public/resolvers.ts";
 
 /** The console's schema, every root field behind its access rule. */
@@ -16,7 +16,9 @@ export function buildInternalSchema(): GraphQLSchema {
   return schema;
 }
 
-/** The site's schema: public by nature, it has no session to check. */
+/** The site's schema: public, except what acts for the listener of the site's session. */
 export function buildPublicSchema(): GraphQLSchema {
-  return bindResolvers(buildSchema(publicSdl), publicResolvers, "site's");
+  const schema = bindResolvers(buildSchema(publicSdl), publicResolvers, "site's");
+  guardPublicSchema(schema);
+  return schema;
 }

@@ -28,7 +28,16 @@ const ALL: Allowed = ROLES;
  * The engine methods that act for nobody: the gateway sends them no x-actor
  * and no x-actor-role (the coordinator's convention 2).
  */
-export const PUBLIC_METHODS = ["ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote"] as const;
+export const PUBLIC_METHODS = ["ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote", "ListDemoListeners"] as const;
+
+/**
+ * The engine methods that act for the listener of the site's session (the
+ * subscriber's side, stage 5). No person of the team: no x-actor either, and
+ * in the audit log their author is the subscriber. Their subscriber_id is the
+ * session's, which the gateway writes itself (engine.ts): the browser never
+ * names who it acts for.
+ */
+export const SUBSCRIBER_METHODS = ["VerifyStudent", "ConfirmQuote", "GetAccount"] as const;
 
 /** The other engine methods, and the roles that may call them. */
 export const METHOD_ROLES = {

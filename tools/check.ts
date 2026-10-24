@@ -16,7 +16,7 @@
 // but one could not run on this machine, which is listed and never reads as
 // passed.
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { flyway } from "./lib/flyway.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
@@ -37,13 +37,19 @@ const failed = (counted: string, detail: string): Omit<Result, "suite" | "second
 const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome: "not run", counted: "-", detail });
 
 // The floors: what each suite must at least have checked.
-const FLOOR = { typecheckedFiles: 12, contractFiles: 30, migrations: 10, pythonTests: 514, invariants: 10, generatedSubscribers: 5_000 };
+const FLOOR = {
+  typecheckedFiles: 12, contractFiles: 47, migrations: 11, pythonTests: 568, invariants: 10, generatedSubscribers: 5_000,
+  faultsInjected: 12,
+};
 // pytest's tests by area, read from the folder each test lives in: the
 // database's own rules (tests/), the rules as plain Python (domain), the
 // business book's numbers (golden), every service against PostgreSQL
-// (services), the calls over gRPC with a real server (e2e), and the
-// properties Hypothesis generates cases for (properties).
-const AREA_FLOOR: Record<string, number> = { database: 81, domain: 152, golden: 32, services: 212, e2e: 27, properties: 10 };
+// (services), the calls over gRPC with a real server (e2e), the properties
+// Hypothesis generates cases for (properties), and the faults injected in a
+// launch with the engine's real process (faults).
+const AREA_FLOOR: Record<string, number> = { database: 90, domain: 153, golden: 32, services: 241, e2e: 28, properties: 10, faults: 14 };
+// What tests/faults writes: every fault injected in a launch, and what it left.
+type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 
 const SUITES: Suite[] = [
   {
@@ -97,7 +103,7 @@ const SUITES: Suite[] = [
   },
   {
     name: "pytest",
-    what: "the engine against PostgreSQL: the database's rules, the domain, the golden cases, every service and call with its refusals and errors, gRPC end to end, properties",
+    what: "the engine against PostgreSQL: the database's rules, the domain, the golden cases, every service and call with its refusals and errors, gRPC end to end, properties, faults injected in launches",
     needsDatabase: true,
     async run({ cluster }) {
       if (!cluster) return notRun("no database");
@@ -106,6 +112,9 @@ const SUITES: Suite[] = [
       await assertFree(PORTS.engineCheck, "the engine's gRPC tests");
       const commerce = join(repoRoot, "services", "commerce");
       const report = join(reports, "pytest-engine.xml");
+      // The faults' report of an earlier run must not stand in for this one.
+      const faultsFile = join(reports, "fault-injection.json");
+      await rm(faultsFile, { force: true });
       const ran = await run(venvPython, ["-m", "pytest", "-q", "-p", "no:cacheprovider", `--junitxml=${report}`, "tests"], {
         cwd: commerce,
         env: {
@@ -114,6 +123,7 @@ const SUITES: Suite[] = [
           COMMERCE_TEST_TEMPLATE: TEMPLATE,
           COMMERCE_TEST_APP_URL: cluster.url("{database}", "app").replace("%7Bdatabase%7D", "{database}"),
           COMMERCE_TEST_ENGINE_PORT: String(PORTS.engineCheck),
+          COMMERCE_TEST_REPORTS: reports,
         },
         echo: true,
       });
@@ -131,10 +141,17 @@ const SUITES: Suite[] = [
       if (short.length) return failed(counted, short.map(([area, floor]) => `${area}: fewer than ${floor} tests`).join("; "));
       const unknown = Object.keys(areas).filter((area) => !(area in AREA_FLOOR));
       if (unknown.length) return failed(counted, `tests in an area with no floor: ${unknown.join(", ")}`);
+      // The faults injected in launches: every one recovered, none left a launch half live.
+      if (!existsSync(faultsFile)) return failed(counted, "the fault-injection tests wrote no report");
+      const faults = JSON.parse(await readFile(faultsFile, "utf8")) as FaultReport;
+      const told = `${counted}; faults: ${faults.faults_injected} injected, ${faults.partial_activations} partial activations, ${faults.recovered} recovered`;
+      if (faults.faults_injected < FLOOR.faultsInjected) return failed(told, `fewer than ${FLOOR.faultsInjected} faults injected`);
+      if (faults.partial_activations !== 0) return failed(told, "a fault left a launch half live (reports/fault-injection.json)");
+      if (faults.recovered !== faults.faults_injected) return failed(told, "a launch did not recover from its fault");
       // Rule 26: a test that writes undoes what it wrote, caches included.
       const deposits = [".hypothesis", ".pytest_cache"].filter((name) => existsSync(join(commerce, name)));
-      if (deposits.length) return failed(counted, `the tests left ${deposits.join(" and ")} in services/commerce`);
-      return passed(counted);
+      if (deposits.length) return failed(told, `the tests left ${deposits.join(" and ")} in services/commerce`);
+      return passed(told);
     },
   },
   {
@@ -164,8 +181,9 @@ const SUITES: Suite[] = [
     },
   },
   // The gateway (stage 3). Its tests start a fake engine on 127.0.0.1:4613
-  // and the gateway on 4621 and 4622, after asking the system that nobody
-  // listens there; they need no database.
+  // and the gateway on 4621 and 4622 (CHECK_FAKE_ENGINE_PORT,
+  // CHECK_GATEWAY_INTERNAL_PORT and CHECK_GATEWAY_PUBLIC_PORT move them),
+  // after asking the system that nobody listens there; they need no database.
   {
     name: "gw-types",
     what: "tsc over the gateway (strict, erasable), then its core again with a browser's types and none of Node's",
@@ -207,7 +225,7 @@ const SUITES: Suite[] = [
   },
   {
     name: "gw-tests",
-    what: "the gateway against a fake engine over gRPC: resolvers, roles, sessions, CSRF, idempotency, request ids, limits",
+    what: "the gateway against a fake engine over gRPC: resolvers, roles, both APIs' sessions, CSRF, idempotency, request ids, limits, the subscriber's side",
     needsDatabase: false,
     async run() {
       const files = (await readdir(join(gatewayDir, "test"))).filter((name) => name.endsWith(".test.ts") && !name.includes("contract"))
@@ -231,6 +249,53 @@ const SUITES: Suite[] = [
       return passed(counted);
     },
   },
+  // The engine and the gateway together (end of stage 3, and the subscriber's
+  // side of stage 5): the real engine on CHECK_ENGINE_PORT, the real gateway
+  // on the gateway's test ports, and the Student Autumn Pass walked through
+  // over HTTP only, up to a student's subscription.
+  {
+    name: "integration",
+    what: "the real engine and the real gateway over HTTP: §14.1 from a draft to a student's subscription on the site, the audit log, idempotency",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const database = "commerce_integration";
+      await createDatabase(cluster, database, TEMPLATE);
+      try {
+        const commerce = join(repoRoot, "services", "commerce");
+        const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), "--size", "small", "--seed", "7"], {
+          cwd: commerce, env: { ...process.env, PYTHONPATH: join(commerce, "src") },
+        });
+        if (generated.code !== 0) return failed("-", generated.output.slice(-3000));
+        const summaryFile = join(reports, "integration.json");
+        await rm(summaryFile, { force: true });
+        const tests = await nodeTests("integration", ["test/integration/student-autumn.test.ts"], GATEWAY_FLOOR.integrationTests, {
+          INTEGRATION_DATABASE_URL: cluster.url(database, "app"),
+          INTEGRATION_SUMMARY: summaryFile,
+        });
+        if (!existsSync(summaryFile)) return failed(tests.counted, `${tests.detail}\nthe test wrote no summary`.trim());
+        const summary = JSON.parse(await readFile(summaryFile, "utf8")) as {
+          activationMs: number | null;
+          auditEvents: number;
+          engineExit: number | null;
+          subscription: { price: string; months: number; fullPrice: string; fullPriceFrom: string; payment: string; logged: boolean } | null;
+        };
+        const euros = (minor: string) => (Number(minor) / 100).toFixed(2);
+        const paid = summary.subscription
+          ? `subscribed at ${euros(summary.subscription.price)} × ${summary.subscription.months}, then ${euros(summary.subscription.fullPrice)} from ${summary.subscription.fullPriceFrom}, the first month ${summary.subscription.payment}`
+          : "no subscription";
+        const counted = `${tests.counted}; on the site ${summary.activationMs === null ? "never" : `${(summary.activationMs / 1000).toFixed(1)} s`} after 09:00; ${summary.auditEvents} audit events; ${paid}`;
+        if (tests.outcome !== "passed") return { ...tests, counted };
+        if (summary.auditEvents < GATEWAY_FLOOR.integrationAuditEvents) return failed(counted, `fewer than ${GATEWAY_FLOOR.integrationAuditEvents} audit events of the pass were found`);
+        if (!summary.subscription?.logged) return failed(counted, "the student's subscription was not found in the audit log");
+        if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
+        return passed(counted);
+      } finally {
+        await cluster.sql("postgres", `drop database if exists ${database} with (force)`);
+      }
+    },
+  },
 ];
 
 // pytest's JUnit report: the totals of its test suites.
@@ -249,18 +314,21 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
-const GATEWAY_FLOOR = { files: 42, coreFiles: 19, generated: 3, schemaTests: 18, tests: 133, dataloaderOffers: 25 };
+const GATEWAY_FLOOR = {
+  files: 46, coreFiles: 19, generated: 3, schemaTests: 19, tests: 185, dataloaderOffers: 25, integrationTests: 8, integrationAuditEvents: 7,
+};
 
 /**
  * Node's test runner over some of the gateway's test files, one file at a
- * time (they share the ports 4613, 4621 and 4622), counting the test cases
+ * time (they share the fake engine's and the gateway's ports), counting the test cases
  * of its JUnit report: a file that failed to load is a failure there too.
  */
-async function nodeTests(suite: string, files: string[], floor: number): Promise<Omit<Result, "suite" | "seconds">> {
+async function nodeTests(suite: string, files: string[], floor: number, env: Record<string, string> = {}): Promise<Omit<Result, "suite" | "seconds">> {
   if (files.length === 0) return failed("0", "no test file found");
   const report = join(reports, `${suite}.xml`);
+  await rm(report, { force: true });
   const ran = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=junit", `--test-reporter-destination=${report}`,
-    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true });
+    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true, env: { ...process.env, ...env } });
   if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
   const xml = await readFile(report, "utf8");
   const tests = [...xml.matchAll(/<testcase\b/g)].length;

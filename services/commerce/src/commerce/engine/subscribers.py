@@ -6,9 +6,18 @@ with the role "subscriber". Every change of state writes its event in the
 same transaction, with the request id it arrived with.
 
 ConfirmQuote decides again at the moment of confirming, under locks: the
-listener's current subscription first, so that two confirmations of one
-listener go one at a time, then the offer's change row, so that redemptions
-counted against a cap cannot both take the last place.
+listener first, so that two confirmations of one listener go one at a time
+and the second reads what the first wrote; then the offer's change row, so
+that redemptions counted against a cap cannot both take the last place, and
+a suspension cannot slip in between; then the listener's current
+subscription. Only then does it read the clock it decides at: a confirmation
+that waited for a lock checks the quote's expiry, the offer's state and its
+period at the moment it holds them all, never at the moment it arrived.
+
+The first month is charged after the confirmation commits: the confirmation
+writes the payment, pending, and an outbox message in its transaction, and
+the outbox asks the payment provider afterwards (payments.py). The account
+shows the payment settled, and its receipt, once the provider's events say so.
 
 Limits, written down: a listener moves from the free plan to a paid one; a
 change between paid plans, a cancellation and the monthly roll-over to the
@@ -22,27 +31,26 @@ from __future__ import annotations
 
 import json
 import re
-import secrets
 from datetime import date, datetime
 
 from commerce.domain import billing
 from commerce.domain.economics import Book
-from commerce.domain.localtime import format_instant
+from commerce.domain.localtime import format_instant, to_local
 from commerce.domain.money import Money
-from commerce.domain.validation import resolve_price
-from commerce.engine import contract, eligibility, records, reference
+from commerce.domain.validation import on_sale, resolve_price
+from commerce.engine import contract, eligibility, payments, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.catalog import LIVE_OFFER, Catalog, list_price_at, live_offer
 from commerce.engine.database import Connection, utc_text
 from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound, Refused
-from commerce.engine.providers import Charge, PaymentProvider, StudentClaim, StudentVerifier
+from commerce.engine.providers import PaymentProvider, StudentClaim, StudentVerifier
 from commerce.engine.quotes import audience_of
 from commerce.v1 import subscriptions_pb2
 
 SUBSCRIBER_ROLE = "subscriber"
 QUOTE_ID = re.compile(r"^q_[0-9a-f]{32}$")
-RECEIPT_NOTE = ("Demonstration receipt from a simulated payment provider: no payment was taken, no money moved, "
-                "and no subscription contract was made.")
+# The advisory locks: 4600011 the audit chain (V4), 4600021 publications, 4600031 clashes, this one a listener.
+LISTENER_LOCK = 4_600_041
 
 
 def author(subscriber_id: int) -> str:
@@ -170,6 +178,8 @@ class Subscribers:
                             request: subscriptions_pb2.ConfirmQuoteRequest) -> subscriptions_pb2.ConfirmQuoteResponse:
         subscriber = request.subscriber_id
         home = await self._market_of(tx, subscriber)
+        # One confirmation of this listener at a time: every read below sees what an earlier one committed.
+        await tx.execute("select pg_advisory_xact_lock($1, hashtext($2))", LISTENER_LOCK, str(subscriber))
         if not QUOTE_ID.match(request.quote_id):
             raise InvalidArgument("quote_id is the identifier GetQuote returned")
         quote = await tx.fetchrow(
@@ -178,6 +188,13 @@ class Subscribers:
             request.quote_id)
         if quote is None or (quote["subscriber_id"] is not None and quote["subscriber_id"] != subscriber):
             raise NotFound(f"no quote {request.quote_id} for this listener")
+        offer_id = quote["offer_change_id"]
+        if offer_id is not None:
+            await tx.execute("select id from change where id = $1 for update", offer_id)
+        arrived = self.clock.now()  # only to find the subscription to lock: the market's day when the call arrived
+        arrived_in = (await reference.load(tx, arrived)).market(quote["market"].strip())
+        current = await tx.fetchrow(CURRENT + " for update", subscriber, arrived_in.today(arrived).isoformat())
+        # Every lock is held: the moment this confirmation is decided at.
         now = self.clock.now()
         ref = await reference.load(tx, now)
         market = ref.market(quote["market"].strip())
@@ -185,25 +202,28 @@ class Subscribers:
         if now >= datetime.fromisoformat(quote["expires_at"].replace("Z", "+00:00")):
             raise Refused("QUOTE_EXPIRED", f"The quote expired at {records.iso(quote['expires_at'])}: ask for a new one.",
                           {"expired_at": records.iso(quote["expires_at"])})
-        current = await tx.fetchrow(CURRENT + " for update", subscriber, today.isoformat())
         if current is None:
             raise FailedPrecondition(f"subscriber #{subscriber} is on no plan on {today.isoformat()}")
         if current["paid"]:
             raise Refused("ALREADY_SUBSCRIBED", f"A {ref.plans[current['plan_id']].name} subscription is already running "
                                                 "for this listener.", {"plan": current["plan_id"]})
-        offer_id = quote["offer_change_id"]
         offer = None
         if offer_id is not None:
-            await tx.execute("select id from change where id = $1 for update", offer_id)
+            # The state of the change, read under its lock, says whether it is on sale: a suspension published with a
+            # clock a little ahead of this one is not in the snapshot live at this instant, and still counts.
+            state = await tx.fetchval("select state from change where id = $1", offer_id)
             snapshot = await self.catalog.publisher.live_snapshot(tx, now)
-            row = None if snapshot is None else await tx.fetchrow(
+            row = None if snapshot is None or state != "active" else await tx.fetchrow(
                 LIVE_OFFER + " and o.change_id = $4", snapshot, market.code, format_instant(now), offer_id)
             if row is None:
-                raise Refused("QUOTE_EXPIRED", f"Offer #{offer_id} is no longer on sale in {market.name}.", {"offer_id": offer_id})
+                raise Refused("QUOTE_EXPIRED", f"Offer #{offer_id} is no longer on sale in {market.name}.",
+                              {"offer_id": offer_id, "state": state})
             offer = live_offer(row)
-            list_price = await list_price_at(tx, offer.plan, market, datetime.combine(today, datetime.min.time()))
-            if list_price is None or resolve_price(offer.price_rule, list_price) >= list_price:
-                raise Refused("QUOTE_EXPIRED", f"Offer #{offer_id} no longer costs less than the list price.", {"offer_id": offer_id})
+            # The list price in force at this instant of the market's day, as GetQuote and the catalog read it.
+            list_price = await list_price_at(tx, offer.plan, market, to_local(now, market.zone))
+            if list_price is None or not on_sale(resolve_price(offer.price_rule, list_price), list_price):
+                raise Refused("QUOTE_EXPIRED", f"Offer #{offer_id} no longer costs less than the list price, or comes to "
+                                               "nothing: it is not on sale.", {"offer_id": offer_id})
         if home != market.code:
             raise Refused("NOT_ELIGIBLE", f"This listener is in {ref.markets[home].name}, and the quote is for {market.name}.",
                           {"market": home})
@@ -233,12 +253,6 @@ class Subscribers:
         if _date(current["started_on"]) >= today:
             raise FailedPrecondition("the free plan started today and cannot end today: subscribe again tomorrow")
         price = Money(quote["price_minor"], market.currency)
-        charge = await self.payments.charge(Charge(
-            amount=price, idempotency_key=quote["id"],
-            description=f"{plan.name}, {market.name}: first month{' at the offer price' if offer else ''}"))
-        if not charge.succeeded:
-            raise Refused("PAYMENT_DECLINED", charge.declined_reason or "The payment provider declined the charge.",
-                          {"provider": charge.provider})
         await tx.execute("update subscription set ended_on = $2::text::date where id = $1", current["id"], today.isoformat())
         subscription_id = await tx.fetchval(
             "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, "
@@ -246,24 +260,19 @@ class Subscribers:
             "true, $5, $6::text::date, $7, $8, $9, $10) returning id",
             subscriber, market.code, market.currency, plan.id, price.amount, today.isoformat(), billing.billing_day_for(today),
             quote["id"], offer_id, quote["months_at_price"] or None)
-        receipt_id = f"r_{secrets.token_hex(16)}"
-        await tx.execute(
-            "insert into receipt (id, subscription_id, quote_id, subscriber_id, amount_minor, currency, issued_at, provider, "
-            "provider_reference, note) values ($1, $2, $3, $4, $5, $6, $7::text::timestamptz, $8, $9, $10)",
-            receipt_id, subscription_id, quote["id"], subscriber, price.amount, market.currency, format_instant(now),
-            charge.provider, charge.reference, RECEIPT_NOTE)
+        payment_id = payments.new_payment_id()
+        await payments.request(
+            tx, payment_id=payment_id, quote_id=quote["id"], subscription_id=subscription_id, subscriber_id=subscriber,
+            price=price, description=f"{plan.name}, {market.name}: first month{' at the offer price' if offer else ''}",
+            provider=self.payments.name, now=now, request_id=call.request_id)
         row = await tx.fetchrow(CURRENT, subscriber, today.isoformat())
         subscription = await self._subscription(tx, market, row, today)
         await self._event(tx, call, subscriber, "subscription.confirmed", f"subscription:{subscription_id}", {
             "quote": quote["id"], "offer": offer_id, "plan": plan.id, "market": market.code, "price": price.amount,
             "offer_months": quote["months_at_price"], "full_price_from": subscription.full_price_from or None,
-            "from": current["plan_id"], "receipt": receipt_id, "provider": charge.provider,
-            "provider_reference": charge.reference}, now)
+            "from": current["plan_id"], "payment": payment_id, "payment_state": "pending", "provider": self.payments.name}, now)
         return subscriptions_pb2.ConfirmQuoteResponse(confirmation=subscriptions_pb2.Confirmation(
-            subscription=subscription,
-            receipt=subscriptions_pb2.Receipt(
-                receipt_id=receipt_id, amount=contract.money(price), issued_at=format_instant(now), provider=charge.provider,
-                provider_reference=charge.reference, demonstration=True, note=RECEIPT_NOTE)))
+            subscription=subscription, payment=await payments.of_subscription(tx, subscription_id)))
 
     async def get_account(self, tx: Connection, call: Call,
                           request: subscriptions_pb2.GetAccountRequest) -> subscriptions_pb2.GetAccountResponse:
@@ -279,4 +288,7 @@ class Subscribers:
         verification = await self._verification(tx, request.subscriber_id, today)
         if verification is not None:
             account.student_verification.CopyFrom(verification)
+        payment = await payments.of_subscription(tx, row["id"])
+        if payment is not None:
+            account.payment.CopyFrom(payment)
         return subscriptions_pb2.GetAccountResponse(account=account)

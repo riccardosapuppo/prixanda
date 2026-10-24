@@ -20,7 +20,8 @@ from datetime import timedelta
 from commerce.domain.economics import Book
 from commerce.domain.localtime import add_months, format_instant, to_local
 from commerce.domain.offers import Audience, ListeningRule
-from commerce.domain.validation import resolve_price
+from commerce.domain.money import format_money
+from commerce.domain.validation import on_sale, resolve_price
 from commerce.engine import contract, eligibility, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.catalog import LIVE_OFFER, Catalog, breakdown, list_price_at, live_offer, market_code, plan_id
@@ -84,7 +85,10 @@ class Quotes:
             if offer.plan != plan.id:
                 raise InvalidArgument(f"offer #{offer.change_id} sells {ref.plans[offer.plan].name}, not {plan.name}")
             price = resolve_price(offer.price_rule, list_price)
-            if price >= list_price:
+            if price.amount <= 0:
+                raise Refused("QUOTE_EXPIRED", f"Offer #{offer.change_id} comes to {format_money(price)} in {market.name}: "
+                                               "an offer with no price is not on sale.", {"offer_id": offer.change_id})
+            if not on_sale(price, list_price):
                 raise Refused("QUOTE_EXPIRED", f"Offer #{offer.change_id} no longer costs less than the list price in "
                                                f"{market.name}.", {"offer_id": offer.change_id})
             if subscriber and not await eligibility.includes(tx, audience_of(offer.audience), market.code, today, subscriber):

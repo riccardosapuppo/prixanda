@@ -6,19 +6,25 @@ same key while the first runs waits on it, then reads the first's outcome. A
 key is bound to the method, the role and the request's bytes as protobuf
 writes them deterministically; the same key with anything else is refused.
 
-A limit, written down: recorded outcomes are kept. Pruning the keys older
-than a set age is a job, and belongs with the jobs of stage 6.
+Keys are pruned (prune(), a job of the server): a key whose call finished
+more than RETENTION ago is deleted, a key whose call is still running never
+is (the database refuses it, migration V11). A retry that comes with a pruned
+key runs the call again: the gateway retries within seconds, and RETENTION is
+a week.
 """
 
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from commerce.domain.localtime import format_instant
-from commerce.engine.call import Call
-from commerce.engine.database import Connection
+from commerce.engine.call import Call, Clock
+from commerce.engine.database import Connection, Database
 from commerce.engine.errors import Aborted, InvalidArgument
+
+RETENTION = timedelta(days=7)
+PRUNE_BATCH = 1_000
 
 
 def fingerprint(method: str, role: str | None, request) -> str:
@@ -51,3 +57,19 @@ async def complete(tx: Connection, call: Call, response, now: datetime) -> None:
         "update idempotent_call set response = decode($3, 'hex'), outcome = $4, completed_at = $5::text::timestamptz "
         "where scope = $1 and key = $2",
         call.scope, call.idempotency_key, response.SerializeToString().hex(), outcome, format_instant(now))
+
+
+async def prune(db: Database, clock: Clock, *, retention: timedelta = RETENTION, batch: int = PRUNE_BATCH) -> int:
+    """Deletes the keys of calls that finished before now less the retention, a batch per transaction.
+    Returns how many went."""
+    cutoff = format_instant(clock.now() - retention)
+    pruned = 0
+    while True:
+        async with db.transaction() as tx:
+            gone = await tx.fetchval(
+                "with gone as (delete from idempotent_call where (scope, key) in (select scope, key from idempotent_call "
+                "where completed_at < $1::text::timestamptz order by completed_at limit $2) returning 1) "
+                "select count(*) from gone", cutoff, batch)
+        pruned += gone
+        if gone < batch:
+            return pruned
