@@ -1,6 +1,7 @@
 // The approval page for three people: the author finds no button and reads
-// why; the commercial lead cannot sign what only Finance may; Finance signs
-// v3 by its fingerprint after the confirmation, with one idempotency key.
+// why; the commercial lead cannot sign what only Finance may, and still sends
+// it back to its author with a reason (sending back is not signing); Finance
+// signs v3 by its fingerprint after the confirmation, with one idempotency key.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { FINGERPRINT_V3, MARKETS, simulation, studentPass } from "../../stories/fixtures.ts";
@@ -10,14 +11,19 @@ import { ApprovalScreen } from "./approval.tsx";
 
 function gatewayFor() {
   let approved = false;
+  let sentBack = false;
   return fakeGateway({
-    Change: () => ({ change: approved ? studentPass("APPROVED", true) : studentPass() }),
+    Change: () => ({ change: approved ? studentPass("APPROVED", true) : sentBack ? studentPass("DRAFT") : studentPass() }),
     AuditEvents: () => ({ auditEvents: { nodes: [], next: null } }),
     Markets: () => ({ markets: MARKETS }),
     SimulateOffer: () => ({ simulateOffer: simulation(5500) }),
     ApproveChange: () => {
       approved = true;
       return { approveChange: { __typename: "Change", ...studentPass("APPROVED", true) } };
+    },
+    RejectChange: () => {
+      sentBack = true;
+      return { rejectChange: { __typename: "Change", ...studentPass("DRAFT") } };
     },
   });
 }
@@ -48,12 +54,23 @@ export const TheAuthorFindsNoButton: Story = {
   },
 };
 
-export const TheCommercialLeadCannotSignForFinance: Story = {
+export const TheCommercialLeadSendsBackWhatOnlyFinanceSigns: Story = {
   args: { viewer: PEOPLE["lead"]!, gateway: gatewayFor() },
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, args }) => {
     const page = within(canvasElement);
     await expect(await page.findByText("As Commercial lead you can't sign this one: it needs Finance (conditions 2 and 4).")).toBeInTheDocument();
     await expect(page.queryByRole("button", { name: /^Approve/ })).toBeNull();
+    await expect(page.getByText("You can still send v3 back to its author, with a reason.")).toBeInTheDocument();
+    await userEvent.click(page.getByRole("button", { name: "Send back with a reason" }));
+    await userEvent.type(page.getByLabelText("Why v3 goes back to its author"), "Keep it to Italy until the floor is agreed.");
+    await userEvent.click(page.getByRole("button", { name: "Send v3 back" }));
+    const dialog = await page.findByRole("dialog", { name: "Send v3 back to its author?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Send v3 back" }));
+    await expect(await page.findByText("Sent v3 back to draft, with your reason.")).toBeInTheDocument();
+    const sent = args.gateway.calls.filter((call) => call.operation === "RejectChange");
+    await expect(sent).toHaveLength(1);
+    await expect(sent[0]?.variables).toEqual({ changeId: "7", version: 3, reason: "Keep it to Italy until the floor is agreed." });
+    await expect(sent[0]?.idempotencyKey).toMatch(/^reject-change:/);
   },
 };
 

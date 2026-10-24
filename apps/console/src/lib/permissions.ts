@@ -77,7 +77,8 @@ export type Signature = { readonly role: Role; readonly conditions: readonly num
 export type ApprovalView = {
   readonly state: string;
   readonly version: number;
-  readonly authorId: string;
+  /** Who wrote each version: the engine refuses a review by the author of any of them (§7.4). */
+  readonly versions: readonly { readonly version: number; readonly authorId: string }[];
   readonly signatures: readonly Signature[];
   readonly approvals: readonly { readonly version: number; readonly approverId: string }[];
 };
@@ -86,7 +87,7 @@ export type ApprovalView = {
 export type Decision =
   | { readonly kind: "sign"; readonly as: Role; readonly signature: Signature; readonly version: number }
   | { readonly kind: "not-in-approval"; readonly state: string }
-  | { readonly kind: "author"; readonly version: number }
+  | { readonly kind: "author"; readonly version: number; readonly wrote: readonly number[] }
   | { readonly kind: "already-signed"; readonly version: number }
   | { readonly kind: "role-cannot-approve"; readonly needs: readonly Signature[] }
   | { readonly kind: "needs-another-role"; readonly needs: readonly Signature[] };
@@ -101,9 +102,17 @@ export function signsFor(roles: readonly Role[], signature: Signature): Role | n
   return roles.includes(signature.role) ? signature.role : null;
 }
 
-export function decide(view: ApprovalView, viewer: { readonly personId: string; readonly roles: readonly Role[] }): Decision {
+type Person = { readonly personId: string; readonly roles: readonly Role[] };
+
+/** The versions of the change a person wrote. */
+function wroteBy(view: ApprovalView, personId: string): number[] {
+  return view.versions.filter((version) => version.authorId === personId).map((version) => version.version);
+}
+
+export function decide(view: ApprovalView, viewer: Person): Decision {
   if (view.state !== "IN_APPROVAL") return { kind: "not-in-approval", state: view.state };
-  if (view.authorId === viewer.personId) return { kind: "author", version: view.version };
+  const wrote = wroteBy(view, viewer.personId);
+  if (wrote.length > 0) return { kind: "author", version: view.version, wrote };
   if (view.approvals.some((approval) => approval.version === view.version && approval.approverId === viewer.personId)) {
     return { kind: "already-signed", version: view.version };
   }
@@ -114,6 +123,23 @@ export function decide(view: ApprovalView, viewer: { readonly personId: string; 
     if (as !== null) return { kind: "sign", as, signature, version: view.version };
   }
   return { kind: "needs-another-role", needs: missing };
+}
+
+/**
+ * Whether a person may send the version in approval back to its author, by
+ * the engine's rules for it: a role that reviews (Finance or the commercial
+ * lead), someone who wrote none of the change's versions, a change in
+ * approval. Sending back is not signing: the commercial lead sends back an
+ * offer that only Finance may sign.
+ */
+export function sendsBack(view: ApprovalView, viewer: Person): boolean {
+  return view.state === "IN_APPROVAL" && can(viewer.roles, "reject") && wroteBy(view, viewer.personId).length === 0;
+}
+
+/** "v1", "v1 and v2". */
+function versionWords(versions: readonly number[]): string {
+  const named = versions.map((version) => `v${version}`);
+  return named.length === 1 ? (named[0] ?? "") : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`;
 }
 
 /** "conditions 2 and 4", "condition 1". */
@@ -137,7 +163,9 @@ export function decisionSentence(decision: Decision, viewerRole: Role | null): s
     case "sign":
       return `As ${ROLE_NAME[decision.as]} you can sign v${decision.version}: review it first.`;
     case "author":
-      return `You wrote v${decision.version}. Someone else has to approve it.`;
+      return decision.wrote.includes(decision.version)
+        ? `You wrote v${decision.version}. Someone else has to approve it.`
+        : `You wrote ${versionWords(decision.wrote)} of this change. Someone else has to approve it.`;
     case "already-signed":
       return `You have signed v${decision.version}. One person gives one signature: the next one has to come from someone else.`;
     case "role-cannot-approve":

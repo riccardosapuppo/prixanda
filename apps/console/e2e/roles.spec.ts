@@ -1,8 +1,9 @@
 // Separation of duties seen from the console (business book §7.4, §12): the
 // commercial lead, who may approve, cannot approve a version they wrote (the
 // page has no button and says why; the server refuses it as OWN_VERSION),
-// cannot sign what only Finance may sign, and the roles that only read find
-// a lock with the reason where the actions would be.
+// cannot sign what only Finance may sign but may still send it back to its
+// author (sending back is not signing), and the roles that only read find a
+// lock with the reason where the actions would be.
 import { expect, test } from "@playwright/test";
 import { asPerson, axe, callByHand, enterAs, submittedOffer, switchTo } from "./support.ts";
 
@@ -33,12 +34,19 @@ test("the commercial lead cannot approve a list price they wrote: no button, and
   expect(answer.body.data.approveChange.code).toBe("OWN_VERSION");
 });
 
-test("the commercial lead cannot sign what only Finance may sign, and the page names who must", async ({ page }) => {
+test("the commercial lead cannot sign what only Finance may sign, the page names who must, and the lead sends it back", async ({ page }) => {
   const id = await submittedOffer(`Finance only ${RUN}`, `finance-only-${RUN}`);
   await enterAs(page, "Commercial lead");
   await page.goto(`/campaigns/approval/?id=${id}`);
   await expect(page.getByText("As Commercial lead you can't sign this one: it needs Finance (conditions 2 and 4).")).toBeVisible();
   await expect(page.getByRole("button", { name: /^Approve/ })).toHaveCount(0);
+  await expect(page.getByText("You can still send v1 back to its author, with a reason.")).toBeVisible();
+  await page.getByRole("button", { name: "Send back with a reason" }).click();
+  await page.getByLabel("Why v1 goes back to its author").fill("Keep it to Italy until the floor is agreed.");
+  await page.getByRole("button", { name: "Send v1 back" }).click();
+  const dialog = page.getByRole("dialog", { name: "Send v1 back to its author?" });
+  await dialog.getByRole("button", { name: "Send v1 back" }).click();
+  await expect(page.getByText("Sent v1 back to draft, with your reason.")).toBeVisible();
 });
 
 test("roles that only read find a lock and the reason where the actions would be", async ({ page }) => {

@@ -24,7 +24,7 @@ import {
 } from "../../graphql/generated.ts";
 import { describeChanges } from "../../lib/diff.ts";
 import { marketName, marketZone } from "../../lib/markets.ts";
-import { can, decide, decisionSentence, primaryRole, ROLE_NAME, type Role, whoCan } from "../../lib/permissions.ts";
+import { type ApprovalView, can, decide, decisionSentence, primaryRole, ROLE_NAME, type Role, sendsBack, whoCan } from "../../lib/permissions.ts";
 import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
@@ -263,13 +263,16 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
   const [done, setDone] = useState<{ readonly words: string } | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  const decision = decide({
+  const view: ApprovalView = {
     state: change.state,
     version: change.currentVersion,
-    authorId: change.current.author.id,
+    versions: change.versions.map((version) => ({ version: version.version, authorId: version.author.id })),
     signatures: change.requiredSignatures,
     approvals: change.approvals.map((approval) => ({ version: approval.version, approverId: approval.approver.id })),
-  }, viewer);
+  };
+  const decision = decide(view, viewer);
+  // Sending back has its own rule: a role that reviews, not an author (lib/permissions.ts).
+  const backable = sendsBack(view, viewer);
   const fingerprint = change.current.fingerprint;
   const offer = change.current.content.__typename === "OfferContent" ? change.current.content : null;
   const firstStart = offer?.periods[0] ?? null;
@@ -313,21 +316,28 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
       {failure ? <ErrorPanel error={failure} /> : null}
 
       {change.state === "IN_APPROVAL" ? (
-        decision.kind === "sign" ? (
-          <>
+        <>
+          {decision.kind === "sign" ? (
             <p>This approval names v{change.currentVersion} (fingerprint {short(fingerprint)}). Any edit makes v{change.currentVersion + 1}, and approvals don't carry over.</p>
+          ) : (
+            <Locked>{decisionSentence(decision, role)}</Locked>
+          )}
+          {decision.kind !== "sign" && backable ? <p>You can still send v{change.currentVersion} back to its author, with a reason.</p> : null}
+          {decision.kind === "sign" || backable ? (
             <div className="flex flex-wrap gap-3">
-              <Button ref={approveButton} weight="primary" size="big" icon="signature" busy={approve.isPending} onClick={() => setConfirming("approve")}>
-                Approve v{change.currentVersion} as {ROLE_NAME[decision.as]}
-              </Button>
-              <Button ref={sendBackButton} icon="arrow-u-up-left" onClick={() => setReasonOpen(reasonOpen === "reject" ? null : "reject")} aria-expanded={reasonOpen === "reject"} aria-controls="decision-reason-form">
-                Send back with a reason
-              </Button>
+              {decision.kind === "sign" ? (
+                <Button ref={approveButton} weight="primary" size="big" icon="signature" busy={approve.isPending} onClick={() => setConfirming("approve")}>
+                  Approve v{change.currentVersion} as {ROLE_NAME[decision.as]}
+                </Button>
+              ) : null}
+              {backable ? (
+                <Button ref={sendBackButton} icon="arrow-u-up-left" onClick={() => setReasonOpen(reasonOpen === "reject" ? null : "reject")} aria-expanded={reasonOpen === "reject"} aria-controls="decision-reason-form">
+                  Send back with a reason
+                </Button>
+              ) : null}
             </div>
-          </>
-        ) : (
-          <Locked>{decisionSentence(decision, role)}</Locked>
-        )
+          ) : null}
+        </>
       ) : null}
 
       {change.state === "APPROVED" ? (

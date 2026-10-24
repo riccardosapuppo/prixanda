@@ -131,7 +131,12 @@ export function overview(readsRevenue: boolean): HomeQuery["overview"] {
     waitingForApproval: [{
       id: pass.id, kind: pass.kind, title: pass.title, state: pass.state, currentVersion: pass.currentVersion, createdBy: pass.createdBy,
       markets: ["IT"], requiredSignatures: pass.requiredSignatures, updatedAt: "2026-10-23T15:20:05Z",
-      details: { id: pass.id, current: { version: 3, author: { id: "marketing-1" }, content: { __typename: "OfferContent", plan: "student" } }, approvals: [] },
+      details: {
+        id: pass.id,
+        versions: pass.versions.map((version) => ({ version: version.version, author: { id: version.author.id } })),
+        current: { version: 3, author: { id: "marketing-1" }, content: { __typename: "OfferContent", plan: "student" } },
+        approvals: [],
+      },
     }],
     launchesNext7Days: [{
       title: "Student Autumn Pass", state: "IN_APPROVAL", atRisk: true, risk: "Not approved yet: it will not start until the missing signatures arrive.",

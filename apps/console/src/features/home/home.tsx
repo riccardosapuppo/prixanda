@@ -92,7 +92,7 @@ function ApprovalsZone({ waiting, markets, viewer }: { readonly waiting: Overvie
             const decision = decide({
               state: change.state,
               version: change.details.current.version,
-              authorId: change.details.current.author.id,
+              versions: change.details.versions.map((version) => ({ version: version.version, authorId: version.author.id })),
               signatures: change.requiredSignatures,
               approvals: change.details.approvals.map((approval) => ({ version: approval.version, approverId: approval.approver.id })),
             }, viewer);

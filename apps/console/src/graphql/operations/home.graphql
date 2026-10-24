@@ -9,6 +9,12 @@ query Home($readsRevenue: Boolean!) {
       ...SummaryFields
       details {
         id
+        versions {
+          version
+          author {
+            id
+          }
+        }
         current {
           version
           author {
