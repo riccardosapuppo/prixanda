@@ -402,9 +402,7 @@ class Subscribers:
         subscription_id = await charging.write_subscription(
             tx, market, subscriber_id=subscriber, plan_id=sold["plan_id"], paid=True, price=Money.zero(market.currency),
             started_on=today, ended_on=ends, billing_day=billing.billing_day_for(today), prepaid_code=code)
-        free = await charging.write_subscription(
-            tx, market, subscriber_id=subscriber, plan_id="free", paid=False, price=Money.zero(market.currency),
-            started_on=ends, billing_day=billing.billing_day_for(ends))
+        free = await charging.write_free_subscription(tx, market, subscriber_id=subscriber, started_on=ends)
         await tx.execute("update prepaid_code set state = 'activated', activated_by = $2, activated_on = $3::text::date, "
                          "subscription_id = $4 where code = $1", code, subscriber, today.isoformat(), subscription_id)
         await self._event(tx, call, subscriber, "prepaid.activated", prepaid.subject(sold["id"]), {

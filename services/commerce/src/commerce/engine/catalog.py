@@ -141,14 +141,19 @@ class Catalog:
             "left join list_price lp on lp.plan_id = p.id and lp.market = $1 and lp.valid @> $2::text::timestamp "
             f"order by {reference.PLAN_ORDER}", code, local)
         plans = []
+        # The business is open in the market when a paid plan has a price in force there; the unpaid plan with it.
+        open_there = any(row["paid"] and row["amount_minor"] is not None for row in rows)
         for row in rows:
-            if row["audio"] is None or (row["paid"] and row["amount_minor"] is None):
+            if (row["paid"] and row["amount_minor"] is None) or not open_there:
                 continue  # not on sale in this market at that instant
-            plan = catalog_pb2.Plan(
-                id=row["id"], name=row["name"], paid=row["paid"],
-                entitlements=catalog_pb2.Entitlements(
-                    skips_per_hour=row["skips_per_hour"] or 0, audio=row["audio"], offline=row["offline"],
-                    seats=row["seats"], needs_student_check=row["needs_student_check"]))
+            # What a plan includes: its seats always; skips, sound and offline listening are the music service's,
+            # and a business with no such entitlements leaves them empty (§14.7).
+            entitlements = catalog_pb2.Entitlements(seats=row["seats"], needs_student_check=row["needs_student_check"])
+            if row["audio"] is not None:
+                entitlements.skips_per_hour = row["skips_per_hour"] or 0
+                entitlements.audio = row["audio"]
+                entitlements.offline = row["offline"]
+            plan = catalog_pb2.Plan(id=row["id"], name=row["name"], paid=row["paid"], entitlements=entitlements)
             if row["paid"]:
                 plan.list_price.CopyFrom(contract.money(Money(row["amount_minor"], market.currency)))
                 plan.breakdown.CopyFrom(breakdown(self.book, market, row["amount_minor"]))

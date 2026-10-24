@@ -181,10 +181,12 @@ def verify_free_students(seed: int, subscribers, subscriptions, until: date):
     return verifications
 
 
-# The listeners the site's entrance offers (§14.1, §14.5), each showing one
-# situation. They come after the generated people, with numbers of their own
-# and dates fixed relative to --until, so the other rows stay as they were.
-# student tells the simulated verifier whether this listener has a student record.
+# The listeners the site's entrance offers (§14.1, §14.3, §14.5), each showing
+# one situation. They come after the generated people, with numbers of their
+# own and dates fixed relative to --until, so the other rows stay as they were;
+# a listener added later comes after the others, for the same reason.
+# student tells the simulated verifier whether this listener has a student
+# record; paid is a paid plan from a day, billed on that day of each month.
 DEMO_LISTENERS = [
     {"title": "Student in Italy, verified", "market": "IT", "joined": 200, "student": True,
      "label": "Simulated listener. A verified student in Italy who has never paid: the Student Autumn Pass is for them.",
@@ -200,6 +202,16 @@ DEMO_LISTENERS = [
     {"title": "Free listener in France", "market": "FR", "joined": 300, "student": False,
      "label": "Simulated listener. On Free in France and not a student: list prices, and no offer for them.",
      "verified": []},
+    # From 15 June 2025 with the default --until (24 October 2026): billed on the 15th.
+    {"title": "Family subscriber in Germany", "market": "DE", "joined": 600, "student": False,
+     "label": "Simulated listener. Pays for Family in Germany since June 2025, billed on the 15th: a price rise there "
+              "asks for their consent first (§8.2).",
+     "verified": [], "paid": ("family", 496)},
+    # From 8 May 2026 with the default --until: billed on the 8th.
+    {"title": "Individual subscriber in Italy", "market": "IT", "joined": 260, "student": False,
+     "label": "Simulated listener. Pays for Individual in Italy since May 2026, billed on the 8th: a price rise there "
+              "comes with notice, and they may leave before it applies (§8.3).",
+     "verified": [], "paid": ("individual", 169)},
 ]
 
 
@@ -216,12 +228,19 @@ def demo_listeners(first_subscriber: int, first_subscription: int, start: date, 
         market, joined = demo["market"], back(demo["joined"])
         subscribers.append((subscriber_id, market, joined))
         history = [("free", False, 0, joined)]
+        billing_day = 12
         if "paid_student" in demo:
             began, ended = (back(days) for days in demo["paid_student"])
             history = [("free", False, 0, joined), ("student", True, PRICES[market]["student"], began), ("free", False, 0, ended)]
+        if "paid" in demo:
+            plan, days = demo["paid"]
+            began = back(days)
+            history = [("free", False, 0, joined), (plan, True, PRICES[market][plan], began)]
+            billing_day = min(began.day, 28)
         for n, (plan, paid, price, began) in enumerate(history):
             ended = history[n + 1][3] if n + 1 < len(history) else None
-            subscriptions.append((subscription_id, subscriber_id, market, CURRENCY[market], plan, paid, price, began, ended, 12))
+            subscriptions.append((subscription_id, subscriber_id, market, CURRENCY[market], plan, paid, price, began, ended,
+                                  billing_day))
             subscription_id += 1
         for days in demo["verified"]:
             verified = back(days)
