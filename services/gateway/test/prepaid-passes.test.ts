@@ -173,7 +173,8 @@ describe("buying a pass and activating its code, on the site", () => {
     const purchase = await buy(buyer, passId, "buy-pass-0001");
     assert.equal(purchase.__typename, "PrepaidPurchase");
     const code = purchase.prepaidCode;
-    assert.match(code.code, /^[A-Z0-9-]{8,}$/);
+    // Three groups of four, without the letters and digits people mistake for one another.
+    assert.match(code.code, /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/);
     assert.deepEqual({ ...code, code: undefined }, {
       code: undefined, passId, title: "Three-month gift pass", plan: "individual", market: "IT", months: 3, price: EUR("2999"),
       boughtAt: "2026-10-24T08:00:00Z", validUntil: "2027-10-23", state: "PENDING", activatedOn: null,
@@ -227,7 +228,14 @@ describe("buying a pass and activating its code, on the site", () => {
       __typename: "Refusal", code: "CODE_NOT_USABLE",
       reason: "This code cannot be activated: its payment has not gone through, it has been used, or its time to be activated has ended.",
     });
-    assert.ok(!/Code \d+ is/.test(reply.text), reply.text);
+    assert.ok(!reply.text.includes("used already"), reply.text);
+  });
+
+  test("typed as people type it, in lower case and with spaces, the code is the same one", async () => {
+    const [used] = await codesOf(await listener(harness, LISTENERS.unverified));
+    const friend = await listener(harness, LISTENERS.paidBefore);
+    const subscription = await activate(friend, used.code.toLowerCase().replaceAll("-", " "));
+    assert.equal(subscription.prepaidCode, used.code, "the same listener and the same code: the same answer");
   });
 });
 
@@ -280,13 +288,17 @@ describe("the refusals of a purchase and of an activation", () => {
     assert.deepEqual(states, [[declined, "FAILED"], [pending, "READY"]], "the latest first");
   });
 
-  test("an unknown code is not found; a malformed one never reaches the engine", async () => {
+  test("an unknown code is not found; one of the wrong shape is refused by the engine; what cannot be one never reaches it", async () => {
     const unverified = await listener(harness, LISTENERS.unverified);
-    const unknown = await unverified.graphql(ACTIVATE, { variables: { c: "GIFT-0000-0000-0000" } });
+    const unknown = await unverified.graphql(ACTIVATE, { variables: { c: "K7QM-3XTP-9WAD" } });
     assert.deepEqual(codes(unknown), ["NOT_FOUND"]);
     assert.equal(unknown.body.errors[0].message, "Not found.");
+    // Letters and digits the engine reads, but not three groups of four of its own: its INVALID_ARGUMENT, in the site's words.
+    const shape = await unverified.graphql(ACTIVATE, { variables: { c: "GIFT 0000" } });
+    assert.deepEqual(codes(shape), ["BAD_USER_INPUT"]);
+    assert.ok(!shape.text.includes("K7QM-3XTP-9WAD"), "the engine's example stays the engine's");
     harness.engine.clearCalls();
-    for (const code of ["", "GIFT 0000", "x".repeat(101)]) {
+    for (const code of ["", "--", "K7QM/3XTP/9WAD", "x".repeat(101)]) {
       assert.deepEqual(codes(await unverified.graphql(ACTIVATE, { variables: { c: code } })), ["BAD_USER_INPUT"], JSON.stringify(code));
     }
     assert.equal(harness.engine.count("ActivatePrepaidPass"), 0);
@@ -321,14 +333,14 @@ describe("buying and activating, as the site's other mutations", () => {
     harness.engine.clearCalls();
     const visitor = harness.site();
     assert.deepEqual(codes(await visitor.graphql(BUY, { variables: { p: passId } })), ["UNAUTHENTICATED"]);
-    assert.deepEqual(codes(await visitor.graphql(ACTIVATE, { variables: { c: "GIFT-0000-0000-0000" } })), ["UNAUTHENTICATED"]);
+    assert.deepEqual(codes(await visitor.graphql(ACTIVATE, { variables: { c: "K7QM-3XTP-9WAD" } })), ["UNAUTHENTICATED"]);
     const buyer = await listener(harness, LISTENERS.unverified);
     const token = buyer.csrf;
     buyer.csrf = null;
     assert.equal((await buyer.graphql(BUY, { variables: { p: passId } })).status, 403);
     buyer.csrf = token;
     assert.deepEqual(codes(await buyer.graphql(BUY, { variables: { p: passId }, key: false })), ["BAD_USER_INPUT"]);
-    assert.deepEqual(codes(await buyer.graphql(ACTIVATE, { variables: { c: "GIFT-0000-0000-0000" }, key: false })), ["BAD_USER_INPUT"]);
+    assert.deepEqual(codes(await buyer.graphql(ACTIVATE, { variables: { c: "K7QM-3XTP-9WAD" }, key: false })), ["BAD_USER_INPUT"]);
     assert.equal(harness.engine.count("BuyPrepaidPass") + harness.engine.count("ActivatePrepaidPass"), 0);
   });
 

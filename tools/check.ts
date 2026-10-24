@@ -409,7 +409,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 51, coreFiles: 19, generated: 3, schemaTests: 23, tests: 242, dataloaderOffers: 25, integrationTests: 9, integrationAuditEvents: 7,
+  files: 51, coreFiles: 19, generated: 3, schemaTests: 23, tests: 244, dataloaderOffers: 25, integrationTests: 9, integrationAuditEvents: 7,
 };
 
 /**
