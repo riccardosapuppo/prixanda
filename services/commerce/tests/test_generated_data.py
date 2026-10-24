@@ -165,3 +165,13 @@ async def test_a_rewritten_audit_event_is_found_and_so_is_a_rewritten_chain(copy
     await copy.execute("alter table audit_event disable trigger audit_event_no_change")
     await copy.execute("update audit_event set reason = 'rewritten' where seq = 1")
     assert await broken(copy) == ["audit_chain_verifies"]
+
+
+async def test_a_student_offer_for_new_subscribers_reaches_someone_in_every_market(copy):
+    # Free listeners who verified and have not subscribed yet: the audience of
+    # the Student Autumn Pass (§14.1), counted with the engine's own predicate.
+    from commerce.domain.offers import Audience
+    from commerce.engine import eligibility
+
+    for market in ("IT", "FR", "DE", "GB"):
+        assert await eligibility.count(copy, Audience("never_paid", None, True), market, date(2026, 10, 24)) > 0, market
