@@ -70,9 +70,21 @@ export async function stopIfRunning(dataDir: string): Promise<boolean> {
   return true;
 }
 
+// The port a running cluster listens on: the fourth line of postmaster.pid.
+async function runningPort(dataDir: string): Promise<number | null> {
+  try {
+    const port = Number((await readFile(join(dataDir, "postmaster.pid"), "utf8")).split(/\r?\n/)[3]);
+    return Number.isInteger(port) && port > 0 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
 // An ephemeral cluster is created from nothing and deleted when it stops; a
 // persistent one is created the first time and kept, and when it already
-// runs it is used as it is.
+// runs it is used as it is, provided it listens on the port asked for. The
+// port is given to the server at every start, so a persistent cluster follows
+// DEV_POSTGRES_PORT when it changes.
 export async function startCluster(options: { dataDir: string; port: number; ephemeral: boolean; fast?: boolean }): Promise<Cluster> {
   const { dataDir, port } = options;
   const bin = await binaries();
@@ -80,7 +92,15 @@ export async function startCluster(options: { dataDir: string; port: number; eph
   // An ephemeral cluster left running by a run that died before stopping it.
   if (options.ephemeral) await stopIfRunning(dataDir);
   const alreadyRunning = !options.ephemeral && (await isRunning(dataDir));
-  if (!alreadyRunning) await assertFree(port, `PostgreSQL in ${dataDir}`);
+  if (alreadyRunning) {
+    const listening = await runningPort(dataDir);
+    if (listening !== port) {
+      throw new Error(`PostgreSQL in ${dataDir} is running on port ${listening ?? "unknown"}, not ${port}: `
+        + "stop it first (npm run db -- stop), then start it again on the new port");
+    }
+  } else {
+    await assertFree(port, `PostgreSQL in ${dataDir}`);
+  }
 
   let owner: Credentials;
   let app: Credentials;
@@ -117,7 +137,7 @@ export async function startCluster(options: { dataDir: string; port: number; eph
     ({ owner, app } = JSON.parse(await readFile(credentialsFile, "utf8")) as { owner: Credentials; app: Credentials });
   }
   if (!alreadyRunning) {
-    await runOrThrow(bin.pg_ctl, ["start", "-D", dataDir, "-w", "-t", "60", "-l", join(dataDir, "server.log")]);
+    await runOrThrow(bin.pg_ctl, ["start", "-D", dataDir, "-o", `-p ${port}`, "-w", "-t", "60", "-l", join(dataDir, "server.log")]);
   }
 
   const connect = async (database: string, who: Credentials) => {
