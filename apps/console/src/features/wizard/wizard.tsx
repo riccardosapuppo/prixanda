@@ -26,9 +26,10 @@ import {
 } from "../../graphql/generated.ts";
 import { MARKET_ORDER, planName } from "../../lib/markets.ts";
 import {
-  checkStep, differsFrom, emptyForm, emptyMarket, formFromContent, LIMITS, type MarketFacts, type MarketForm, marketField, type OfferContent,
-  type OfferForm, type Problem, type Segment, STEPS, type StepIndex, toInput,
+  cannotCarry, checkStep, differsFrom, emptyForm, emptyMarket, formFromContent, LIMITS, type MarketFacts, type MarketForm, marketField,
+  type OfferContent, type OfferForm, type Problem, type Segment, STEPS, type StepIndex, toInput,
 } from "../../lib/offer-form.ts";
+import { listeningWords } from "../../lib/diff.ts";
 import { can, primaryRole, ROLE_NAME, signatureWords, whoCan } from "../../lib/permissions.ts";
 import { useClock } from "../../lib/react/clock.tsx";
 import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
@@ -47,6 +48,13 @@ const EDITABLE_STATES = new Set(["DRAFT", "VALIDATED", "IN_APPROVAL", "APPROVED"
 const STEP_OF_CHECK: Readonly<Record<string, StepIndex>> = {
   floor: 1, overlap: 0, conflict: 0, dates: 2, time_zone: 2, audience: 0, page_text: 3, signatures: 4,
 };
+
+/** The saved content without GraphQL's __typename fields, as the form compares it. */
+function stripTypename(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripTypename);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "__typename").map(([key, entry]) => [key, stripTypename(entry)]));
+}
 
 function stepFromSearch(value: string | null): StepIndex {
   const number = Number(value ?? "1");
@@ -71,6 +79,7 @@ export function autumnExample(now: Date): OfferForm {
     group: "student-offers",
     cap: "",
     months: "3",
+    listening: null,
     markets: [{
       ...emptyMarket("IT", formatLocalValue(monday)),
       fixed: "2.99",
@@ -145,7 +154,9 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
 
   const facts: MarketFacts = useMemo(() => Object.fromEntries(markets.map((market) => [market.code, { currency: market.currency, timeZone: market.timeZone, name: market.name }])), [markets]);
   const editableState = change === null || EDITABLE_STATES.has(change.state);
-  const canEdit = viewerCanEdit && editableState;
+  // A version holding something the form does not know is read here, never saved from here.
+  const uncarried = change === null ? null : cannotCarry(change.current.content.__typename === "OfferContent" ? stripTypename(change.current.content) : null);
+  const canEdit = viewerCanEdit && editableState && uncarried === null;
   const dirty = canEdit && differsFrom(form, saved, facts);
   const role = primaryRole(viewer.roles);
 
@@ -267,6 +278,7 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
 
   return (
     <WizardFrame changeId={change?.id ?? null} title={title} sub={sub}>
+      {uncarried && viewerCanEdit && editableState ? <Locked>{uncarried}</Locked> : null}
       {!viewerCanEdit ? (
         <Locked>{whoCan("createOffer")} creates and submits campaigns{role ? `; as ${ROLE_NAME[role]} you read this one, with the fields locked` : ""}.</Locked>
       ) : !editableState && change ? (
@@ -402,6 +414,14 @@ function StepAudience({ form, markets, disabled, shown, touch, update, now }: St
       />
       {form.segment === "SUBSCRIBERS_OF_PLAN" ? (
         <SelectField id="currentPlan" label="Their plan now" value={form.currentPlan} disabled={disabled} placeholder="Choose a plan" error={shown("currentPlan")} options={PAID_PLANS.map((plan) => ({ value: plan, label: planName(plan) }))} onChange={(value) => update({ currentPlan: value })} onBlur={() => touch("currentPlan")} />
+      ) : null}
+      {form.listening ? (
+        <p className="flex items-baseline gap-2 border border-cord bg-stone-0 px-3 py-2.5 text-sm">
+          <Icon name="headphones" size={16} className="translate-y-0.5 text-indigo" />
+          <span>
+            <b>Listening rule</b>: only people {listeningWords(form.listening)} (§14.2). It is kept as it was saved: this console does not change it.
+          </span>
+        </p>
       ) : null}
       <label className="choice-card">
         <input type="checkbox" checked={form.needsStudentCheck} disabled={disabled || form.plan === "student"} onChange={(event) => update({ needsStudentCheck: event.target.checked })} />

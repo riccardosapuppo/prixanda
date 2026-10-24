@@ -7,6 +7,12 @@
 // certain to refuse (a local time the clocks skip). Everything that depends
 // on the business (the floor, conflicts with other offers, who must sign,
 // how many people are eligible) is the engine's validation, shown in step 5.
+//
+// A saved version goes through the form and back without losing anything:
+// what the form does not edit (a listening rule, a page's treatment) is
+// carried as it was. If a version ever holds a field the form does not know,
+// cannotCarry() names it and the wizard refuses to edit that version, rather
+// than save one without it.
 import { MINOR_UNITS, minorUnits, parseAmount } from "design";
 import { localToInstant, parseLocal, zoneCity } from "./time.ts";
 
@@ -25,7 +31,12 @@ export type MarketForm = {
   readonly pageTitle: string;
   readonly pageText: string;
   readonly pageTerms: string;
+  /** The editorial treatment of the page; kept as saved, "standard" for a new page. */
+  readonly treatment: string;
 };
+
+/** Free listeners who played an artist for more than a time lately (§14.2). The form keeps it; it does not edit it. */
+export type ListeningRule = { readonly artistId: number; readonly minSeconds: number; readonly withinDays: number };
 
 export type OfferForm = {
   readonly title: string;
@@ -38,6 +49,8 @@ export type OfferForm = {
   readonly cap: string;
   readonly months: string;
   readonly markets: readonly MarketForm[];
+  /** Carried from the saved version as it is: null when the audience has none. */
+  readonly listening: ListeningRule | null;
 };
 
 export type Money = { readonly amountMinor: string; readonly currency: string };
@@ -45,7 +58,7 @@ export type Money = { readonly amountMinor: string; readonly currency: string };
 export type OfferInput = {
   readonly title: string;
   readonly plan: string;
-  readonly audience: { readonly segment: Segment; readonly currentPlan?: string; readonly needsStudentCheck: boolean };
+  readonly audience: { readonly segment: Segment; readonly currentPlan?: string; readonly needsStudentCheck: boolean; readonly listening?: ListeningRule };
   readonly prices: readonly { readonly market: string; readonly fixed?: Money; readonly percentOffBasisPoints?: number }[];
   readonly monthsAtOfferPrice: number;
   readonly periods: readonly { readonly market: string; readonly startsLocal: string; readonly endsLocal?: string }[];
@@ -58,7 +71,7 @@ export type OfferInput = {
 export type OfferContent = {
   readonly title: string;
   readonly plan: string;
-  readonly audience: { readonly segment: Segment; readonly currentPlan: string | null; readonly needsStudentCheck: boolean };
+  readonly audience: { readonly segment: Segment; readonly currentPlan: string | null; readonly needsStudentCheck: boolean; readonly listening: ListeningRule | null };
   readonly prices: readonly { readonly market: string; readonly fixed: Money | null; readonly percentOffBasisPoints: number | null }[];
   readonly monthsAtOfferPrice: number;
   readonly periods: readonly { readonly market: string; readonly startsLocal: string; readonly endsLocal: string | null }[];
@@ -79,11 +92,45 @@ export const GROUP = /^[a-z][a-z0-9-]{0,39}$/;
 export const TREATMENT = "standard";
 
 export function emptyMarket(market: string, startsLocal = ""): MarketForm {
-  return { market, priceKind: "fixed", fixed: "", percent: "", startsLocal, endsLocal: "", pageTitle: "", pageText: "", pageTerms: "" };
+  return { market, priceKind: "fixed", fixed: "", percent: "", startsLocal, endsLocal: "", pageTitle: "", pageText: "", pageTerms: "", treatment: TREATMENT };
 }
 
 export function emptyForm(): OfferForm {
-  return { title: "", plan: "", segment: "", currentPlan: "", needsStudentCheck: false, group: "", cap: "", months: "3", markets: [] };
+  return { title: "", plan: "", segment: "", currentPlan: "", needsStudentCheck: false, group: "", cap: "", months: "3", markets: [], listening: null };
+}
+
+/**
+ * Every field of a saved offer the form carries back when it saves, by the
+ * schema's names. test/offer-form.test.ts holds it against the gateway's
+ * schema: a field added there and not here fails the test.
+ */
+export const CARRIED = {
+  OfferContent: ["title", "plan", "audience", "prices", "monthsAtOfferPrice", "periods", "nonCombinabilityGroup", "redemptionCap", "pages"],
+  Audience: ["segment", "currentPlan", "needsStudentCheck", "listening"],
+  ListeningRule: ["artistId", "minSeconds", "withinDays"],
+  OfferPrice: ["market", "fixed", "percentOffBasisPoints"],
+  OfferPeriod: ["market", "startsLocal", "endsLocal"],
+  OfferPage: ["market", "title", "text", "terms", "treatment"],
+} as const;
+
+/** Why the form cannot carry a saved version, or null when it can: a field it does not know would be lost on saving. */
+export function cannotCarry(content: unknown): string | null {
+  const unknown = (value: unknown, known: readonly string[], where: string): string | null => {
+    if (value === null || typeof value !== "object") return null;
+    const extra = Object.keys(value).filter((key) => key !== "__typename" && !known.includes(key));
+    return extra.length ? where + " holds " + extra.join(", ") : null;
+  };
+  const offer = content as Partial<OfferContent> | null;
+  if (offer === null || typeof offer !== "object") return null;
+  const found = [
+    unknown(offer, CARRIED.OfferContent, "the offer"),
+    unknown(offer.audience, CARRIED.Audience, "the audience"),
+    unknown(offer.audience?.listening, CARRIED.ListeningRule, "the listening rule"),
+    ...(offer.prices ?? []).map((price) => unknown(price, CARRIED.OfferPrice, "a price")),
+    ...(offer.periods ?? []).map((period) => unknown(period, CARRIED.OfferPeriod, "a period")),
+    ...(offer.pages ?? []).map((page) => unknown(page, CARRIED.OfferPage, "a page")),
+  ].filter((reason): reason is string => reason !== null);
+  return found.length ? "This version: " + found.join("; ") + ". This console cannot carry that, so editing it here would lose it." : null;
 }
 
 /** Minor units as a person types them back: 299 EUR as "2.99", 1000 JPY as "1000". */
@@ -125,6 +172,7 @@ export function formFromContent(content: OfferContent): OfferForm {
     group: content.nonCombinabilityGroup,
     cap: content.redemptionCap === null || content.redemptionCap === 0 ? "" : String(content.redemptionCap),
     months: String(content.monthsAtOfferPrice),
+    listening: content.audience.listening ? { ...content.audience.listening } : null,
     markets: [...markets].map((market) => {
       const price = content.prices.find((p) => p.market === market);
       const period = content.periods.find((p) => p.market === market);
@@ -139,6 +187,7 @@ export function formFromContent(content: OfferContent): OfferForm {
         pageTitle: page?.title ?? "",
         pageText: page?.text ?? "",
         pageTerms: page?.terms ?? "",
+        treatment: page?.treatment || TREATMENT,
       } satisfies MarketForm;
     }),
   };
@@ -296,7 +345,7 @@ export function toInput(form: OfferForm, facts: MarketFacts): { input: OfferInpu
       else periods.push({ market: market.market, startsLocal: market.startsLocal, ...(market.endsLocal ? { endsLocal: market.endsLocal } : {}) });
     }
     if (market.pageTitle.trim() || market.pageText.trim() || market.pageTerms.trim()) {
-      pages.push({ market: market.market, title: market.pageTitle.trim(), text: market.pageText.trim(), terms: market.pageTerms.trim(), treatment: TREATMENT });
+      pages.push({ market: market.market, title: market.pageTitle.trim(), text: market.pageText.trim(), terms: market.pageTerms.trim(), treatment: market.treatment || TREATMENT });
     }
   }
   if (problems.length) return { problems };
@@ -309,6 +358,7 @@ export function toInput(form: OfferForm, facts: MarketFacts): { input: OfferInpu
         segment,
         ...(segment === "SUBSCRIBERS_OF_PLAN" && form.currentPlan ? { currentPlan: form.currentPlan } : {}),
         needsStudentCheck: form.needsStudentCheck,
+        ...(form.listening ? { listening: { ...form.listening } } : {}),
       },
       prices,
       monthsAtOfferPrice: months,
@@ -336,6 +386,7 @@ function inputOf(content: OfferContent): OfferInput {
       segment: content.audience.segment,
       ...(content.audience.currentPlan ? { currentPlan: content.audience.currentPlan } : {}),
       needsStudentCheck: content.audience.needsStudentCheck,
+      ...(content.audience.listening ? { listening: { ...content.audience.listening } } : {}),
     },
     prices: content.prices.map((price) => ({
       market: price.market,

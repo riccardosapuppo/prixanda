@@ -11,7 +11,12 @@ type Offer = {
   readonly __typename: "OfferContent";
   readonly title: string;
   readonly plan: string;
-  readonly audience: { readonly segment: string; readonly currentPlan: string | null; readonly needsStudentCheck: boolean };
+  readonly audience: {
+    readonly segment: string;
+    readonly currentPlan: string | null;
+    readonly needsStudentCheck: boolean;
+    readonly listening: { readonly artistId: number; readonly minSeconds: number; readonly withinDays: number } | null;
+  };
   readonly prices: readonly { readonly market: string; readonly fixed: Money | null; readonly percentOffBasisPoints: number | null }[];
   readonly monthsAtOfferPrice: number;
   readonly periods: readonly { readonly market: string; readonly startsLocal: string; readonly endsLocal: string | null }[];
@@ -28,6 +33,18 @@ type Markets = readonly { readonly code: string; readonly name: string; readonly
 
 /** Who can take an offer, in words. */
 export function audienceWords(audience: Offer["audience"], markets: readonly string[], names: Markets): string {
+  const base = segmentWords(audience, markets, names);
+  return audience.listening ? `${base}, ${listeningWords(audience.listening)}` : base;
+}
+
+/** "who played artist #4 for more than 3 hours in the last 30 days" (§14.2). */
+export function listeningWords(rule: { readonly artistId: number; readonly minSeconds: number; readonly withinDays: number }): string {
+  const hours = rule.minSeconds / 3600;
+  const time = Number.isInteger(hours) ? `${hours} hour${hours === 1 ? "" : "s"}` : `${Math.round(rule.minSeconds / 60)} minutes`;
+  return `who played artist #${rule.artistId} for more than ${time} in the last ${rule.withinDays} days`;
+}
+
+function segmentWords(audience: Offer["audience"], markets: readonly string[], names: Markets): string {
   const where = markets.map((code) => names.find((market) => market.code === code)?.name ?? code).join(", ") || "no market";
   const who = audience.needsStudentCheck ? "verified students" : "people";
   switch (audience.segment) {
