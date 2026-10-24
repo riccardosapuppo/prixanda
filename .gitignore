@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+.venv/
+
+# Flyway and the Java runtime it runs on, downloaded by npm run setup
+.tools/
+
+# Local PostgreSQL clusters, their logs and credentials
+.data/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Output of checks and measurements
+reports/
+test-results/
+
+# Next.js (stages 4 and 5)
+.next/
+out/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+*.log
+.env
+.env.*

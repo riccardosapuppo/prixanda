@@ -1,0 +1,25 @@
+{
+  // The repository's own tools (tools/): TypeScript that Node 24 runs as it
+  // is, with no build. tsc only checks them, and erasableSyntaxOnly refuses
+  // what Node could not strip, so a clean `npm run typecheck` also means the
+  // tools still run without a build.
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["tools/**/*.ts"]
+}

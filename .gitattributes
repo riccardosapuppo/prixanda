@@ -1,0 +1,14 @@
+* text=auto eol=lf
+
+# Binary files: never touched by line-ending conversion, never diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.zip binary
+*.gz binary
+*.jar binary
