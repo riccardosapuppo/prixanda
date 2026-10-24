@@ -2,8 +2,9 @@
 
 For the on-call engineer (business book §12): what to do when a launch is
 stuck, when the engine cannot be reached, and when the audit log's chain does
-not verify, and how to upgrade across migration V14. Each entry gives the
-symptoms, how to check, what to do, and how to tell that it is resolved.
+not verify, how to upgrade across migration V14, and how to keep listening's
+monthly partitions ahead. Each entry gives the symptoms, how to check, what
+to do, and how to tell that it is resolved.
 
 ## What there is to look at
 
@@ -269,3 +270,29 @@ home answer, and the invariants command reports
 ```
 python -m commerce.invariants --url <URL>
 ```
+
+## 5. A month of listening has no partition
+
+Listening (`listening_day`) is partitioned by month (migration V16), with
+one partition per month from January 2025 to December 2027, and a default
+partition, `listening_day_other`, for any other day. A row in the default
+partition is valid, and every query reads it, but a fan campaign's audience
+reads it in every window, so the months should exist before they begin.
+
+**Symptoms**: the invariants command reports `listening_has_its_month`;
+`select min(day), max(day), count(*) from listening_day_other` returns rows.
+
+**Act**
+
+- Ahead of time, once a year: add the next year's months, one call each,
+  as the database's owner: `select listening_month('2028-01-01');` for
+  January 2028, and so on. A month whose days already sit in the default
+  partition cannot be added this way: PostgreSQL refuses it.
+- Rows already in the default partition stay correct where they are. To
+  move them into their month, a database administrator does it in a
+  maintenance window, with the engine stopped, keeping the weekly sums
+  (`listening_week`) as they are: the rows already count there, so the
+  trigger `listening_week_add` must not fire for the rows that move.
+
+**Resolved when** the invariants command reports `listening_has_its_month`
+and `listening_weeks_sum_their_days` with no violation.

@@ -19,6 +19,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { flyway } from "./lib/flyway.ts";
+import { measure } from "./lib/measure.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
 import { assertFree } from "./lib/ports.ts";
 import { type Cluster, createDatabase, dropDatabase, startCluster } from "./lib/postgres.ts";
@@ -39,7 +40,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 // The floors: what each suite must at least have checked.
 const FLOOR = {
   typecheckedFiles: 12, contractFiles: 47, migrations: 15, pythonTests: 708, invariants: 15, generatedSubscribers: 5_000,
-  faultsInjected: 12,
+  faultsInjected: 12, measuredQueries: 7,
 };
 // The change in two times (migrations V12 and V14): the version of the schema
 // before it, and the expansion, where the compatibility check stops on its way.
@@ -242,6 +243,30 @@ const SUITES: Suite[] = [
         if (expanded.writes_mirrored !== 2) return failed(counted, "the earlier version's two writes were not both checked");
         if (contracted.accounts < FLOOR.generatedSubscribers / 2) return failed(counted, "too few accounts read by this engine");
         return passed(counted);
+      } finally {
+        await dropDatabase(cluster, database);
+      }
+    },
+  },
+  // The tool that measures the queries that matter (business book §14.2),
+  // tried on the small data: it runs every step, and every query gives the
+  // same answer before and after the migrations it measures. The numbers to
+  // quote come from `npm run measure` on the full data, on a quiet machine.
+  {
+    name: "measure",
+    what: "the measuring tool on the small data: every query before and after migration V16, with the same answers",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const database = "commerce_measure";
+      try {
+        const report = await measure(cluster, { size: "small", runs: 1, auditEvents: 20_000, database });
+        const names = Object.keys(report.queries);
+        const counted = `${names.length} queries, ${names.filter((n) => report.queries[n]?.same_answer).length} with the same answer`;
+        if (report.differ.length) return failed(counted, report.differ.join("\n"));
+        if (names.length < FLOOR.measuredQueries) return failed(counted, `fewer than ${FLOOR.measuredQueries} queries measured`);
+        return passed(counted, "reports/measure.json");
       } finally {
         await dropDatabase(cluster, database);
       }

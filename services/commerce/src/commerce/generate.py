@@ -31,7 +31,7 @@ import json
 import random
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 
 import asyncpg
@@ -301,8 +301,10 @@ async def fingerprint(conn: asyncpg.Connection) -> str:
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
-async def generate(url: str, size_name: str, seed: int, start: date, until: date) -> dict:
-    size = SIZES[size_name]
+async def generate(url: str, size_name: str, seed: int, start: date, until: date, *, listening_days: int | None = None) -> dict:
+    """listening_days, when given, replaces the size's weeks of listening: the measurements (measure.py) can ask
+    for a longer history than the data of the demo holds."""
+    size = SIZES[size_name] if listening_days is None else replace(SIZES[size_name], listening_days=listening_days)
     rng = random.Random(seed)
     timings: dict[str, int] = {}
     begun = time.perf_counter()
@@ -377,7 +379,8 @@ async def generate(url: str, size_name: str, seed: int, start: date, until: date
         by_market_plan = await conn.fetch(
             "select market, plan_id, count(*)::int as n from subscription where ended_on is null group by 1, 2 order by 1, 2")
         return {
-            "size": size_name, "seed": seed, "start": start.isoformat(), "until": until.isoformat(), "counts": counts,
+            "size": size_name, "seed": seed, "start": start.isoformat(), "until": until.isoformat(),
+            "listening_days": size.listening_days, "counts": counts,
             "current_subscriptions": {f"{r['market']}/{r['plan_id']}": r["n"] for r in by_market_plan},
             "database_bytes": await conn.fetchval("select pg_database_size(current_database())"),
             "timings_ms": timings,
@@ -393,6 +396,7 @@ async def main() -> int:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--start", type=date.fromisoformat, default=START)
     parser.add_argument("--until", type=date.fromisoformat, default=UNTIL)
+    parser.add_argument("--listening-days", type=int, help="days of listening before --until, instead of the size's")
     parser.add_argument("--fingerprint", action="store_true", help="only print the fingerprint of the generated rows")
     args = parser.parse_args()
     if args.fingerprint:
@@ -404,7 +408,9 @@ async def main() -> int:
         return 0
     if args.until <= args.start:
         parser.error("--until must come after --start")
-    summary = await generate(args.url, args.size, args.seed, args.start, args.until)
+    if args.listening_days is not None and not 1 <= args.listening_days <= 730:
+        parser.error("--listening-days is between 1 and 730")
+    summary = await generate(args.url, args.size, args.seed, args.start, args.until, listening_days=args.listening_days)
     print(json.dumps(summary, indent=2))
     return 0
 

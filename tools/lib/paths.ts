@@ -20,11 +20,13 @@ export const venvPython = join(repoRoot, ".venv", process.platform === "win32" ?
 // checks of two copies of the repository can run side by side with
 // CHECK_POSTGRES_PORT, DEV_POSTGRES_PORT, CHECK_ENGINE_PORT and, for the
 // gateway's tests, CHECK_GATEWAY_INTERNAL_PORT, CHECK_GATEWAY_PUBLIC_PORT and
-// CHECK_FAKE_ENGINE_PORT. The engine listens where ENGINE_URL, the address
-// the gateway calls it at, points.
+// CHECK_FAKE_ENGINE_PORT; MEASURE_POSTGRES_PORT moves the measurements'
+// cluster (npm run measure). The engine listens where ENGINE_URL, the
+// address the gateway calls it at, points.
 export const PORTS = {
   postgresDev: Number(process.env["DEV_POSTGRES_PORT"] ?? 4601),
   postgresCheck: Number(process.env["CHECK_POSTGRES_PORT"] ?? 4602),
+  postgresMeasure: Number(process.env["MEASURE_POSTGRES_PORT"] ?? 4604),
   engine: Number(new URL(process.env["ENGINE_URL"] ?? "http://127.0.0.1:4611").port || 4611),
   engineCheck: Number(process.env["CHECK_ENGINE_PORT"] ?? 4612),
   gatewayCheckInternal: Number(process.env["CHECK_GATEWAY_INTERNAL_PORT"] ?? 4621),

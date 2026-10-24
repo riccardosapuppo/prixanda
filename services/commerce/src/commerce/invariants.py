@@ -161,6 +161,27 @@ INVARIANTS = [
         """,
     ),
     Invariant(
+        "listening_weeks_sum_their_days",
+        "§14.2: each listener's weekly sum of an artist is the sum of its days (migration V16 keeps them on insert; "
+        "a trigger switched off, or a row changed by hand, would part them)",
+        """
+        select coalesce(d.artist_id, w.artist_id) as artist, coalesce(d.week, w.week) as week,
+               coalesce(d.subscriber_id, w.subscriber_id) as subscriber, d.seconds as days, w.seconds as weeks
+        from (select artist_id, date_trunc('week', day)::date as week, subscriber_id, sum(seconds) as seconds
+              from listening_day group by 1, 2, 3) d
+        full join listening_week w using (artist_id, week, subscriber_id)
+        where d.seconds is distinct from w.seconds
+        """,
+    ),
+    Invariant(
+        "listening_has_its_month",
+        "§14.2: every day of listening is in its month's partition: one in the default partition means a month was "
+        "not added before it began (docs/runbook.md)",
+        """
+        select subscriber_id, artist_id, day from listening_day_other
+        """,
+    ),
+    Invariant(
         "approved_changes_carry_a_signature",
         "§7.3: a change at or past approval has, on its current version, a signature from someone other than its author",
         """

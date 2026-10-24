@@ -18,6 +18,7 @@ import shutil
 import tempfile
 import uuid
 from dataclasses import dataclass
+from datetime import date
 from urllib.parse import urlsplit, urlunsplit
 
 import asyncpg
@@ -85,6 +86,38 @@ async def db():
     finally:
         await owner.close()
         await app.close()
+        await _admin(f"drop database {name} with (force)")
+
+
+async def fresh_database() -> str:
+    """A database of its own, freshly migrated: a clone of the template."""
+    name = f"gen_{uuid.uuid4().hex[:16]}"
+    await _admin(f"create database {name} template {TEMPLATE}")
+    return name
+
+
+@pytest_asyncio.fixture(scope="session")
+async def generated():
+    """The small size, seed 7, generated once; tests clone it (copy)."""
+    from commerce.generate import generate
+
+    name = await fresh_database()
+    summary = await generate(on_database(ADMIN_URL, name), "small", 7, date(2025, 1, 1), date(2026, 10, 24))
+    yield name, summary
+    await _admin(f"drop database {name} with (force)")
+
+
+@pytest_asyncio.fixture
+async def copy(generated):
+    """A clone of the generated data, as its owner."""
+    source, _ = generated
+    name = f"copy_{uuid.uuid4().hex[:16]}"
+    await _admin(f"create database {name} template {source}")
+    conn = await asyncpg.connect(on_database(ADMIN_URL, name))
+    try:
+        yield conn
+    finally:
+        await conn.close()
         await _admin(f"drop database {name} with (force)")
 
 

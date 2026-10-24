@@ -4,54 +4,16 @@ checks nothing)."""
 
 from __future__ import annotations
 
-import uuid
 from datetime import date
 
 import asyncpg
 import pytest
-import pytest_asyncio
 
 from commerce.audit import head
 from commerce.generate import fingerprint, generate
 from commerce.invariants import check
-from conftest import ADMIN_URL, TEMPLATE, on_database
+from conftest import ADMIN_URL, _admin as admin, fresh_database, on_database
 from helpers import add_subscription, new_change
-
-
-async def admin(statement: str) -> None:
-    conn = await asyncpg.connect(ADMIN_URL)
-    try:
-        await conn.execute(statement)
-    finally:
-        await conn.close()
-
-
-async def fresh_database() -> str:
-    name = f"gen_{uuid.uuid4().hex[:16]}"
-    await admin(f"create database {name} template {TEMPLATE}")
-    return name
-
-
-@pytest_asyncio.fixture(scope="session")
-async def generated():
-    """The small size, seed 7, generated once; tests clone it."""
-    name = await fresh_database()
-    summary = await generate(on_database(ADMIN_URL, name), "small", 7, date(2025, 1, 1), date(2026, 10, 24))
-    yield name, summary
-    await admin(f"drop database {name} with (force)")
-
-
-@pytest_asyncio.fixture
-async def copy(generated):
-    source, _ = generated
-    name = f"copy_{uuid.uuid4().hex[:16]}"
-    await admin(f"create database {name} template {source}")
-    conn = await asyncpg.connect(on_database(ADMIN_URL, name))
-    try:
-        yield conn
-    finally:
-        await conn.close()
-        await admin(f"drop database {name} with (force)")
 
 
 async def test_the_small_size_has_what_it_declares(generated):
@@ -93,7 +55,7 @@ async def test_generating_twice_into_one_database_is_refused(generated):
 
 async def test_every_invariant_holds_on_the_generated_data(copy):
     report = await check(copy)
-    assert report["checked"] == 15
+    assert report["checked"] == 17
     assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
 
 
@@ -143,6 +105,20 @@ async def test_a_subscription_without_its_first_price_is_found(copy):
     await copy.execute("alter table subscription_price disable trigger subscription_price_written_once")
     await copy.execute("delete from subscription_price where subscription_id = (select min(id) from subscription where paid)")
     assert await broken(copy) == ["every_subscription_has_its_first_price"]
+
+
+async def test_weekly_sums_parted_from_their_days_are_found(copy):
+    await copy.execute("alter table listening_week disable trigger listening_week_added_only")
+    await copy.execute("update listening_week set seconds = seconds + 1 where (artist_id, week, subscriber_id) = "
+                       "(select artist_id, week, subscriber_id from listening_week order by 1, 2, 3 limit 1)")
+    assert await broken(copy) == ["listening_weeks_sum_their_days"]
+
+
+async def test_a_day_of_listening_without_its_month_is_found(copy):
+    listener = await copy.fetchval("select id from subscriber order by id limit 1")
+    await copy.execute("insert into listening_day (subscriber_id, artist_id, day, seconds) values ($1, 1, '2028-03-01', 60)",
+                       listener)
+    assert await broken(copy) == ["listening_has_its_month"]
 
 
 async def test_a_code_sold_without_its_payment_or_activated_into_nothing_is_found(copy):
