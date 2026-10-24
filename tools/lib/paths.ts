@@ -26,7 +26,7 @@ export const venvPython = join(repoRoot, ".venv", process.platform === "win32" ?
 export const PORTS = {
   postgresDev: Number(process.env["DEV_POSTGRES_PORT"] ?? 4601),
   postgresCheck: Number(process.env["CHECK_POSTGRES_PORT"] ?? 4602),
-  postgresMeasure: Number(process.env["MEASURE_POSTGRES_PORT"] ?? 4604),
+  postgresMeasure: Number(process.env["MEASURE_POSTGRES_PORT"] ?? 4650),
   engine: Number(new URL(process.env["ENGINE_URL"] ?? "http://127.0.0.1:4611").port || 4611),
   engineCheck: Number(process.env["CHECK_ENGINE_PORT"] ?? 4612),
   gatewayCheckInternal: Number(process.env["CHECK_GATEWAY_INTERNAL_PORT"] ?? 4621),

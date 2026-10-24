@@ -7,7 +7,7 @@
 //   npm run measure -- --audit-events 2000000   a larger audit log (1,000,000 by default)
 //   npm run measure -- --keep                   keep the cluster in .data/measure afterwards
 //
-// The cluster listens on 127.0.0.1:4604 (MEASURE_POSTGRES_PORT moves it),
+// The cluster listens on 127.0.0.1:4650 (MEASURE_POSTGRES_PORT moves it),
 // with PostgreSQL's usual settings, which the report lists. The report is
 // reports/measure.json: the machine, the conditions, how long each step
 // took, and for each query its answer, before and after, each run's time,
