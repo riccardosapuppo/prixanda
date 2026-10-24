@@ -368,3 +368,33 @@ async def test_a_second_confirmation_waits_for_the_first_and_reads_what_it_wrote
     release.set()
     assert (await one).WhichOneof("outcome") == "confirmation"
     assert (await two).refusal.code == REFUSAL.REFUSAL_CODE_ALREADY_SUBSCRIBED
+
+
+async def test_a_confirmation_never_takes_an_offer_suspended_before_it(world):
+    # Two engines whose clocks differ a little: the suspension is published at 08:01, while the clock of the engine that
+    # confirms still says 08:00:30. The offer's state, read under its lock, decides, not the snapshot live at an instant.
+    offer = await autumn_on_sale(world)
+    q = await quote(world, plan="student", market="IT", offer_id=offer, subscriber_id=101)
+    world.clock.at = at(2026, 10, 26, 8, 1)
+    suspended = await world.call("SuspendChange", changes_pb2.SuspendChangeRequest(
+        change_id=offer, reason="The page shows the wrong price."), ON_CALL)
+    assert suspended.change.state == changes_pb2.CHANGE_STATE_SUSPENDED
+    world.clock.at = at(2026, 10, 26, 8, 0, 30)
+    response = await confirm(world, q.quote_id, 101)
+    assert response.refusal.code == REFUSAL.REFUSAL_CODE_QUOTE_EXPIRED and "no longer on sale" in response.refusal.reason
+    assert await world.owner.fetchval("select count(*) from subscription where subscriber_id = 101 and paid") == 0
+
+
+async def test_a_confirmation_decides_at_the_time_it_holds_its_locks(world):
+    q = await quote(world, plan="individual", market="FR", subscriber_id=401)  # at 08:42, valid for 30 minutes
+    world.clock.at = at(2026, 10, 24, 9, 11, 50)
+    free = await world.owner.fetchval("select id from subscription where subscriber_id = 401 and ended_on is null")
+    holding = world.owner.transaction()
+    await holding.start()
+    await world.owner.execute("select id from subscription where id = $1 for update", free)
+    confirming = asyncio.create_task(confirm(world, q.quote_id, 401))
+    await asyncio.sleep(0.3)  # the confirmation waits for the listener's subscription
+    world.clock.advance(seconds=20)  # 09:12:10: the quote expires meanwhile
+    await holding.commit()
+    response = await confirming
+    assert response.refusal.code == REFUSAL.REFUSAL_CODE_QUOTE_EXPIRED

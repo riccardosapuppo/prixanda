@@ -7,8 +7,12 @@ same transaction, with the request id it arrived with.
 
 ConfirmQuote decides again at the moment of confirming, under locks: the
 listener first, so that two confirmations of one listener go one at a time
-and the second reads what the first wrote, then the offer's change row, so
-that redemptions counted against a cap cannot both take the last place.
+and the second reads what the first wrote; then the offer's change row, so
+that redemptions counted against a cap cannot both take the last place, and
+a suspension cannot slip in between; then the listener's current
+subscription. Only then does it read the clock it decides at: a confirmation
+that waited for a lock checks the quote's expiry, the offer's state and its
+period at the moment it holds them all, never at the moment it arrived.
 
 The first month is charged after the confirmation commits: the confirmation
 writes the payment, pending, and an outbox message in its transaction, and
@@ -184,6 +188,13 @@ class Subscribers:
             request.quote_id)
         if quote is None or (quote["subscriber_id"] is not None and quote["subscriber_id"] != subscriber):
             raise NotFound(f"no quote {request.quote_id} for this listener")
+        offer_id = quote["offer_change_id"]
+        if offer_id is not None:
+            await tx.execute("select id from change where id = $1 for update", offer_id)
+        arrived = self.clock.now()  # only to find the subscription to lock: the market's day when the call arrived
+        arrived_in = (await reference.load(tx, arrived)).market(quote["market"].strip())
+        current = await tx.fetchrow(CURRENT + " for update", subscriber, arrived_in.today(arrived).isoformat())
+        # Every lock is held: the moment this confirmation is decided at.
         now = self.clock.now()
         ref = await reference.load(tx, now)
         market = ref.market(quote["market"].strip())
@@ -191,21 +202,22 @@ class Subscribers:
         if now >= datetime.fromisoformat(quote["expires_at"].replace("Z", "+00:00")):
             raise Refused("QUOTE_EXPIRED", f"The quote expired at {records.iso(quote['expires_at'])}: ask for a new one.",
                           {"expired_at": records.iso(quote["expires_at"])})
-        current = await tx.fetchrow(CURRENT + " for update", subscriber, today.isoformat())
         if current is None:
             raise FailedPrecondition(f"subscriber #{subscriber} is on no plan on {today.isoformat()}")
         if current["paid"]:
             raise Refused("ALREADY_SUBSCRIBED", f"A {ref.plans[current['plan_id']].name} subscription is already running "
                                                 "for this listener.", {"plan": current["plan_id"]})
-        offer_id = quote["offer_change_id"]
         offer = None
         if offer_id is not None:
-            await tx.execute("select id from change where id = $1 for update", offer_id)
+            # The state of the change, read under its lock, says whether it is on sale: a suspension published with a
+            # clock a little ahead of this one is not in the snapshot live at this instant, and still counts.
+            state = await tx.fetchval("select state from change where id = $1", offer_id)
             snapshot = await self.catalog.publisher.live_snapshot(tx, now)
-            row = None if snapshot is None else await tx.fetchrow(
+            row = None if snapshot is None or state != "active" else await tx.fetchrow(
                 LIVE_OFFER + " and o.change_id = $4", snapshot, market.code, format_instant(now), offer_id)
             if row is None:
-                raise Refused("QUOTE_EXPIRED", f"Offer #{offer_id} is no longer on sale in {market.name}.", {"offer_id": offer_id})
+                raise Refused("QUOTE_EXPIRED", f"Offer #{offer_id} is no longer on sale in {market.name}.",
+                              {"offer_id": offer_id, "state": state})
             offer = live_offer(row)
             list_price = await list_price_at(tx, offer.plan, market, datetime.combine(today, datetime.min.time()))
             if list_price is None or resolve_price(offer.price_rule, list_price) >= list_price:
