@@ -13,6 +13,7 @@ import { internalSdl } from "../src/core/generated/sdl.ts";
 import { internalResolvers } from "../src/core/internal/resolvers.ts";
 import { guardInternalSchema } from "../src/core/policy.ts";
 import { buildInternalSchema } from "../src/core/schemas.ts";
+import { unionConflicts } from "./support/unions.ts";
 
 /** The console's operations, with their arguments: changing one is changing the console's contract. */
 const OPERATIONS = [
@@ -75,6 +76,11 @@ describe("the console's schema", () => {
       const result = getNamedType(field.type);
       assert.ok(isUnionType(result) && result.getTypes().some((member) => member.name === "Refusal"), field.name);
     }
+  });
+
+  test("lets a client ask for every member of a union in one selection, without an alias", () => {
+    // A launch's change and a refusal's were Change! and Change: retryLaunch's answer needed an alias.
+    assert.deepEqual(unionConflicts(schema), []);
   });
 
   test("has the engine's enums, value for value", () => {

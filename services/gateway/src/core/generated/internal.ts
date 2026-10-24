@@ -1010,7 +1010,12 @@ export type LaunchRun = {
   readonly id: Scalars['ID']['output'];
   /** The identifier its audit events and log lines carry: launch-12. */
   readonly run: Scalars['String']['output'];
-  readonly change: Change;
+  /**
+   * The change it launches. Never null from the engine; nullable so that a
+   * client asks for it next to a Refusal's change, in retryLaunch's and
+   * cancelLaunch's answers, without an alias.
+   */
+  readonly change?: Maybe<Change>;
   readonly title: Scalars['String']['output'];
   readonly kind: ChangeKind;
   /** The version that was approved and scheduled. */
@@ -1948,7 +1953,7 @@ export type LaunchPageResolvers<ContextType = InternalContext, ParentType extend
 export type LaunchRunResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['LaunchRun'] = ResolversParentTypes['LaunchRun']> = {
   id: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   run: Resolver<ResolversTypes['String'], ParentType, ContextType>;
-  change: Resolver<ResolversTypes['Change'], ParentType, ContextType>;
+  change: Resolver<Maybe<ResolversTypes['Change']>, ParentType, ContextType>;
   title: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   kind: Resolver<ResolversTypes['ChangeKind'], ParentType, ContextType>;
   version: Resolver<ResolversTypes['Int'], ParentType, ContextType>;

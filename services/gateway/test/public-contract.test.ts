@@ -18,6 +18,7 @@ import { buildPublicSchema } from "../src/core/schemas.ts";
 import { connectEngine } from "../src/node/grpc.ts";
 import { LISTENERS, SENTINEL } from "./support/fake-engine.ts";
 import { type Client, codes, type Harness, internalIn, SITE_ORIGIN, startHarness } from "./support/harness.ts";
+import { unionConflicts } from "./support/unions.ts";
 
 /** Everything the site's API may show, and nothing else. */
 const ALLOWED = [
@@ -351,6 +352,11 @@ describe("the site's schema, as written", () => {
       "createPriceMigration", "MigrationProgress", "simulateMigration", "priceChangePolicy", "PriceChangePolicy",
     ];
     assert.deepEqual(internalNames.filter((name) => !INTERNAL_WORDS.test(name)), []);
+  });
+
+  test("lets a client ask for every member of a union in one selection, without an alias", () => {
+    // A prepaid code's code and a refusal's are String! and RefusalCode!: a purchase holds its code one level down.
+    assert.deepEqual(unionConflicts(schema), []);
   });
 
   test("accepts no price anywhere: no argument or input field carries Money (§4.5)", () => {

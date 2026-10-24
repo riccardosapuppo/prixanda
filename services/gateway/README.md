@@ -192,6 +192,11 @@ check it, each from another angle (`test/public-contract.test.ts`):
    a higher price who says yes, and as one who buys a prepaid pass and gives
    its code to another, who activates it; none of the marks comes out.
 
+A fourth test checks that every union of the site's schema can be asked for
+whole in one selection without an alias: a purchase holds its code one level
+down, in `PrepaidPurchase.prepaidCode`, because a code's `code` and a
+refusal's would not merge.
+
 The payment is asynchronous, as the engine of stage 6 makes it: the
 subscription starts at the confirmation, and its first month's `payment`
 comes back `PENDING`, asked of the payment provider after the confirmation

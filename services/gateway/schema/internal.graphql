@@ -812,7 +812,12 @@ type LaunchRun {
   id: ID!
   "The identifier its audit events and log lines carry: launch-12."
   run: String!
-  change: Change!
+  """
+  The change it launches. Never null from the engine; nullable so that a
+  client asks for it next to a Refusal's change, in retryLaunch's and
+  cancelLaunch's answers, without an alias.
+  """
+  change: Change
   title: String!
   kind: ChangeKind!
   "The version that was approved and scheduled."
