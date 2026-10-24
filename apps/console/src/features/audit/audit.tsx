@@ -8,7 +8,7 @@
 import { Icon } from "design/icon";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, Callout, Empty, ErrorPanel, Loading, Locked } from "../../components/ui.tsx";
 import {
@@ -195,40 +195,60 @@ function EventRow({ event, highlighted }: { readonly event: Event; readonly high
   );
 }
 
+/** A verification and the exported head it was asked to check: the message speaks of that head, never of what is typed now. */
+type Verified = { readonly anchor: Head | null; readonly result: VerifyAuditChainQuery["verifyAuditChain"] };
+
 function Verify({ exported }: { readonly exported: Head | null }) {
   const gateway = useGateway();
-  const [result, setResult] = useState<VerifyAuditChainQuery["verifyAuditChain"] | null>(null);
+  const [verified, setVerified] = useState<Verified | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [seq, setSeq] = useState("");
   const [hash, setHash] = useState("");
+  // Each edit of the anchor, and each request, takes a new ticket: an answer
+  // that comes back for an older ticket is not shown.
+  const ticket = useRef(0);
+  const edit = (next: { seq?: string; hash?: string }) => {
+    ticket.current += 1;
+    setVerified(null);
+    setFailure(null);
+    setBusy(false);
+    if (next.seq !== undefined) setSeq(next.seq);
+    if (next.hash !== undefined) setHash(next.hash);
+  };
   useEffect(() => {
-    if (exported) {
-      setSeq(exported.seq);
-      setHash(exported.hash);
-    }
+    if (exported) edit({ seq: exported.seq, hash: exported.hash });
   }, [exported]);
-  const anchored = seq.trim() !== "" && /^[0-9a-f]{64}$/.test(hash.trim());
+  const typedSeq = seq.trim();
+  const typedHash = hash.trim();
+  const anchored = typedSeq !== "" && /^[0-9a-f]{64}$/.test(typedHash);
+  const partial = !anchored && (typedSeq !== "" || typedHash !== "");
   const run = async () => {
+    const mine = ++ticket.current;
+    const anchor = anchored ? { seq: typedSeq, hash: typedHash } : null;
     setBusy(true);
     setFailure(null);
+    setVerified(null);
     try {
-      const data = await gateway.run(VerifyAuditChainDocument, { anchor: anchored ? { seq: seq.trim(), hash: hash.trim() } : null });
-      setResult(data.verifyAuditChain);
+      const data = await gateway.run(VerifyAuditChainDocument, { anchor });
+      if (mine === ticket.current) setVerified({ anchor, result: data.verifyAuditChain });
     } catch (error) {
-      setFailure(error);
+      if (mine === ticket.current) setFailure(error);
     } finally {
-      setBusy(false);
+      if (mine === ticket.current) setBusy(false);
     }
   };
+  const result = verified?.result ?? null;
+  const against = verified?.anchor ? `the exported head #${verified.anchor.seq} (${verified.anchor.hash.slice(0, 8)}…)` : null;
   return (
     <div className="grid gap-3">
       <details className="grid gap-2">
         <summary className="cursor-pointer font-semibold text-indigo">Check against an exported head</summary>
         <div className="mt-2 grid gap-3 md:grid-cols-[8rem_minmax(0,1fr)]">
-          <label className="grid gap-1"><span className="label">Event #</span><input className="input" inputMode="numeric" value={seq} onChange={(event) => setSeq(event.target.value.replace(/\D/g, ""))} /></label>
-          <label className="grid gap-1"><span className="label">Its hash (64 hexadecimal digits)</span><input className="input" value={hash} onChange={(event) => setHash(event.target.value.trim().toLowerCase())} /></label>
+          <label className="grid gap-1"><span className="label">Event #</span><input className="input" inputMode="numeric" value={seq} onChange={(event) => edit({ seq: event.target.value.replace(/\D/g, "") })} /></label>
+          <label className="grid gap-1"><span className="label">Its hash (64 hexadecimal digits)</span><input className="input" value={hash} onChange={(event) => edit({ hash: event.target.value.trim().toLowerCase() })} /></label>
         </div>
+        {partial ? <p className="hint">An exported head needs its event number and its 64-digit hash: until both are there, the chain is checked on its own.</p> : null}
       </details>
       <Button weight="primary" icon="shield-check" busy={busy} onClick={() => void run()} className="justify-self-start">Verify the chain</Button>
       {failure ? <ErrorPanel error={failure} /> : null}
@@ -236,11 +256,11 @@ function Verify({ exported }: { readonly exported: Head | null }) {
         result.ok ? (
           <Callout tone="good" icon="check-circle" role="status">
             The chain holds: {result.events.toLocaleString("en-GB")} events recomputed{result.head ? `, head #${result.head.seq} ${result.head.hash.slice(0, 8)}` : ""}.
-            {anchored ? ` It still leads to the exported head #${seq}.` : " Check it against an exported head to know it was not rewritten whole."}
+            {against ? ` It leads to ${against}, the head this check was given.` : " Checked without an exported head: check it against one to know the chain was not rewritten whole."}
           </Callout>
         ) : (
           <Callout tone="error" icon="link-break" role="alert">
-            The chain breaks{result.brokenAt ? ` at event #${result.brokenAt}` : ""}: {result.why ?? "an event does not follow the one before it."} The runbook "the audit chain does not add up" says what to do next.
+            {against ? `Checked against ${against}: ` : ""}the chain breaks{result.brokenAt ? ` at event #${result.brokenAt}` : ""}: {result.why ?? "an event does not follow the one before it."} The runbook "the audit chain does not add up" says what to do next.
           </Callout>
         )
       ) : null}
