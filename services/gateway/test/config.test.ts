@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { request } from "node:http";
+import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
@@ -123,49 +123,107 @@ describe("npm run gateway", () => {
     await assertPortsFree([PORTS.engine, PORTS.internal, PORTS.public]);
     const engine = new FakeEngine({ clock: new TestClock().now });
     await engine.start();
-    const child = spawn(process.execPath, [MAIN], {
-      env: cleanEnvironment({ ...SECRETS, COMMERCE_INTERNAL_TOKEN: FAKE_TOKEN, ENGINE_URL: engine.url }),
-      windowsHide: true,
-    });
-    const exited = new Promise<number | null>((resolve) => child.once("exit", resolve));
+    const gateway = await startProcess({ ...SECRETS, COMMERCE_INTERNAL_TOKEN: FAKE_TOKEN, ENGINE_URL: engine.url });
     try {
-      const lines: Array<Record<string, unknown>> = [];
-      await new Promise<void>((resolve, reject) => {
-        let pending = "";
-        const timer = setTimeout(() => reject(new Error(`no "listening" line in 20 s: ${JSON.stringify(lines)}`)), 20_000);
-        child.stdout.on("data", (chunk: Buffer) => {
-          pending += chunk.toString("utf8");
-          const complete = pending.split("\n");
-          pending = complete.pop() ?? "";
-          for (const line of complete) {
-            const entry = JSON.parse(line) as Record<string, unknown>;
-            lines.push(entry);
-            if (entry["msg"] === "listening") {
-              clearTimeout(timer);
-              resolve();
-            }
-          }
-        });
-        child.once("exit", (code) => reject(new Error(`the gateway exited with ${code}: ${JSON.stringify(lines)}`)));
-      });
+      const lines = await gateway.listening;
       assert.equal(lines[0]?.["level"], "warn");
       assert.match(String(lines[0]?.["msg"]), /^DEMONSTRATION MODE: .* is not authentication$/);
       assert.match(String(lines[0]?.["realDeploymentNeeds"]), /OpenID Connect/);
-      assert.deepEqual(lines.find((line) => line["msg"] === "engine"), { ...lines.find((line) => line["msg"] === "engine"), health: "SERVING" });
-      const health = await new Promise<{ status: number; body: string }>((resolve, reject) => {
-        request(`http://127.0.0.1:${PORTS.internal}/health`, { agent: false }, (response) => {
-          let body = "";
-          response.on("data", (chunk: Buffer) => (body += chunk.toString("utf8")));
-          response.on("end", () => resolve({ status: response.statusCode ?? 0, body }));
-        }).on("error", reject).end();
-      });
+      assert.equal(lines.find((line) => line["msg"] === "engine")?.["health"], "SERVING");
+      const health = await get(`http://127.0.0.1:${PORTS.internal}/health`);
       assert.equal(health.status, 200);
       assert.deepEqual(JSON.parse(health.body), { status: "ok", endpoint: "internal", engine: "SERVING", mode: "demonstration" });
+      // No origin is configured: a page of any other origin is refused.
+      const fromPage = await get(`http://127.0.0.1:${PORTS.public}/graphql?query=%7B__typename%7D`, { origin: "http://localhost:4632", "apollo-require-preflight": "true" });
+      assert.equal(fromPage.status, 403);
+      // The secrets never reach the log.
+      for (const secret of [FAKE_TOKEN, SECRETS.GATEWAY_SESSION_SECRET]) assert.ok(!gateway.output().includes(secret));
     } finally {
-      child.kill();
-      await exited;
+      await gateway.stop();
       await engine.stop();
     }
     await assertPortsFree([PORTS.engine, PORTS.internal, PORTS.public]);
   });
+
+  test("starts without the engine, says it is unreachable, and its health check says so", async () => {
+    await assertPortsFree([PORTS.engine, PORTS.internal, PORTS.public]);
+    const gateway = await startProcess({ ...SECRETS, ENGINE_URL: `http://127.0.0.1:${PORTS.engine}` });
+    try {
+      const lines = await gateway.listening;
+      const engine = lines.find((line) => line["msg"] === "engine");
+      assert.deepEqual({ level: engine?.["level"], health: engine?.["health"] }, { level: "warn", health: "UNREACHABLE" });
+      const health = await get(`http://127.0.0.1:${PORTS.public}/health`);
+      assert.equal(health.status, 503);
+      assert.equal(JSON.parse(health.body).engine, "UNREACHABLE");
+    } finally {
+      await gateway.stop();
+    }
+  });
+
+  test("does not start on a port another process holds, and says which", async () => {
+    await assertPortsFree([PORTS.internal, PORTS.public]);
+    const squatter = createServer();
+    await new Promise<void>((resolve) => squatter.listen(PORTS.internal, "0.0.0.0", resolve));
+    try {
+      const gateway = await startProcess({ ...SECRETS });
+      const code = await gateway.exited;
+      assert.equal(code, 1);
+      const last = gateway.lines().at(-1);
+      assert.equal(last?.["msg"], "could not start");
+      assert.match(String(last?.["error"]), new RegExp(`port ${PORTS.internal}, needed for the gateway's internal API, is taken by`));
+    } finally {
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+    }
+  });
 });
+
+/** `npm run gateway`'s entry point as a child process, its log lines read as they come. */
+async function startProcess(env: Record<string, string>) {
+  const child = spawn(process.execPath, [MAIN], { env: cleanEnvironment(env), windowsHide: true });
+  const lines: Array<Record<string, unknown>> = [];
+  let raw = "";
+  let pending = "";
+  const exited = new Promise<number | null>((resolve) => child.once("exit", resolve));
+  const listening = new Promise<Array<Record<string, unknown>>>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no "listening" line in 20 s: ${raw}`)), 20_000);
+    child.stdout.on("data", (chunk: Buffer) => {
+      raw += chunk.toString("utf8");
+      pending += chunk.toString("utf8");
+      const complete = pending.split("\n");
+      pending = complete.pop() ?? "";
+      for (const line of complete) {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        lines.push(entry);
+        if (entry["msg"] === "listening") {
+          clearTimeout(timer);
+          resolve(lines);
+        }
+      }
+    });
+    void exited.then((code) => {
+      clearTimeout(timer);
+      reject(new Error(`the gateway exited with ${code}: ${raw}`));
+    });
+  });
+  listening.catch(() => {});
+  return {
+    listening,
+    exited,
+    lines: () => lines,
+    output: () => raw,
+    async stop() {
+      if (child.exitCode === null) child.kill();
+      await exited;
+    },
+  };
+}
+
+function get(url: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    request(url, { agent: false, headers }, (response) => {
+      let body = "";
+      response.on("data", (chunk: Buffer) => (body += chunk.toString("utf8")));
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, body }));
+    }).on("error", reject).end();
+  });
+}

@@ -122,6 +122,19 @@ describe("limits through HTTP", () => {
     assert.equal(batch.status, 400);
   });
 
+  test("persisted queries are off, and a browser opening the API gets no landing page", async () => {
+    const client = harness.site();
+    const persisted = await client.raw({
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ extensions: { persistedQuery: { version: 1, sha256Hash: "a".repeat(64) } } }),
+    });
+    assert.deepEqual(codes(persisted), ["PERSISTED_QUERY_NOT_SUPPORTED"]);
+    const page = await client.raw({ method: "GET", headers: { accept: "text/html" } });
+    assert.equal(page.status, 400);
+    assert.match(String(page.headers["content-type"]), /application\/json/);
+    assert.doesNotMatch(page.text, /<script|<html/i);
+  });
+
   test("GET runs queries only, and only with a header a simple cross-site request cannot carry", async () => {
     const client = harness.console();
     const query = encodeURIComponent("{ people { id } }");

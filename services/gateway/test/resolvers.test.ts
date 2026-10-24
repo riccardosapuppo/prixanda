@@ -229,6 +229,24 @@ describe("when the engine fails", () => {
     assert.ok(harness.logs.some((line) => line["requestId"] === "req-internal-0001" && line["code"] === "Internal" && line["engine"] === "secret detail of the engine"));
   });
 
+  test("an engine that stopped: /health is 503 and every call ENGINE_UNAVAILABLE, until it is back", async () => {
+    const reader = harness.console();
+    await reader.signIn("marketing-1");
+    await harness.engine.stop();
+    try {
+      const health = await reader.raw({ method: "GET", path: "/health" });
+      assert.equal(health.status, 503);
+      assert.deepEqual(health.body, { status: "degraded", endpoint: "internal", engine: "UNREACHABLE", mode: "demonstration" });
+      assert.deepEqual(codes(await reader.graphql("{ markets { code } }")), ["ENGINE_UNAVAILABLE"]);
+      assert.deepEqual(codes(await harness.site().graphql('{ offers(market: "IT") { id } }')), ["ENGINE_UNAVAILABLE"]);
+    } finally {
+      await harness.engine.start();
+    }
+    const back = await reader.graphql("{ markets { code } }");
+    assert.equal(back.body.errors, undefined, back.text);
+    assert.equal((await reader.raw({ method: "GET", path: "/health" })).status, 200);
+  });
+
   test("the engine refusing the gateway's token is ENGINE_UNAVAILABLE for the person, and a log line for whoever runs it", async () => {
     const reader = harness.console();
     await reader.signIn("marketing-1");

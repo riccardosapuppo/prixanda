@@ -227,6 +227,14 @@ describe("the site's API, answered by an engine that plants marked values in eve
     assert.equal(answer.body.errors[0].message, "Not found.", "the site does not get the engine's own sentence");
   });
 
+  test("the site's port does not know the console's operations at all", async () => {
+    const site = harness.site();
+    for (const query of ["{ people { id } }", '{ change(id: "1") { id } }', 'mutation { signIn(personId: "finance-1") { csrfToken } }']) {
+      const answer = await site.graphql(query, { key: "site-key-00001" });
+      assert.deepEqual(codes(answer), ["GRAPHQL_VALIDATION_FAILED"], query);
+    }
+  });
+
   test("the site's CORS answers its own origin only, and never with credentials", async () => {
     const site = harness.site();
     const allowed = await site.raw({ method: "OPTIONS", headers: { origin: SITE_ORIGIN, "access-control-request-method": "POST" } });

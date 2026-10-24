@@ -8,6 +8,7 @@ import { after, before, describe, test } from "node:test";
 import { ChangeState } from "contracts/commerce/v1/changes";
 import { buildInternalSchema } from "../src/core/schemas.ts";
 import { INTERNAL_ACCESS } from "../src/core/policy.ts";
+import { SessionStore } from "../src/node/sessions.ts";
 import { codes, CONSOLE_ORIGIN, type Harness, startHarness } from "./support/harness.ts";
 
 const OFFER = {
@@ -261,6 +262,15 @@ describe("the session cookie", () => {
     assert.notEqual((await client.graphql("{ session { person { id } } }")).body.data.session, null);
     harness.clock.advance(61 * 60_000);
     assert.equal((await client.graphql("{ session { person { id } } }")).body.data.session, null);
+  });
+
+  test("lives in the gateway's memory: a gateway started again knows none, even with the same key", () => {
+    const clock = () => new Date("2026-10-24T08:00:00Z");
+    const options = { secret: new Uint8Array(32).fill(7), clock, absoluteMs: 8 * 3_600_000, idleMs: 3_600_000 };
+    const before = new SessionStore(options);
+    const created = before.create({ personId: "auditor-1", label: "Auditor", roles: ["auditor"] });
+    assert.notEqual(before.read(created.cookieValue), null);
+    assert.equal(new SessionStore(options).read(created.cookieValue), null);
   });
 
   test("ends after a working day however busy", async () => {
