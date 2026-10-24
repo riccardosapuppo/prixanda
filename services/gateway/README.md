@@ -195,6 +195,13 @@ about 22,400; the site's whole catalog of a market about 330. The limits
 leave room for these and none for the same fields asked again and again.
 Batched requests and persisted queries are off.
 
+The measure reads each fragment once per operation, however many times it is
+spread, and stops as soon as it passes a limit. Read naively, fragments that
+spread the one before them twice would double the work at every level: a few
+hundred bytes of query could keep the gateway busy for minutes before any
+limit was checked. Thirty such levels are refused in milliseconds (a test
+holds that, with its threshold).
+
 Rate limits are token buckets per client address and per session; past
 them the answer is 429 with `Retry-After`. They live in the process's
 memory: with several instances of the gateway, each counts on its own.
