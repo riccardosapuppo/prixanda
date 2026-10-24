@@ -25,30 +25,36 @@ CANONICAL = (
     "from audit_event where seq > $1 order by seq limit $2")
 
 
+def page_query(*, actor: str = "", action: str = "", subject: str = "", after: int | None = None,
+               size: int = PAGE_DEFAULT) -> tuple[str, list]:
+    """A page of the log, newest first, by keyset: the events before a sequence number, with one more than the page
+    to say whether another follows. What ListEvents runs, and what npm run measure measures (§14.2)."""
+    args: list = []
+
+    def param(value) -> str:
+        args.append(value)
+        return f"${len(args)}"
+
+    where = [f"{column} = {param(value)}" for column, value in (("actor", actor), ("action", action), ("subject", subject))
+             if value]
+    if after is not None:
+        where.append(f"seq < {param(after)}::bigint")
+    return (f"select seq, {utc_text('at')} as at, actor, actor_role, action, subject, request_id, reason, body::text as body, "
+            "encode(prev_hash, 'hex') as prev_hash, encode(hash, 'hex') as hash from audit_event "
+            f"{'where ' + ' and '.join(where) if where else ''} order by seq desc limit {size + 1}", args)
+
+
 class AuditLog:
     def __init__(self, clock: Clock) -> None:
         self.clock = clock
 
     async def list_events(self, tx: Connection, call: Call, request: audit_pb2.ListEventsRequest) -> audit_pb2.ListEventsResponse:
-        args: list = []
-
-        def param(value) -> str:
-            args.append(value)
-            return f"${len(args)}"
-
-        where = []
-        for column, value in (("actor", request.actor), ("action", request.action), ("subject", request.subject)):
-            if value:
-                where.append(f"{column} = {param(value)}")
-        if request.page.after:
-            if not request.page.after.isdigit():
-                raise InvalidArgument("page.after is not a cursor this engine gave")
-            where.append(f"seq < {param(int(request.page.after))}::bigint")
+        if request.page.after and not request.page.after.isdigit():
+            raise InvalidArgument("page.after is not a cursor this engine gave")
         size = min(request.page.size if request.page.size > 0 else PAGE_DEFAULT, PAGE_MAX)
-        rows = await tx.fetch(
-            f"select seq, {utc_text('at')} as at, actor, actor_role, action, subject, request_id, reason, body::text as body, "
-            "encode(prev_hash, 'hex') as prev_hash, encode(hash, 'hex') as hash from audit_event "
-            f"{'where ' + ' and '.join(where) if where else ''} order by seq desc limit {size + 1}", *args)
+        sql, args = page_query(actor=request.actor, action=request.action, subject=request.subject,
+                               after=int(request.page.after) if request.page.after else None, size=size)
+        rows = await tx.fetch(sql, *args)
         page = rows[:size]
         response = audit_pb2.ListEventsResponse(events=[audit_pb2.AuditEvent(
             seq=r["seq"], at=records.iso(r["at"]), actor=r["actor"], actor_role=r["actor_role"], action=r["action"],

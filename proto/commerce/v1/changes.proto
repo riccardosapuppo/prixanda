@@ -133,6 +133,65 @@ message ListPriceContent {
   string starts_local = 5;
 }
 
+// A higher price for one plan in one market, for everyone (§8, §14.3): new
+// subscribers pay it from starts_local, like a new list price; the existing
+// subscribers of the plan in the market are asked for their consent, or told,
+// from notices_local, by the rules of their market (catalog.proto,
+// PriceChangePolicy), and pay it only as those rules say. The change starts at
+// notices_local. Finance signs it (§7.3, conditions 1 and 5).
+message PriceMigrationContent {
+  string title = 1;
+  string plan = 2;
+  string market = 3;
+  // The new price, above the list price in force.
+  Money amount = 4;
+  // When the existing subscribers are asked or told.
+  string notices_local = 5;
+  // When new subscribers start paying it; not before notices_local.
+  string starts_local = 6;
+}
+
+// A prepaid pass (§9, §14.4): months of a plan paid in advance, sold as a
+// single-use code that can be given as a gift. It never renews, and price
+// changes made after it was sold do not touch it. The commercial lead writes
+// it and finance signs it, as a price (§7.3, condition 1). It starts when
+// the first of its periods does.
+message PrepaidPassContent {
+  string title = 1;
+  // The plan it gives, for its months.
+  string plan = 2;
+  int32 months = 3;
+  // Its price in each market where it is sold, VAT included: a fixed price.
+  repeated OfferPrice prices = 4;
+  // When it is on sale in each market, in local time; no end: open.
+  repeated OfferPeriod periods = 5;
+  // How long a code sold can be activated: months from the day it was sold.
+  int32 code_valid_months = 6;
+  // Its page in each market.
+  repeated OfferPage pages = 7;
+}
+
+// How a price migration stands with the existing subscribers, once it started.
+message MigrationProgress {
+  // consent or notice: what the market's law asks for (PriceChangePolicy).
+  string requirement = 1;
+  // The end of the window: the consent deadline, or the end of the notice.
+  LocalTime window_ends = 2;
+  // The subscribers asked or told, and where each stands.
+  int64 asked = 3;
+  int64 waiting = 4;
+  int64 accepted = 5;
+  // Said no: in a consent market they keep their price until the window
+  // ends; in a notice market they leave before the new price applies.
+  int64 declined = 6;
+  // Gave no answer in a consent market by the end of the window.
+  int64 lapsed = 7;
+  // Paying the new price from their own date.
+  int64 new_price = 8;
+  // Moved to the free plan by the market's commercial choice, or ended.
+  int64 left = 9;
+}
+
 message ChangeVersion {
   int32 version = 1;
   string author = 2;
@@ -143,6 +202,8 @@ message ChangeVersion {
   oneof content {
     OfferContent offer = 5;
     ListPriceContent list_price = 6;
+    PriceMigrationContent price_migration = 7;
+    PrepaidPassContent prepaid = 8;
   }
 }
 
@@ -207,6 +268,8 @@ message Change {
   string sentence = 13;
   // Why the campaign is worth running despite a negative contribution (§7.3, condition 4).
   string author_reason = 14;
+  // A price migration that started: where its existing subscribers stand.
+  MigrationProgress migration = 15;
 }
 
 message ChangeSummary {
@@ -225,6 +288,8 @@ message CreateChangeRequest {
   oneof content {
     OfferContent offer = 1;
     ListPriceContent list_price = 2;
+    PriceMigrationContent price_migration = 3;
+    PrepaidPassContent prepaid = 4;
   }
 }
 
@@ -242,6 +307,8 @@ message SaveVersionRequest {
   oneof content {
     OfferContent offer = 3;
     ListPriceContent list_price = 4;
+    PriceMigrationContent price_migration = 5;
+    PrepaidPassContent prepaid = 6;
   }
 }
 

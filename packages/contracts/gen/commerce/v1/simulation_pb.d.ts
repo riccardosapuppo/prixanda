@@ -9,7 +9,7 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
-import type { Money, Refusal } from "./common_pb.js";
+import type { LocalTime, Money, Refusal } from "./common_pb.js";
 
 /**
  * Describes the file commerce/v1/simulation.proto.
@@ -279,6 +279,221 @@ export declare type SimulateOfferResponse = Message<"commerce.v1.SimulateOfferRe
 export declare const SimulateOfferResponseSchema: GenMessage<SimulateOfferResponse>;
 
 /**
+ * @generated from message commerce.v1.SimulateMigrationRequest
+ */
+export declare type SimulateMigrationRequest = Message<"commerce.v1.SimulateMigrationRequest"> & {
+  /**
+   * @generated from field: int64 change_id = 1 [jstype = JS_STRING];
+   */
+  changeId: string;
+
+  /**
+   * 0: the current version.
+   *
+   * @generated from field: int32 version = 2;
+   */
+  version: number;
+
+  /**
+   * @generated from field: repeated commerce.v1.AssumptionOverride overrides = 3;
+   */
+  overrides: AssumptionOverride[];
+};
+
+/**
+ * Describes the message commerce.v1.SimulateMigrationRequest.
+ * Use `create(SimulateMigrationRequestSchema)` to create a new message.
+ */
+export declare const SimulateMigrationRequestSchema: GenMessage<SimulateMigrationRequest>;
+
+/**
+ * Per subscription per month, before and after (§3.5, §5).
+ *
+ * @generated from message commerce.v1.PriceStep
+ */
+export declare type PriceStep = Message<"commerce.v1.PriceStep"> & {
+  /**
+   * @generated from field: commerce.v1.Money price = 1;
+   */
+  price?: Money | undefined;
+
+  /**
+   * @generated from field: commerce.v1.Money net = 2;
+   */
+  net?: Money | undefined;
+
+  /**
+   * The pool share of the net amount, never less than the minimum.
+   *
+   * @generated from field: commerce.v1.Money artists = 3;
+   */
+  artists?: Money | undefined;
+
+  /**
+   * @generated from field: commerce.v1.Money payment_costs = 4;
+   */
+  paymentCosts?: Money | undefined;
+
+  /**
+   * @generated from field: commerce.v1.Money contribution = 5;
+   */
+  contribution?: Money | undefined;
+};
+
+/**
+ * Describes the message commerce.v1.PriceStep.
+ * Use `create(PriceStepSchema)` to create a new message.
+ */
+export declare const PriceStepSchema: GenMessage<PriceStep>;
+
+/**
+ * @generated from message commerce.v1.MigrationSimulation
+ */
+export declare type MigrationSimulation = Message<"commerce.v1.MigrationSimulation"> & {
+  /**
+   * @generated from field: commerce.v1.PriceStep before = 1;
+   */
+  before?: PriceStep | undefined;
+
+  /**
+   * @generated from field: commerce.v1.PriceStep after = 2;
+   */
+  after?: PriceStep | undefined;
+
+  /**
+   * New subscribers pay the new price from here.
+   *
+   * @generated from field: commerce.v1.LocalTime new_subscribers_from = 3;
+   */
+  newSubscribersFrom?: LocalTime | undefined;
+
+  /**
+   * When the existing subscribers are asked or told, and when their window ends.
+   *
+   * @generated from field: commerce.v1.LocalTime notices_from = 4;
+   */
+  noticesFrom?: LocalTime | undefined;
+
+  /**
+   * @generated from field: commerce.v1.LocalTime window_ends = 5;
+   */
+  windowEnds?: LocalTime | undefined;
+
+  /**
+   * How existing subscribers come to pay it, in words: "from their first
+   * charge after they consent, by 17 December 2026".
+   *
+   * @generated from field: string existing_from = 6;
+   */
+  existingFrom: string;
+
+  /**
+   * @generated from field: int64 existing = 7;
+   */
+  existing: bigint;
+
+  /**
+   * @generated from field: int64 accepting = 8;
+   */
+  accepting: bigint;
+
+  /**
+   * @generated from field: int64 not_accepting = 9;
+   */
+  notAccepting: bigint;
+
+  /**
+   * Of those not accepting, how many the market's choice moves to the free plan.
+   *
+   * @generated from field: int64 moving_to_free = 10;
+   */
+  movingToFree: bigint;
+
+  /**
+   * Per month, net of VAT, against not running the migration.
+   *
+   * @generated from field: commerce.v1.Money monthly_revenue_change = 11;
+   */
+  monthlyRevenueChange?: Money | undefined;
+
+  /**
+   * @generated from field: commerce.v1.Money monthly_contribution_change = 12;
+   */
+  monthlyContributionChange?: Money | undefined;
+
+  /**
+   * What the subscribers not accepting pay today, per month, net.
+   *
+   * @generated from field: commerce.v1.Money revenue_at_risk_monthly = 13;
+   */
+  revenueAtRiskMonthly?: Money | undefined;
+
+  /**
+   * The lowest acceptance, in basis points, at which revenue, or the
+   * contribution, does not fall.
+   *
+   * @generated from field: int32 break_even_acceptance_revenue_bp = 14;
+   */
+  breakEvenAcceptanceRevenueBp: number;
+
+  /**
+   * @generated from field: int32 break_even_acceptance_contribution_bp = 15;
+   */
+  breakEvenAcceptanceContributionBp: number;
+
+  /**
+   * Prepaid passes of the plan in the market: never touched (§9.1).
+   *
+   * @generated from field: int64 prepaid_passes_untouched = 16;
+   */
+  prepaidPassesUntouched: bigint;
+
+  /**
+   * @generated from field: repeated commerce.v1.Assumption assumptions = 17;
+   */
+  assumptions: Assumption[];
+
+  /**
+   * @generated from field: repeated commerce.v1.FinanceCondition finance_conditions = 18;
+   */
+  financeConditions: FinanceCondition[];
+};
+
+/**
+ * Describes the message commerce.v1.MigrationSimulation.
+ * Use `create(MigrationSimulationSchema)` to create a new message.
+ */
+export declare const MigrationSimulationSchema: GenMessage<MigrationSimulation>;
+
+/**
+ * @generated from message commerce.v1.SimulateMigrationResponse
+ */
+export declare type SimulateMigrationResponse = Message<"commerce.v1.SimulateMigrationResponse"> & {
+  /**
+   * @generated from oneof commerce.v1.SimulateMigrationResponse.outcome
+   */
+  outcome: {
+    /**
+     * @generated from field: commerce.v1.MigrationSimulation result = 1;
+     */
+    value: MigrationSimulation;
+    case: "result";
+  } | {
+    /**
+     * @generated from field: commerce.v1.Refusal refusal = 2;
+     */
+    value: Refusal;
+    case: "refusal";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message commerce.v1.SimulateMigrationResponse.
+ * Use `create(SimulateMigrationResponseSchema)` to create a new message.
+ */
+export declare const SimulateMigrationResponseSchema: GenMessage<SimulateMigrationResponse>;
+
+/**
  * @generated from service commerce.v1.SimulationService
  */
 export declare const SimulationService: GenService<{
@@ -289,6 +504,21 @@ export declare const SimulationService: GenService<{
     methodKind: "unary";
     input: typeof SimulateOfferRequestSchema;
     output: typeof SimulateOfferResponseSchema;
+  },
+  /**
+   * A price migration (§8.7): who pays what and from when, the revenue at risk
+   * under an acceptance rate declared as an assumption, who would leave or move
+   * to the free plan, and the prepaid passes the change never touches.
+   * Assumptions: existing (the subscribers of the plan in the market, counted
+   * in the data, or typed) and acceptance (a share in basis points; the
+   * book's illustrative default, §16, or typed).
+   *
+   * @generated from rpc commerce.v1.SimulationService.SimulateMigration
+   */
+  simulateMigration: {
+    methodKind: "unary";
+    input: typeof SimulateMigrationRequestSchema;
+    output: typeof SimulateMigrationResponseSchema;
   },
 }>;
 

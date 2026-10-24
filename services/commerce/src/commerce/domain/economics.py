@@ -64,6 +64,9 @@ class Book:
     take_up_bp: int = 1_200
     incremental_bp: int = 6_000
     retention_bp: int = 5_500
+    # The share of existing subscribers who accept a price increase, in the
+    # simulation of a migration (§8.7). Illustrative, and said so (§16).
+    price_increase_acceptance_bp: int = 9_000
     exchange_rate: ExchangeRate = ECB_23_OCTOBER_2026
     quote_validity_seconds: int = 30 * 60
 

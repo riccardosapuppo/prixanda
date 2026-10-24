@@ -10,6 +10,13 @@ import "commerce/v1/common.proto";
 
 service SimulationService {
   rpc SimulateOffer(SimulateOfferRequest) returns (SimulateOfferResponse);
+  // A price migration (§8.7): who pays what and from when, the revenue at risk
+  // under an acceptance rate declared as an assumption, who would leave or move
+  // to the free plan, and the prepaid passes the change never touches.
+  // Assumptions: existing (the subscribers of the plan in the market, counted
+  // in the data, or typed) and acceptance (a share in basis points; the
+  // book's illustrative default, §16, or typed).
+  rpc SimulateMigration(SimulateMigrationRequest) returns (SimulateMigrationResponse);
 }
 
 // One assumption, with where its value comes from: a default of the business
@@ -73,6 +80,61 @@ message SimulationResult {
 message SimulateOfferResponse {
   oneof outcome {
     SimulationResult result = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message SimulateMigrationRequest {
+  int64 change_id = 1 [jstype = JS_STRING];
+  // 0: the current version.
+  int32 version = 2;
+  repeated AssumptionOverride overrides = 3;
+}
+
+// Per subscription per month, before and after (§3.5, §5).
+message PriceStep {
+  Money price = 1;
+  Money net = 2;
+  // The pool share of the net amount, never less than the minimum.
+  Money artists = 3;
+  Money payment_costs = 4;
+  Money contribution = 5;
+}
+
+message MigrationSimulation {
+  PriceStep before = 1;
+  PriceStep after = 2;
+  // New subscribers pay the new price from here.
+  LocalTime new_subscribers_from = 3;
+  // When the existing subscribers are asked or told, and when their window ends.
+  LocalTime notices_from = 4;
+  LocalTime window_ends = 5;
+  // How existing subscribers come to pay it, in words: "from their first
+  // charge after they consent, by 17 December 2026".
+  string existing_from = 6;
+  int64 existing = 7;
+  int64 accepting = 8;
+  int64 not_accepting = 9;
+  // Of those not accepting, how many the market's choice moves to the free plan.
+  int64 moving_to_free = 10;
+  // Per month, net of VAT, against not running the migration.
+  Money monthly_revenue_change = 11;
+  Money monthly_contribution_change = 12;
+  // What the subscribers not accepting pay today, per month, net.
+  Money revenue_at_risk_monthly = 13;
+  // The lowest acceptance, in basis points, at which revenue, or the
+  // contribution, does not fall.
+  int32 break_even_acceptance_revenue_bp = 14;
+  int32 break_even_acceptance_contribution_bp = 15;
+  // Prepaid passes of the plan in the market: never touched (§9.1).
+  int64 prepaid_passes_untouched = 16;
+  repeated Assumption assumptions = 17;
+  repeated FinanceCondition finance_conditions = 18;
+}
+
+message SimulateMigrationResponse {
+  oneof outcome {
+    MigrationSimulation result = 1;
     Refusal refusal = 2;
   }
 }

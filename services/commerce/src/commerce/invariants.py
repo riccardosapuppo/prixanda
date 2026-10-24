@@ -87,14 +87,45 @@ INVARIANTS = [
         """,
     ),
     Invariant(
+        "every_subscription_has_its_first_price",
+        "§4.3: every subscription has its price from its first day, the first row of its history (migration V14 checks "
+        "it when the row is written; a start moved later would leave it without one)",
+        """
+        select s.id as subscription, s.started_on from subscription s
+        where not exists (select from subscription_price h where h.subscription_id = s.id and h.from_on = s.started_on)
+        """,
+    ),
+    Invariant(
+        "prices_are_charged_while_their_subscription_runs",
+        "§8: no price of a history takes over after its subscription ended (an end moved earlier would leave one)",
+        """
+        select h.subscription_id as subscription, h.from_on, s.ended_on from subscription_price h
+        join subscription s on s.id = h.subscription_id
+        where s.ended_on is not null and h.from_on >= s.ended_on
+        """,
+    ),
+    Invariant(
+        "later_prices_follow_a_price_migration",
+        "§8: a price that takes over later is set by a price migration that asked or told that subscription, from the "
+        "day and at the price its request says",
+        """
+        select h.subscription_id as subscription, h.from_on, h.change_id from subscription_price h
+        left join price_change_request r on r.change_id = h.change_id and r.subscription_id = h.subscription_id
+        where h.change_id is not null
+          and (r.id is null or r.state not in ('accepted', 'new_price') or r.new_price_from <> h.from_on
+               or r.new_price_minor <> h.price_minor)
+        """,
+    ),
+    Invariant(
         "paid_subscriptions_start_at_the_list_price",
         "§4.3: a paid subscription loaded with the data pays the list price in force in its market on the day it "
-        "started (one confirmed from a quote pays the quote, below; price migrations arrive in stage 7)",
+        "started (one confirmed from a quote pays the quote, below; a price migration adds a later price)",
         """
-        select s.id as subscription, s.plan_id as plan, s.market, s.price_minor as pays, p.amount_minor as list_price
+        select s.id as subscription, s.plan_id as plan, s.market, h.price_minor as pays, p.amount_minor as list_price
         from subscription s
+        join subscription_price h on h.subscription_id = s.id and h.from_on = s.started_on
         left join list_price p on p.plan_id = s.plan_id and p.market = s.market and p.valid @> s.started_on::timestamp
-        where s.paid and s.quote_id is null and (p.amount_minor is null or p.amount_minor <> s.price_minor)
+        where s.paid and s.quote_id is null and (p.amount_minor is null or p.amount_minor <> h.price_minor)
         """,
     ),
     Invariant(
@@ -102,10 +133,11 @@ INVARIANTS = [
         "§4.5: a subscription confirmed from a quote is the quoted plan, market and offer, pays the quoted price for "
         "the quoted months, and has its demonstration receipt for that amount",
         """
-        select s.id as subscription, s.price_minor as pays, q.price_minor as quoted, r.amount_minor as receipt
+        select s.id as subscription, h.price_minor as pays, q.price_minor as quoted, r.amount_minor as receipt
         from subscription s join quote q on q.id = s.quote_id
+        join subscription_price h on h.subscription_id = s.id and h.from_on = s.started_on
         left join receipt r on r.subscription_id = s.id
-        where s.price_minor <> q.price_minor or s.plan_id <> q.plan_id or s.market <> q.market
+        where h.price_minor <> q.price_minor or s.plan_id <> q.plan_id or s.market <> q.market
            or s.offer_change_id is distinct from q.offer_change_id or coalesce(s.offer_months, 0) <> q.months_at_price
            or r.amount_minor is distinct from q.price_minor
         """,
@@ -129,6 +161,27 @@ INVARIANTS = [
         """,
     ),
     Invariant(
+        "listening_weeks_sum_their_days",
+        "§14.2: each listener's weekly sum of an artist is the sum of its days (migration V16 keeps them on insert; "
+        "a trigger switched off, or a row changed by hand, would part them)",
+        """
+        select coalesce(d.artist_id, w.artist_id) as artist, coalesce(d.week, w.week) as week,
+               coalesce(d.subscriber_id, w.subscriber_id) as subscriber, d.seconds as days, w.seconds as weeks
+        from (select artist_id, date_trunc('week', day)::date as week, subscriber_id, sum(seconds) as seconds
+              from listening_day group by 1, 2, 3) d
+        full join listening_week w using (artist_id, week, subscriber_id)
+        where d.seconds is distinct from w.seconds
+        """,
+    ),
+    Invariant(
+        "listening_has_its_month",
+        "§14.2: every day of listening is in its month's partition: one in the default partition means a month was "
+        "not added before it began (docs/runbook.md)",
+        """
+        select subscriber_id, artist_id, day from listening_day_other
+        """,
+    ),
+    Invariant(
         "approved_changes_carry_a_signature",
         "§7.3: a change at or past approval has, on its current version, a signature from someone other than its author",
         """
@@ -136,6 +189,32 @@ INVARIANTS = [
         where c.state in ('approved', 'scheduled', 'active', 'ended', 'suspended')
           and not exists (select from approval a where a.change_id = c.id and a.version = c.current_version
                           and a.approver <> a.author)
+        """,
+    ),
+    Invariant(
+        "prepaid_codes_follow_their_payment",
+        "§9: a code is ready, activated or expired only once its payment succeeded, with its receipt; failed only "
+        "once it was declined; pending while it is",
+        """
+        select c.id as prepaid, c.state, p.state as payment, r.id as receipt from prepaid_code c
+        left join payment p on p.prepaid_code = c.code
+        left join receipt r on r.prepaid_code = c.code
+        where p.id is null
+           or (c.state in ('ready', 'activated', 'expired') and (p.state <> 'succeeded' or r.id is null))
+           or (c.state = 'failed' and p.state <> 'failed')
+           or (c.state = 'pending' and p.state <> 'pending')
+        """,
+    ),
+    Invariant(
+        "activated_codes_run_their_pass",
+        "§9.1: an activated code is the subscription it was activated into: the pass's plan, in its market, from the "
+        "day of activation, for its holder, with an end",
+        """
+        select c.id as prepaid, s.id as subscription from prepaid_code c
+        left join subscription s on s.id = c.subscription_id
+        where c.state = 'activated'
+          and (s.id is null or s.prepaid_code is distinct from c.code or s.plan_id <> c.plan_id or s.market <> c.market
+               or s.started_on <> c.activated_on or s.subscriber_id <> c.activated_by or s.ended_on is null)
         """,
     ),
 ]

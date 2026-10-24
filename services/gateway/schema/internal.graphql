@@ -62,6 +62,8 @@ type Query {
   changes(filter: ChangeFilter, first: Int! = 20, after: String): ChangePage!
   "The simulation of an offer in one market against not running it (§6.6)."
   simulateOffer(changeId: ID!, version: Int!, market: MarketCode!, overrides: [AssumptionInput!]): SimulationOutcome!
+  "The simulation of a price migration (§8.7); its current version when version is absent. Marketing, the commercial lead and finance."
+  simulateMigration(changeId: ID!, version: Int, overrides: [AssumptionInput!]): MigrationSimulationOutcome!
   "The audit log, newest first (§11). The auditor's (§12)."
   auditEvents(filter: AuditFilter, first: Int! = 50, after: String): AuditPage!
   "Recomputes the log's chain; with an exported head, also checks that the chain still leads to it (§11.3)."
@@ -79,9 +81,15 @@ type Mutation {
   signOut: Boolean!
   createOffer(offer: OfferInput!): ChangeResult!
   createListPrice(listPrice: ListPriceInput!): ChangeResult!
+  "A price migration (§8, §14.3): the commercial lead's alone (§12); finance always signs it (§7.3, conditions 1 and 5)."
+  createPriceMigration(migration: PriceMigrationInput!): ChangeResult!
+  "A prepaid pass (§9, §14.4): the commercial lead's alone (§12); finance signs it, as a price (§7.3, condition 1)."
+  createPrepaidPass(pass: PrepaidPassInput!): ChangeResult!
   "A new version from the one the author started from; refused as STALE_VERSION when someone saved a newer one (§6.3)."
   saveOfferVersion(changeId: ID!, baseVersion: Int!, offer: OfferInput!): ChangeResult!
   saveListPriceVersion(changeId: ID!, baseVersion: Int!, listPrice: ListPriceInput!): ChangeResult!
+  savePriceMigrationVersion(changeId: ID!, baseVersion: Int!, migration: PriceMigrationInput!): ChangeResult!
+  savePrepaidPassVersion(changeId: ID!, baseVersion: Int!, pass: PrepaidPassInput!): ChangeResult!
   validateChange(changeId: ID!, version: Int!): ChangeResult!
   "authorReason is required when the simulated contribution is negative (§7.3, condition 4)."
   submitChange(changeId: ID!, version: Int!, authorReason: String): ChangeResult!
@@ -165,6 +173,56 @@ type Market {
   artistsMinimum: Money!
   "The lowest price whose pool covers the minimum without a top-up (§5.4)."
   floor: Money!
+  "What happens before an existing subscriber pays more (§8); null when the engine gives none."
+  priceChangePolicy: PriceChangePolicy
+}
+
+"""
+What happens before an existing subscriber pays more (§8). Two questions,
+never mixed (§8.1): what the law of the market requires, with its sources,
+and what the music service chose to do, a setting of the market and never law
+(§8.6).
+"""
+type PriceChangePolicy {
+  law: PriceChangeLaw!
+  choice: PriceChangeChoice!
+}
+
+"What the law of the market requires before an existing subscriber pays a higher price (§8.2 to §8.5)."
+type PriceChangeLaw {
+  requirement: PriceChangeRequirement!
+  "The law, in words."
+  basis: String!
+  sources: [String!]!
+}
+
+"What the music service chose to do: a setting of the market, never law (§8.6)."
+type PriceChangeChoice {
+  "How long the subscriber has: to consent, or before the new price applies after the notice."
+  windowDays: Int!
+  "What happens at the end of the window to those who did not consent, or who did not leave."
+  afterWindow: AfterWindow!
+  "The same choice in words, as the subscriber reads it."
+  words: String!
+  "The other choices the market could make."
+  alternatives: [String!]!
+  "That it is a choice: Rione's choice, configurable per market. Not a legal requirement."
+  label: String!
+}
+
+enum PriceChangeRequirement {
+  "The subscriber must say yes, and silence is no (§8.2)."
+  CONSENT
+  "The subscriber is told in advance and may leave before the new price applies (§8.3 to §8.5)."
+  NOTICE
+}
+
+enum AfterWindow {
+  MOVE_TO_FREE
+  END_AT_PERIOD_END
+  KEEP_OLD_PRICE
+  "In a notice market: the new price applies to those who did not leave."
+  NEW_PRICE
 }
 
 enum AudioQuality {
@@ -287,6 +345,28 @@ type Change {
   sentence: String
   "Why the campaign is worth running despite a negative contribution (§7.3, condition 4)."
   authorReason: String
+  "A price migration that started: where its existing subscribers stand; null before, and for other kinds of change."
+  migration: MigrationProgress
+}
+
+"How a price migration stands with the existing subscribers of its plan in its market, once it started (§8)."
+type MigrationProgress {
+  "What the market's law asks for."
+  requirement: PriceChangeRequirement!
+  "The end of the window: the consent deadline, or the end of the notice."
+  windowEnds: MarketTime!
+  "The subscribers asked or told, and where each stands."
+  asked: Int!
+  waiting: Int!
+  accepted: Int!
+  "Said no: in a consent market they keep their price until the window ends; in a notice market they leave before the new price applies."
+  declined: Int!
+  "Gave no answer in a consent market by the end of the window."
+  lapsed: Int!
+  "Paying the new price from their own date."
+  newPrice: Int!
+  "Moved to the free plan by the market's commercial choice, or ended."
+  left: Int!
 }
 
 type ChangeVersion {
@@ -298,7 +378,7 @@ type ChangeVersion {
   content: ChangeContent!
 }
 
-union ChangeContent = OfferContent | ListPriceContent
+union ChangeContent = OfferContent | ListPriceContent | PriceMigrationContent | PrepaidPassContent
 
 enum Segment {
   "People who have never paid."
@@ -371,6 +451,51 @@ type ListPriceContent {
   startsLocal: LocalDateTime!
 }
 
+"""
+A higher price for one plan in one market, for everyone (§8, §14.3): new
+subscribers pay it from startsLocal; the existing subscribers of the plan in
+the market are asked for their consent, or told, from noticesLocal, by the
+rules of their market (Market.priceChangePolicy). Finance signs it (§7.3,
+conditions 1 and 5).
+"""
+type PriceMigrationContent {
+  title: String!
+  plan: PlanCode!
+  market: MarketCode!
+  "The new price, above the list price in force."
+  amount: Money!
+  "When the existing subscribers are asked or told; the change starts then."
+  noticesLocal: LocalDateTime!
+  "When new subscribers start paying it; not before noticesLocal."
+  startsLocal: LocalDateTime!
+}
+
+"""
+A prepaid pass (§9, §14.4): months of a plan paid once, in advance, sold as
+a single-use code that can be given as a gift. It never renews, and price
+changes made after it was sold do not touch it. It goes on sale when the
+first of its periods starts, through its launch, as a list price does.
+"""
+type PrepaidPassContent {
+  title: String!
+  "The plan it gives, for its months."
+  plan: PlanCode!
+  months: Int!
+  "Its price in each market where it is sold, VAT included."
+  prices: [PrepaidPassPrice!]!
+  "When it is on sale in each market; no end: open."
+  periods: [OfferPeriod!]!
+  "How long a code sold can be activated: months from the day it was sold."
+  codeValidMonths: Int!
+  pages: [OfferPage!]!
+}
+
+"A prepaid pass's price in one market: a fixed price, VAT included."
+type PrepaidPassPrice {
+  market: MarketCode!
+  amount: Money!
+}
+
 input ListeningRuleInput {
   artistId: Int!
   minSeconds: Int!
@@ -424,6 +549,35 @@ input ListPriceInput {
   market: MarketCode!
   amount: Money!
   startsLocal: LocalDateTime!
+}
+
+input PriceMigrationInput {
+  title: String!
+  plan: PlanCode!
+  market: MarketCode!
+  "The new price, above the list price in force."
+  amount: Money!
+  "When the existing subscribers are asked or told: in the future."
+  noticesLocal: LocalDateTime!
+  "When new subscribers start paying it: not before noticesLocal."
+  startsLocal: LocalDateTime!
+}
+
+input PrepaidPassInput {
+  title: String!
+  plan: PlanCode!
+  months: Int!
+  "A fixed price, VAT included, in each market where it is sold."
+  prices: [PrepaidPassPriceInput!]!
+  periods: [OfferPeriodInput!]!
+  "How long a code sold can be activated, in months from the day it was sold."
+  codeValidMonths: Int!
+  pages: [OfferPageInput!]!
+}
+
+input PrepaidPassPriceInput {
+  market: MarketCode!
+  amount: Money!
 }
 
 type Approval {
@@ -537,6 +691,28 @@ type Overview {
   monthlyTopUps: Money
   "1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026)."
   exchangeRateNote: String!
+  "The prepaid passes of each market, and their value sold and not yet earned on the day (§9.2). Finance only (§12.2)."
+  prepaid: [PrepaidValue!]
+  "That value in all, in euros at the declared rate. Finance only."
+  prepaidUnearnedEur: Money
+}
+
+"""
+The prepaid passes of a market and their value not yet earned (§9.2): a
+pass's net amount is earned in equal monthly parts from its activation, the
+last taking the remainder; a code not activated stays unearned until it
+expires.
+"""
+type PrepaidValue {
+  market: MarketCode!
+  "Codes paid for, of which activated, and expired unused."
+  sold: Int!
+  activated: Int!
+  expired: Int!
+  "Without VAT, in the market's currency."
+  unearned: Money!
+  "In euros at the declared rate (§3.6)."
+  unearnedEur: Money!
 }
 
 type MarketTime {
@@ -636,7 +812,12 @@ type LaunchRun {
   id: ID!
   "The identifier its audit events and log lines carry: launch-12."
   run: String!
-  change: Change!
+  """
+  The change it launches. Never null from the engine; nullable so that a
+  client asks for it next to a Refusal's change, in retryLaunch's and
+  cancelLaunch's answers, without an alias.
+  """
+  change: Change
   title: String!
   kind: ChangeKind!
   "The version that was approved and scheduled."
@@ -719,6 +900,10 @@ enum AssumptionName {
   INCREMENTAL
   RETENTION
   HORIZON_MONTHS
+  "A price migration's: the subscribers of the plan in the market, counted in the data or typed."
+  EXISTING
+  "A price migration's: the share that accepts, in basis points, declared (§8.7)."
+  ACCEPTANCE
 }
 
 "Shares in basis points (1200 is 12%); counts and months as they are."
@@ -770,6 +955,53 @@ type Simulation {
 }
 
 union SimulationOutcome = Simulation | Refusal
+
+"Per subscription per month, at one price (§3.5, §5)."
+type PriceStep {
+  price: Money!
+  net: Money!
+  "The pool share of the net amount, never less than the minimum."
+  artists: Money!
+  paymentCosts: Money!
+  contribution: Money!
+}
+
+"""
+The simulation of a price migration (§8.7): who pays what and from when, the
+revenue at risk under an acceptance rate declared as an assumption, who would
+move to the Free plan, and the prepaid passes the change never touches.
+"""
+type MigrationSimulation {
+  before: PriceStep!
+  after: PriceStep!
+  "New subscribers pay the new price from here."
+  newSubscribersFrom: MarketTime!
+  "When the existing subscribers are asked or told, and when their window ends."
+  noticesFrom: MarketTime!
+  windowEnds: MarketTime!
+  "How existing subscribers come to pay it, in words."
+  existingFrom: String!
+  existing: Int!
+  accepting: Int!
+  notAccepting: Int!
+  "Of those not accepting, how many the market's choice moves to the free plan."
+  movingToFree: Int!
+  "Per month, net of VAT, against not running the migration."
+  monthlyRevenueChange: Money!
+  monthlyContributionChange: Money!
+  "What the subscribers not accepting pay today, per month, net."
+  revenueAtRiskMonthly: Money!
+  "The lowest acceptance, in basis points, at which revenue does not fall; null when none is."
+  breakEvenAcceptanceRevenueBasisPoints: Int
+  "The same for the contribution."
+  breakEvenAcceptanceContributionBasisPoints: Int
+  "Prepaid passes of the plan in the market: never touched (§9.1)."
+  prepaidPassesUntouched: Int!
+  assumptions: [Assumption!]!
+  financeConditions: [FinanceCondition!]!
+}
+
+union MigrationSimulationOutcome = MigrationSimulation | Refusal
 
 input AuditFilter {
   actor: ID

@@ -12,6 +12,7 @@ import asyncpg
 from commerce.engine.call import Call, FixedClock
 from commerce.engine.engine import METHODS, Engine
 from commerce.v1 import changes_pb2, common_pb2
+from helpers import add_subscription
 
 BY_NAME = {method.name: method for method in METHODS.values()}
 
@@ -113,8 +114,33 @@ def family_rise(**changes) -> changes_pb2.ListPriceContent:
     return apply(content, changes)
 
 
+def family_migration(**changes) -> changes_pb2.PriceMigrationContent:
+    """§14.3: the Family plan in Germany from €18.99 to €20.99, for new subscribers from 1 December 2026; the existing
+    ones asked for their consent from 2 November 2026, 09:00 in Berlin."""
+    content = changes_pb2.PriceMigrationContent(title="Family price rise, Germany", plan="family", market="DE",
+                                                amount=eur(2_099), notices_local="2026-11-02T09:00",
+                                                starts_local="2026-12-01T00:00")
+    return apply(content, changes)
+
+
+def gift_pass(**changes) -> changes_pb2.PrepaidPassContent:
+    """§14.4: three months of Individual paid in advance, €29.99 in Italy, on sale from 1 November 2026."""
+    content = changes_pb2.PrepaidPassContent(
+        title="Three-month gift pass", plan="individual", months=3,
+        prices=[changes_pb2.OfferPrice(market="IT", fixed=eur(2_999))],
+        periods=[changes_pb2.OfferPeriod(market="IT", starts_local="2026-11-01T00:00")], code_valid_months=12,
+        pages=[changes_pb2.OfferPage(market="IT", title="Three months of Individual",
+                                     text="Three months of Individual, paid once, to keep or to give.",
+                                     terms="Single use. Activate it within 12 months. It never renews.")])
+    return apply(content, changes)
+
+
+FIELDS = {changes_pb2.OfferContent: "offer", changes_pb2.ListPriceContent: "list_price",
+          changes_pb2.PriceMigrationContent: "price_migration", changes_pb2.PrepaidPassContent: "prepaid"}
+
+
 async def create(world: World, content, who=MARKETING) -> changes_pb2.Change:
-    field = "offer" if isinstance(content, changes_pb2.OfferContent) else "list_price"
+    field = FIELDS[type(content)]
     response = await world.call("CreateChange", changes_pb2.CreateChangeRequest(**{field: content}), who)
     assert response.WhichOneof("outcome") == "change", response
     return response.change
@@ -173,8 +199,6 @@ async def add_students(world: World, count: int) -> None:
     for n in range(count):
         subscriber = 1_000 + n
         await world.owner.execute("insert into subscriber (id, market, joined_on) values ($1, 'IT', '2026-01-10')", subscriber)
-        await world.owner.execute(
-            "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, billing_day) "
-            "values ($1, $1, 'IT', 'EUR', 'free', false, 0, '2026-01-10', 10)", subscriber)
+        await add_subscription(world.owner, subscriber, "IT", "free", 0, "2026-01-10", subscription=subscriber)
         await world.owner.execute("insert into student_verification (subscriber_id, verified_on, valid_until, provider) "
                                   "values ($1, '2026-09-01', '2027-09-01', 'simulated')", subscriber)

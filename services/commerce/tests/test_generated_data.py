@@ -4,53 +4,16 @@ checks nothing)."""
 
 from __future__ import annotations
 
-import uuid
 from datetime import date
 
 import asyncpg
 import pytest
-import pytest_asyncio
 
 from commerce.audit import head
 from commerce.generate import fingerprint, generate
 from commerce.invariants import check
-from conftest import ADMIN_URL, TEMPLATE, on_database
-
-
-async def admin(statement: str) -> None:
-    conn = await asyncpg.connect(ADMIN_URL)
-    try:
-        await conn.execute(statement)
-    finally:
-        await conn.close()
-
-
-async def fresh_database() -> str:
-    name = f"gen_{uuid.uuid4().hex[:16]}"
-    await admin(f"create database {name} template {TEMPLATE}")
-    return name
-
-
-@pytest_asyncio.fixture(scope="session")
-async def generated():
-    """The small size, seed 7, generated once; tests clone it."""
-    name = await fresh_database()
-    summary = await generate(on_database(ADMIN_URL, name), "small", 7, date(2025, 1, 1), date(2026, 10, 24))
-    yield name, summary
-    await admin(f"drop database {name} with (force)")
-
-
-@pytest_asyncio.fixture
-async def copy(generated):
-    source, _ = generated
-    name = f"copy_{uuid.uuid4().hex[:16]}"
-    await admin(f"create database {name} template {source}")
-    conn = await asyncpg.connect(on_database(ADMIN_URL, name))
-    try:
-        yield conn
-    finally:
-        await conn.close()
-        await admin(f"drop database {name} with (force)")
+from conftest import ADMIN_URL, _admin as admin, fresh_database, on_database
+from helpers import add_subscription, new_change
 
 
 async def test_the_small_size_has_what_it_declares(generated):
@@ -92,7 +55,7 @@ async def test_generating_twice_into_one_database_is_refused(generated):
 
 async def test_every_invariant_holds_on_the_generated_data(copy):
     report = await check(copy)
-    assert report["checked"] == 10
+    assert report["checked"] == 17
     assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
 
 
@@ -127,12 +90,61 @@ async def test_a_day_on_no_plan_is_found(copy):
     await copy.execute(
         "update subscription set started_on = started_on + 1 where subscriber_id = $1 and started_on = "
         "(select max(started_on) from subscription where subscriber_id = $1)", subscriber)
-    assert await broken(copy) == ["every_subscriber_is_on_one_plan_every_day"]
+    # The start moved, its first price did not: both are found.
+    assert await broken(copy) == ["every_subscriber_is_on_one_plan_every_day", "every_subscription_has_its_first_price"]
 
 
 async def test_a_subscription_at_the_wrong_price_is_found(copy):
-    await copy.execute("update subscription set price_minor = price_minor - 100 where id = (select min(id) from subscription where paid)")
+    await copy.execute("alter table subscription_price disable trigger subscription_price_written_once")
+    await copy.execute("update subscription_price set price_minor = price_minor - 100 "
+                       "where subscription_id = (select min(id) from subscription where paid)")
     assert await broken(copy) == ["paid_subscriptions_start_at_the_list_price"]
+
+
+async def test_a_subscription_without_its_first_price_is_found(copy):
+    await copy.execute("alter table subscription_price disable trigger subscription_price_written_once")
+    await copy.execute("delete from subscription_price where subscription_id = (select min(id) from subscription where paid)")
+    assert await broken(copy) == ["every_subscription_has_its_first_price"]
+
+
+async def test_weekly_sums_parted_from_their_days_are_found(copy):
+    await copy.execute("alter table listening_week disable trigger listening_week_added_only")
+    await copy.execute("update listening_week set seconds = seconds + 1 where (artist_id, week, subscriber_id) = "
+                       "(select artist_id, week, subscriber_id from listening_week order by 1, 2, 3 limit 1)")
+    assert await broken(copy) == ["listening_weeks_sum_their_days"]
+
+
+async def test_a_day_of_listening_without_its_month_is_found(copy):
+    listener = await copy.fetchval("select id from subscriber order by id limit 1")
+    await copy.execute("insert into listening_day (subscriber_id, artist_id, day, seconds) values ($1, 1, '2028-03-01', 60)",
+                       listener)
+    assert await broken(copy) == ["listening_has_its_month"]
+
+
+async def test_a_code_sold_without_its_payment_or_activated_into_nothing_is_found(copy):
+    change = await new_change(copy, kind="prepaid", author="commercial-lead-1",
+                              content={"title": "Three-month gift pass", "market": "IT"})
+    buyer = await copy.fetchval("select id from subscriber where market = 'IT' order by id limit 1")
+    await copy.execute(
+        "insert into prepaid_code (code, change_id, version, market, currency, plan_id, months, price_minor, net_minor, "
+        "buyer_id, sold_at, valid_until, state, request_id) values ('K7QM-3XTP-9WAD', $1, 1, 'IT', 'EUR', 'individual', 3, "
+        "2999, 2458, $2, '2026-10-20 08:00+00', '2027-10-19', 'ready', 'site-buy-00000001')", change, buyer)
+    assert await broken(copy) == ["prepaid_codes_follow_their_payment"]
+    await copy.execute("alter table prepaid_code disable trigger prepaid_code_guard")
+    other = await copy.fetchval("select id from subscription where paid order by id limit 1")
+    await copy.execute("update prepaid_code set state = 'activated', activated_by = $1, activated_on = '2026-10-21', "
+                       "subscription_id = $2", buyer, other)
+    assert await broken(copy) == ["prepaid_codes_follow_their_payment", "activated_codes_run_their_pass"]
+
+
+async def test_a_later_price_after_the_end_or_without_its_request_is_found(copy):
+    migration = await new_change(copy, kind="price_migration", author="commercial-lead-1",
+                                 content={"title": "Family price, Germany", "market": "DE"})
+    ended = await copy.fetchrow("select id, ended_on from subscription where paid and ended_on is not null order by id limit 1")
+    await copy.execute("alter table subscription_price disable trigger subscription_price_rules")
+    await copy.execute("insert into subscription_price (subscription_id, from_on, price_minor, change_id) values ($1, $2, 2099, $3)",
+                       ended["id"], ended["ended_on"], migration)
+    assert await broken(copy) == ["prices_are_charged_while_their_subscription_runs", "later_prices_follow_a_price_migration"]
 
 
 async def test_a_student_without_a_verification_is_found(copy):
@@ -187,10 +199,7 @@ async def test_a_subscription_that_does_not_pay_its_quote_is_found(copy):
         "'2026-10-24 08:00+00', '2026-10-24 08:30+00', 'IT', 'EUR', 'student', 579, 579, 0, 579, $1, 'req-00000001')",
         listener)
     await copy.execute("update subscription set ended_on = '2026-10-24' where id = $1", current["id"])
-    await copy.execute(
-        "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, billing_day, "
-        "quote_id) values (nextval('subscription_id_seq'), $1, 'IT', 'EUR', 'student', true, 499, '2026-10-24', 24, "
-        "'q_' || repeat('a', 32))", listener)
+    await add_subscription(copy, listener, "IT", "student", 499, "2026-10-24", billing_day=24, quote_id="q_" + "a" * 32)
     assert await broken(copy) == ["confirmed_subscriptions_pay_their_quote"]
 
 
