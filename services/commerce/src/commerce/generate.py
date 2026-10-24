@@ -10,7 +10,8 @@ It loads, into a database that Flyway has just migrated:
 * labels, artists and releases: seven invented ones that the interface
   shows by name, and filler ones with invented names;
 * subscribers with their subscription history (everyone starts on Free;
-  some move to a paid plan, some leave it again), student verifications;
+  some move to a paid plan, some leave it again), student verifications,
+  including free listeners who verified and have not subscribed yet;
 * listening data for the last weeks, which fan campaigns are aimed with (§14.2);
 * one audit event saying what was generated, from which seed.
 
@@ -160,6 +161,24 @@ def plan_people(rng: random.Random, size: Size, start: date, until: date):
     return subscribers, subscriptions, verifications
 
 
+# Free listeners who never paid and have verified as students in the last
+# eleven months, so that a student offer for new subscribers reaches someone
+# (§14.1, §14.5). A stream of its own, so the other rows stay as they were.
+FREE_STUDENT_SHARE = 0.15
+
+
+def verify_free_students(seed: int, subscribers, subscriptions, until: date):
+    rng = random.Random(f"{seed}/free-students")
+    paid = {row[1] for row in subscriptions if row[5]}
+    verifications = []
+    for subscriber_id, _market, joined in subscribers:
+        if subscriber_id in paid or rng.random() >= FREE_STUDENT_SHARE:
+            continue
+        verified = day_between(rng, max(joined, until - timedelta(days=330)), until - timedelta(days=1))
+        verifications.append((subscriber_id, verified, add_months(verified, 12), "simulated"))
+    return verifications
+
+
 def add_months(day: date, months: int) -> date:
     month = day.month - 1 + months
     year, month = day.year + month // 12, month % 12 + 1
@@ -255,6 +274,7 @@ async def generate(url: str, size_name: str, seed: int, start: date, until: date
             lap("reference")
 
             subscribers, subscriptions, verifications = plan_people(rng, size, start, until)
+            verifications += verify_free_students(seed, subscribers, subscriptions, until)
             lap("plan_people")
             await conn.copy_records_to_table("subscriber", records=subscribers, columns=["id", "market", "joined_on"])
             await conn.copy_records_to_table(

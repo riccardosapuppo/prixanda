@@ -64,6 +64,7 @@ message SimulationResult {
   Money top_up_cost = 9;
   repeated FinanceCondition finance_conditions = 10;
   // The lowest retention, in basis points, at which the contribution is not negative.
+  // -1 means none: even if every taker stayed, the contribution would stay negative.
   int32 break_even_retention_bp = 11;
   repeated Assumption assumptions = 12;
   int32 horizon_months = 13;
