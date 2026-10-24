@@ -39,9 +39,44 @@ describe("depth", () => {
     assert.equal(deepestPath(looping), Number.POSITIVE_INFINITY);
     const deep = `{ node { ${"child { ".repeat(9)}id${" }".repeat(9)} } }`;
     const errors = validate(looping, parse(deep), [...specifiedRules, depthAndCostRule(INTERNAL_LIMITS)]);
-    assert.deepEqual(errors.map((error) => error.message), ["This operation is 11 fields deep; the limit is 8."]);
+    assert.deepEqual(errors.map((error) => error.message), ["This operation is 11 fields deep or more; the limit is 8."]);
     const shallow = `{ node { child { child { id } } } }`;
     assert.deepEqual(validate(looping, parse(shallow), [...specifiedRules, depthAndCostRule(INTERNAL_LIMITS)]), []);
+  });
+});
+
+/**
+ * F0 asks markets { code }; each Fk spreads F(k-1) twice. Read naively, every
+ * level doubles the work: 30 levels are a billion expansions, from a document
+ * of a few hundred tokens.
+ */
+function doublingFragments(levels: number): string {
+  const fragments = [`fragment F0 on Query { markets { code } }`];
+  for (let level = 1; level <= levels; level += 1) fragments.push(`fragment F${level} on Query { ...F${level - 1} ...F${level - 1} }`);
+  return `{ ...F${levels} } ${fragments.join(" ")}`;
+}
+
+describe("fragments spread inside fragments", () => {
+  /** What a refusal may take at most, on a slow machine with other work running: the naive reading took about 3 s at 20 levels. */
+  const QUICK_MS = 250;
+
+  test("thirty levels of doubling fragments are refused, quickly", () => {
+    const schema = buildPublicSchema();
+    const started = performance.now();
+    const errors = validate(schema, parse(doublingFragments(30)), [...specifiedRules, depthAndCostRule(PUBLIC_LIMITS)]);
+    const took = performance.now() - started;
+    assert.ok(took < QUICK_MS, `validation took ${Math.round(took)} ms`);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0]?.message ?? "", /would cost more than 600/);
+  });
+
+  test("a fragment is measured once per operation, and gives the same cost as the fields written out", () => {
+    const schema = buildPublicSchema();
+    const written = cost(schema, '{ a: markets { code } b: markets { code } c: plans(market: "IT") { code entitlements { seats } } }', PUBLIC_LIMITS);
+    const spread = cost(schema, '{ ...M ...P } fragment M on Query { a: markets { code } b: markets { code } } fragment P on Query { c: plans(market: "IT") { code entitlements { seats } } }', PUBLIC_LIMITS);
+    assert.deepEqual(spread, written);
+    // markets { code } costs 1 + 10 × 1; three levels of doubling ask for it eight times.
+    assert.deepEqual(cost(schema, doublingFragments(3), PUBLIC_LIMITS), { depth: 2, cost: 8 * 11 });
   });
 });
 
@@ -56,7 +91,14 @@ describe("cost", () => {
 
   test("counts aliases one by one", () => {
     const schema = buildPublicSchema();
-    assert.equal(cost(schema, SITE_ALIASES(20), PUBLIC_LIMITS).cost, 20 * cost(schema, SITE_ALIASES(1), PUBLIC_LIMITS).cost);
+    assert.equal(cost(schema, SITE_ALIASES(10), PUBLIC_LIMITS).cost, 10 * cost(schema, SITE_ALIASES(1), PUBLIC_LIMITS).cost);
+  });
+
+  test("stops counting once past the limit: what it says is then a lower bound, still past it", () => {
+    const schema = buildPublicSchema();
+    const one = cost(schema, SITE_ALIASES(1), PUBLIC_LIMITS).cost;
+    const many = cost(schema, SITE_ALIASES(1_000), PUBLIC_LIMITS).cost;
+    assert.ok(many > PUBLIC_LIMITS.maxCost && many <= PUBLIC_LIMITS.maxCost + one, `${many}`);
   });
 });
 
@@ -84,7 +126,7 @@ describe("limits through HTTP", () => {
     const answer = await client.graphql(ALIASED_PAGES, { variables: { n: 100 } });
     assert.equal(answer.status, 400);
     assert.deepEqual(codes(answer), ["GRAPHQL_VALIDATION_FAILED"]);
-    assert.match(answer.body.errors[0].message, /would cost about \d+ .* the limit is 25000/);
+    assert.match(answer.body.errors[0].message, /would cost more than 25000/);
     assert.equal(harness.engine.count(), 0);
   });
 
@@ -97,6 +139,24 @@ describe("limits through HTTP", () => {
     const greedy = await site.graphql(SITE_ALIASES(20));
     assert.deepEqual(codes(greedy), ["GRAPHQL_VALIDATION_FAILED"]);
     assert.equal(harness.engine.count(), 0);
+  });
+
+  test("thirty levels of doubling fragments are refused quickly through HTTP too, and the server keeps answering", async () => {
+    const site = harness.site();
+    const started = performance.now();
+    const answer = await site.graphql(doublingFragments(30));
+    const took = performance.now() - started;
+    assert.deepEqual(codes(answer), ["GRAPHQL_VALIDATION_FAILED"]);
+    assert.ok(took < 1_000, `the refusal took ${Math.round(took)} ms`);
+    const mutations = ["fragment M0 on Mutation { signOut }",
+      ...Array.from({ length: 30 }, (_, index) => `fragment M${index + 1} on Mutation { ...M${index} ...M${index} }`)].join(" ");
+    const startedMutation = performance.now();
+    const doubled = await harness.console().graphql(`mutation { ...M30 } ${mutations}`, { key: false });
+    assert.ok(performance.now() - startedMutation < 1_000);
+    // Refused twice over: a billion root fields cost too much, and are more than one mutation.
+    assert.deepEqual(codes(doubled), ["GRAPHQL_VALIDATION_FAILED", "GRAPHQL_VALIDATION_FAILED"]);
+    assert.ok(doubled.body.errors.some((error: { message: string }) => /One mutation per request/.test(error.message)), doubled.text);
+    assert.equal((await site.graphql('{ markets { code } }')).status, 200);
   });
 
   test("a document of too many tokens is refused while it is parsed", async () => {

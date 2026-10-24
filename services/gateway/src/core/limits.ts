@@ -47,10 +47,19 @@ function pageOf(node: FieldNode, field: GraphQLField<unknown, unknown>, limits: 
   return limits.maxPage;
 }
 
+/** Each fragment's measure, once per operation and per page it is read at. */
+type Memo = Map<string, Measure>;
+
 /**
- * The depth and cost of a selection, following fragments once each. A paged
- * field (one with `first`) returns a page whose list of nodes is as long as
- * the page: `page` carries that size down to the lists directly inside it.
+ * The depth and cost of a selection. A paged field (one with `first`) returns
+ * a page whose list of nodes is as long as the page: `page` carries that size
+ * down to the lists directly inside it.
+ *
+ * A fragment is measured once per operation and page, however many times it
+ * is spread: fragments that spread a fragment twice, level after level, would
+ * otherwise double the work at every level before any limit is checked. And
+ * the count stops as soon as it passes a limit, since the answer is then
+ * known: past the limit, depth and cost are lower bounds.
  */
 export function measure(
   context: Pick<ValidationContext, "getFragment" | "getSchema">,
@@ -59,6 +68,7 @@ export function measure(
   limits: Limits,
   visiting: ReadonlySet<string> = new Set(),
   page?: number,
+  memo: Memo = new Map(),
 ): Measure {
   let depth = 0;
   let cost = 0;
@@ -72,7 +82,7 @@ export function measure(
       const isList = isListType(getNullableType(field.type));
       const size = isList ? (paged ?? page ?? limits.assumedListSize) : 1;
       if (selection.selectionSet) {
-        const inner = measure(context, selection.selectionSet, getNamedType(field.type), limits, visiting, isList ? undefined : paged);
+        const inner = measure(context, selection.selectionSet, getNamedType(field.type), limits, visiting, isList ? undefined : paged, memo);
         depth = Math.max(depth, 1 + inner.depth);
         cost += 1 + size * inner.cost;
       } else {
@@ -81,7 +91,7 @@ export function measure(
       }
     } else if (selection.kind === Kind.INLINE_FRAGMENT) {
       const type = selection.typeCondition ? context.getSchema().getType(selection.typeCondition.name.value) : parent;
-      const inner = measure(context, selection.selectionSet, type ?? undefined, limits, visiting, page);
+      const inner = measure(context, selection.selectionSet, type ?? undefined, limits, visiting, page, memo);
       depth = Math.max(depth, inner.depth);
       cost += inner.cost;
     } else {
@@ -89,11 +99,17 @@ export function measure(
       const fragment = context.getFragment(name);
       // A fragment that spreads itself is NoFragmentCyclesRule's to report.
       if (!fragment || visiting.has(name)) continue;
-      const type = context.getSchema().getType(fragment.typeCondition.name.value);
-      const inner = measure(context, fragment.selectionSet, type ?? undefined, limits, new Set([...visiting, name]), page);
+      const key = `${name}@${page ?? ""}`;
+      let inner = memo.get(key);
+      if (inner === undefined) {
+        const type = context.getSchema().getType(fragment.typeCondition.name.value);
+        inner = measure(context, fragment.selectionSet, type ?? undefined, limits, new Set([...visiting, name]), page, memo);
+        memo.set(key, inner);
+      }
       depth = Math.max(depth, inner.depth);
       cost += inner.cost;
     }
+    if (depth > limits.maxDepth || cost > limits.maxCost) break;
   }
   return { depth, cost };
 }
@@ -104,11 +120,11 @@ export function depthAndCostRule(limits: Limits): ValidationRule {
       const root = context.getSchema().getRootType(operation.operation) ?? undefined;
       const { depth, cost } = measure(context, operation.selectionSet, root, limits);
       if (depth > limits.maxDepth) {
-        context.reportError(new GraphQLError(`This operation is ${depth} fields deep; the limit is ${limits.maxDepth}.`, { nodes: [operation] }));
+        context.reportError(new GraphQLError(`This operation is ${depth} fields deep or more; the limit is ${limits.maxDepth}.`, { nodes: [operation] }));
       }
       if (cost > limits.maxCost) {
         context.reportError(new GraphQLError(
-          `This operation would cost about ${cost} (each field 1, lists multiplied by their size); the limit is ${limits.maxCost}. Ask for fewer fields or smaller pages.`,
+          `This operation would cost more than ${limits.maxCost} (each field 1, lists multiplied by their size). Ask for fewer fields or smaller pages.`,
           { nodes: [operation] },
         ));
       }
@@ -123,22 +139,32 @@ export function depthAndCostRule(limits: Limits): ValidationRule {
 export const oneMutationRule: ValidationRule = (context) => ({
   OperationDefinition(operation) {
     if (operation.operation !== "mutation") return;
-    const fields = rootFields(context, operation.selectionSet, new Set());
-    if (fields > 1) {
-      context.reportError(new GraphQLError(`One mutation per request: this one asks for ${fields}.`, { nodes: [operation] }));
+    if (rootFields(context, operation.selectionSet, new Set(), new Map()) > 1) {
+      context.reportError(new GraphQLError("One mutation per request: this one asks for more.", { nodes: [operation] }));
     }
   },
 });
 
-function rootFields(context: ValidationContext, selectionSet: SelectionSetNode, visiting: ReadonlySet<string>): number {
+/**
+ * How many root fields a selection asks for, up to the second: one is
+ * allowed, and past it the answer is known. Each fragment is counted once.
+ */
+function rootFields(context: ValidationContext, selectionSet: SelectionSetNode, visiting: ReadonlySet<string>, memo: Map<string, number>): number {
   let fields = 0;
   for (const selection of selectionSet.selections) {
     if (selection.kind === Kind.FIELD) fields += selection.name.value === "__typename" ? 0 : 1;
-    else if (selection.kind === Kind.INLINE_FRAGMENT) fields += rootFields(context, selection.selectionSet, visiting);
+    else if (selection.kind === Kind.INLINE_FRAGMENT) fields += rootFields(context, selection.selectionSet, visiting, memo);
     else if (!visiting.has(selection.name.value)) {
-      const fragment = context.getFragment(selection.name.value);
-      if (fragment) fields += rootFields(context, fragment.selectionSet, new Set([...visiting, selection.name.value]));
+      const name = selection.name.value;
+      let inner = memo.get(name);
+      if (inner === undefined) {
+        const fragment = context.getFragment(name);
+        inner = fragment ? rootFields(context, fragment.selectionSet, new Set([...visiting, name]), memo) : 0;
+        memo.set(name, inner);
+      }
+      fields += inner;
     }
+    if (fields > 1) break;
   }
   return fields;
 }
