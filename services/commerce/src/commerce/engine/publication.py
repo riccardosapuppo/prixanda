@@ -22,13 +22,13 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from commerce.domain.localtime import format_instant, format_local, to_instant, to_local
+from commerce.domain.localtime import format_instant, format_local, parse_instant, to_instant, to_local
 from commerce.domain.offers import ListPrice, Offer, from_json
 from commerce.domain.sentence import audience_words
 from commerce.domain.validation import clash_words
 from commerce.engine import clashes, records, reference
 from commerce.engine.call import Clock
-from commerce.engine.database import Connection, Database
+from commerce.engine.database import Connection, Database, utc_text
 from commerce.engine.errors import FailedPrecondition
 
 # One publisher at a time: the snapshot is computed from the state under this
@@ -61,15 +61,29 @@ class Publisher:
         await tx.execute("select pg_advisory_xact_lock($1)", PUBLICATION_LOCK)
 
     async def live_snapshot(self, tx: Connection, at: datetime) -> int | None:
+        """The snapshot live at an instant: of the publications made by then, the last one.
+        The sequence decides which is last; publish() keeps the times in the same order."""
         return await tx.fetchval(
             "select snapshot_id from catalog_publication where published_at <= $1::text::timestamptz "
-            "order by published_at desc, seq desc limit 1", format_instant(at))
+            "order by seq desc limit 1", format_instant(at))
+
+    async def publication_time(self, tx: Connection, now: datetime) -> datetime:
+        """The time to publish at, under the lock: now, or the latest publication's time if that is later."""
+        latest = await tx.fetchval(
+            f"select {utc_text('published_at')} from catalog_publication order by seq desc limit 1")
+        return now if latest is None else max(now, parse_instant(latest))
 
     async def publish(self, tx: Connection, *, now: datetime, actor: str, role: str, request_id: str, cause: dict) -> int:
-        """A snapshot of the active offers, made live. The caller holds the publication lock."""
+        """A snapshot of the active offers, made live. The caller holds the publication lock.
+
+        The publication's time is taken under the lock and is never before the
+        latest publication: a caller that read its clock earlier (an activation
+        pass that waited for the lock while a suspension published) would
+        otherwise publish later in the sequence with an earlier time."""
         await self.lock(tx)
+        now = await self.publication_time(tx, now)
+        previous = await tx.fetchval("select snapshot_id from catalog_publication order by seq desc limit 1")
         ref = await reference.load(tx, now)
-        previous = await self.live_snapshot(tx, now)
         snapshot = await tx.fetchval(
             "insert into catalog_snapshot (created_at, created_by, request_id, cause) "
             "values ($1::text::timestamptz, $2, $3, $4::text::jsonb) returning id",
@@ -121,6 +135,7 @@ class Publisher:
 
     async def activate(self, tx: Connection, change_id: int, now: datetime, request_id: str) -> Outcome:
         await self.lock(tx)
+        now = await self.publication_time(tx, now)
         change = await records.lock_change(tx, change_id)
         if change.state != "scheduled":
             return Outcome(change_id, "skipped")
@@ -177,6 +192,7 @@ class Publisher:
 
     async def end(self, tx: Connection, change_id: int, now: datetime, request_id: str) -> Outcome:
         await self.lock(tx)
+        now = await self.publication_time(tx, now)
         change = await records.lock_change(tx, change_id)
         if change.state != "active" or change.kind != "offer":
             return Outcome(change_id, "skipped")
