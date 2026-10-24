@@ -435,7 +435,11 @@ export const internalResolvers: Resolvers = {
     author: (changeVersion, _args, context) => person(context, changeVersion.author),
     createdAt: (changeVersion) => changeVersion.createdAt,
     fingerprint: (changeVersion) => hex(changeVersion.contentHash),
-    content: (changeVersion) => changeVersion.content.value ?? breach(`version ${changeVersion.version} has no content`),
+    content: (changeVersion) => {
+      const content = changeVersion.content;
+      if (content.case === "offer" || content.case === "listPrice") return content.value;
+      return breach(`version ${changeVersion.version} has no content the console's schema shows (${content.case ?? "none"})`);
+    },
   },
   ChangeContent: {
     __resolveType: (content: OfferContent | ListPriceContent) =>

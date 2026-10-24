@@ -8,7 +8,7 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class Market(_message.Message):
-    __slots__ = ("code", "name", "currency", "minor_units", "time_zone", "vat_bp", "artists_minimum", "floor")
+    __slots__ = ("code", "name", "currency", "minor_units", "time_zone", "vat_bp", "artists_minimum", "floor", "price_change_policy")
     CODE_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
     CURRENCY_FIELD_NUMBER: _ClassVar[int]
@@ -17,6 +17,7 @@ class Market(_message.Message):
     VAT_BP_FIELD_NUMBER: _ClassVar[int]
     ARTISTS_MINIMUM_FIELD_NUMBER: _ClassVar[int]
     FLOOR_FIELD_NUMBER: _ClassVar[int]
+    PRICE_CHANGE_POLICY_FIELD_NUMBER: _ClassVar[int]
     code: str
     name: str
     currency: str
@@ -25,7 +26,30 @@ class Market(_message.Message):
     vat_bp: int
     artists_minimum: _common_pb2.Money
     floor: _common_pb2.Money
-    def __init__(self, code: _Optional[str] = ..., name: _Optional[str] = ..., currency: _Optional[str] = ..., minor_units: _Optional[int] = ..., time_zone: _Optional[str] = ..., vat_bp: _Optional[int] = ..., artists_minimum: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., floor: _Optional[_Union[_common_pb2.Money, _Mapping]] = ...) -> None: ...
+    price_change_policy: PriceChangePolicy
+    def __init__(self, code: _Optional[str] = ..., name: _Optional[str] = ..., currency: _Optional[str] = ..., minor_units: _Optional[int] = ..., time_zone: _Optional[str] = ..., vat_bp: _Optional[int] = ..., artists_minimum: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., floor: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., price_change_policy: _Optional[_Union[PriceChangePolicy, _Mapping]] = ...) -> None: ...
+
+class PriceChangePolicy(_message.Message):
+    __slots__ = ("market", "legal_requirement", "legal_basis", "legal_sources", "window_days", "after_window", "commercial_choice", "alternatives", "label")
+    MARKET_FIELD_NUMBER: _ClassVar[int]
+    LEGAL_REQUIREMENT_FIELD_NUMBER: _ClassVar[int]
+    LEGAL_BASIS_FIELD_NUMBER: _ClassVar[int]
+    LEGAL_SOURCES_FIELD_NUMBER: _ClassVar[int]
+    WINDOW_DAYS_FIELD_NUMBER: _ClassVar[int]
+    AFTER_WINDOW_FIELD_NUMBER: _ClassVar[int]
+    COMMERCIAL_CHOICE_FIELD_NUMBER: _ClassVar[int]
+    ALTERNATIVES_FIELD_NUMBER: _ClassVar[int]
+    LABEL_FIELD_NUMBER: _ClassVar[int]
+    market: str
+    legal_requirement: str
+    legal_basis: str
+    legal_sources: _containers.RepeatedScalarFieldContainer[str]
+    window_days: int
+    after_window: str
+    commercial_choice: str
+    alternatives: _containers.RepeatedScalarFieldContainer[str]
+    label: str
+    def __init__(self, market: _Optional[str] = ..., legal_requirement: _Optional[str] = ..., legal_basis: _Optional[str] = ..., legal_sources: _Optional[_Iterable[str]] = ..., window_days: _Optional[int] = ..., after_window: _Optional[str] = ..., commercial_choice: _Optional[str] = ..., alternatives: _Optional[_Iterable[str]] = ..., label: _Optional[str] = ...) -> None: ...
 
 class ListMarketsRequest(_message.Message):
     __slots__ = ()

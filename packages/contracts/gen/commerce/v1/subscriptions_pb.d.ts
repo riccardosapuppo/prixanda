@@ -21,7 +21,7 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
-import type { Money, Refusal } from "./common_pb.js";
+import type { LocalTime, Money, Refusal } from "./common_pb.js";
 
 /**
  * Describes the file commerce/v1/subscriptions.proto.
@@ -524,6 +524,13 @@ export declare type Account = Message<"commerce.v1.Account"> & {
    * @generated from field: commerce.v1.Payment payment = 5;
    */
   payment?: Payment | undefined;
+
+  /**
+   * The price changes of the running subscription, the latest first (§8).
+   *
+   * @generated from field: repeated commerce.v1.PriceChange price_changes = 6;
+   */
+  priceChanges: PriceChange[];
 };
 
 /**
@@ -531,6 +538,159 @@ export declare type Account = Message<"commerce.v1.Account"> & {
  * Use `create(AccountSchema)` to create a new message.
  */
 export declare const AccountSchema: GenMessage<Account>;
+
+/**
+ * A price change as the listener sees it (§8): a request for consent, or a notice.
+ *
+ * @generated from message commerce.v1.PriceChange
+ */
+export declare type PriceChange = Message<"commerce.v1.PriceChange"> & {
+  /**
+   * @generated from field: int64 price_change_id = 1 [jstype = JS_STRING];
+   */
+  priceChangeId: string;
+
+  /**
+   * The price migration it comes from.
+   *
+   * @generated from field: int64 change_id = 2 [jstype = JS_STRING];
+   */
+  changeId: string;
+
+  /**
+   * @generated from field: string plan = 3;
+   */
+  plan: string;
+
+  /**
+   * What the listener pays now, and the new price.
+   *
+   * @generated from field: commerce.v1.Money old_price = 4;
+   */
+  oldPrice?: Money | undefined;
+
+  /**
+   * @generated from field: commerce.v1.Money new_price = 5;
+   */
+  newPrice?: Money | undefined;
+
+  /**
+   * consent: nothing changes without a yes; notice: the new price applies
+   * unless the listener leaves before it.
+   *
+   * @generated from field: string kind = 6;
+   */
+  kind: string;
+
+  /**
+   * ISO 8601 with Z.
+   *
+   * @generated from field: string sent_at = 7;
+   */
+  sentAt: string;
+
+  /**
+   * The end of the window, in the market's local time.
+   *
+   * @generated from field: commerce.v1.LocalTime window_ends = 8;
+   */
+  windowEnds?: LocalTime | undefined;
+
+  /**
+   * waiting: the window is open and no answer came (in a notice market, a
+   * yes keeps it waiting); accepted: said yes, in a consent market, and pays
+   * the new price from new_price_from; declined: said no, so the market's
+   * choice applies at the end of the window (consent), or the subscription
+   * ends before the new price (notice); lapsed: no answer by the end of a
+   * consent window, which counts as no; new_price: the notice ran out and the
+   * new price applies from new_price_from.
+   *
+   * @generated from field: string state = 9;
+   */
+  state: string;
+
+  /**
+   * The first day the new price is charged; empty while it is not decided.
+   *
+   * @generated from field: string new_price_from = 10;
+   */
+  newPriceFrom: string;
+
+  /**
+   * What happens without a yes (consent), or after the notice: the market's
+   * commercial choice, in words, and that it is a choice and not law.
+   *
+   * @generated from field: string if_no_answer = 11;
+   */
+  ifNoAnswer: string;
+
+  /**
+   * The law of the market, in words, with its sources.
+   *
+   * @generated from field: string legal_basis = 12;
+   */
+  legalBasis: string;
+};
+
+/**
+ * Describes the message commerce.v1.PriceChange.
+ * Use `create(PriceChangeSchema)` to create a new message.
+ */
+export declare const PriceChangeSchema: GenMessage<PriceChange>;
+
+/**
+ * @generated from message commerce.v1.AnswerPriceChangeRequest
+ */
+export declare type AnswerPriceChangeRequest = Message<"commerce.v1.AnswerPriceChangeRequest"> & {
+  /**
+   * @generated from field: int64 subscriber_id = 1 [jstype = JS_STRING];
+   */
+  subscriberId: string;
+
+  /**
+   * @generated from field: int64 price_change_id = 2 [jstype = JS_STRING];
+   */
+  priceChangeId: string;
+
+  /**
+   * @generated from field: bool accept = 3;
+   */
+  accept: boolean;
+};
+
+/**
+ * Describes the message commerce.v1.AnswerPriceChangeRequest.
+ * Use `create(AnswerPriceChangeRequestSchema)` to create a new message.
+ */
+export declare const AnswerPriceChangeRequestSchema: GenMessage<AnswerPriceChangeRequest>;
+
+/**
+ * @generated from message commerce.v1.AnswerPriceChangeResponse
+ */
+export declare type AnswerPriceChangeResponse = Message<"commerce.v1.AnswerPriceChangeResponse"> & {
+  /**
+   * @generated from oneof commerce.v1.AnswerPriceChangeResponse.outcome
+   */
+  outcome: {
+    /**
+     * @generated from field: commerce.v1.PriceChange price_change = 1;
+     */
+    value: PriceChange;
+    case: "priceChange";
+  } | {
+    /**
+     * @generated from field: commerce.v1.Refusal refusal = 2;
+     */
+    value: Refusal;
+    case: "refusal";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message commerce.v1.AnswerPriceChangeResponse.
+ * Use `create(AnswerPriceChangeResponseSchema)` to create a new message.
+ */
+export declare const AnswerPriceChangeResponseSchema: GenMessage<AnswerPriceChangeResponse>;
 
 /**
  * @generated from message commerce.v1.GetAccountRequest
@@ -661,6 +821,20 @@ export declare const SubscriberService: GenService<{
     methodKind: "unary";
     input: typeof GetAccountRequestSchema;
     output: typeof GetAccountResponseSchema;
+  },
+  /**
+   * The listener's answer to a price change (§8): in a consent market, yes or
+   * no; in a notice market, no means leaving before the new price applies, and
+   * yes only says they read it. Once answered, the same answer comes back; an
+   * answer after the window, or a different answer, is refused with
+   * REFUSAL_CODE_WRONG_STATE.
+   *
+   * @generated from rpc commerce.v1.SubscriberService.AnswerPriceChange
+   */
+  answerPriceChange: {
+    methodKind: "unary";
+    input: typeof AnswerPriceChangeRequestSchema;
+    output: typeof AnswerPriceChangeResponseSchema;
   },
 }>;
 

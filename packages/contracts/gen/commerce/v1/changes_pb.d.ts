@@ -11,7 +11,7 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
-import type { Money, PageInfo, PageRequest, Refusal, Role } from "./common_pb.js";
+import type { LocalTime, Money, PageInfo, PageRequest, Refusal, Role } from "./common_pb.js";
 
 /**
  * Describes the file commerce/v1/changes.proto.
@@ -284,6 +284,133 @@ export declare type ListPriceContent = Message<"commerce.v1.ListPriceContent"> &
 export declare const ListPriceContentSchema: GenMessage<ListPriceContent>;
 
 /**
+ * A higher price for one plan in one market, for everyone (§8, §14.3): new
+ * subscribers pay it from starts_local, like a new list price; the existing
+ * subscribers of the plan in the market are asked for their consent, or told,
+ * from notices_local, by the rules of their market (catalog.proto,
+ * PriceChangePolicy), and pay it only as those rules say. The change starts at
+ * notices_local. Finance signs it (§7.3, conditions 1 and 5).
+ *
+ * @generated from message commerce.v1.PriceMigrationContent
+ */
+export declare type PriceMigrationContent = Message<"commerce.v1.PriceMigrationContent"> & {
+  /**
+   * @generated from field: string title = 1;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string plan = 2;
+   */
+  plan: string;
+
+  /**
+   * @generated from field: string market = 3;
+   */
+  market: string;
+
+  /**
+   * The new price, above the list price in force.
+   *
+   * @generated from field: commerce.v1.Money amount = 4;
+   */
+  amount?: Money | undefined;
+
+  /**
+   * When the existing subscribers are asked or told.
+   *
+   * @generated from field: string notices_local = 5;
+   */
+  noticesLocal: string;
+
+  /**
+   * When new subscribers start paying it; not before notices_local.
+   *
+   * @generated from field: string starts_local = 6;
+   */
+  startsLocal: string;
+};
+
+/**
+ * Describes the message commerce.v1.PriceMigrationContent.
+ * Use `create(PriceMigrationContentSchema)` to create a new message.
+ */
+export declare const PriceMigrationContentSchema: GenMessage<PriceMigrationContent>;
+
+/**
+ * How a price migration stands with the existing subscribers, once it started.
+ *
+ * @generated from message commerce.v1.MigrationProgress
+ */
+export declare type MigrationProgress = Message<"commerce.v1.MigrationProgress"> & {
+  /**
+   * consent or notice: what the market's law asks for (PriceChangePolicy).
+   *
+   * @generated from field: string requirement = 1;
+   */
+  requirement: string;
+
+  /**
+   * The end of the window: the consent deadline, or the end of the notice.
+   *
+   * @generated from field: commerce.v1.LocalTime window_ends = 2;
+   */
+  windowEnds?: LocalTime | undefined;
+
+  /**
+   * The subscribers asked or told, and where each stands.
+   *
+   * @generated from field: int64 asked = 3;
+   */
+  asked: bigint;
+
+  /**
+   * @generated from field: int64 waiting = 4;
+   */
+  waiting: bigint;
+
+  /**
+   * @generated from field: int64 accepted = 5;
+   */
+  accepted: bigint;
+
+  /**
+   * Said no: in a consent market they keep their price until the window
+   * ends; in a notice market they leave before the new price applies.
+   *
+   * @generated from field: int64 declined = 6;
+   */
+  declined: bigint;
+
+  /**
+   * Gave no answer in a consent market by the end of the window.
+   *
+   * @generated from field: int64 lapsed = 7;
+   */
+  lapsed: bigint;
+
+  /**
+   * Paying the new price from their own date.
+   *
+   * @generated from field: int64 new_price = 8;
+   */
+  newPrice: bigint;
+
+  /**
+   * Moved to the free plan by the market's commercial choice, or ended.
+   *
+   * @generated from field: int64 left = 9;
+   */
+  left: bigint;
+};
+
+/**
+ * Describes the message commerce.v1.MigrationProgress.
+ * Use `create(MigrationProgressSchema)` to create a new message.
+ */
+export declare const MigrationProgressSchema: GenMessage<MigrationProgress>;
+
+/**
  * @generated from message commerce.v1.ChangeVersion
  */
 export declare type ChangeVersion = Message<"commerce.v1.ChangeVersion"> & {
@@ -326,6 +453,12 @@ export declare type ChangeVersion = Message<"commerce.v1.ChangeVersion"> & {
      */
     value: ListPriceContent;
     case: "listPrice";
+  } | {
+    /**
+     * @generated from field: commerce.v1.PriceMigrationContent price_migration = 7;
+     */
+    value: PriceMigrationContent;
+    case: "priceMigration";
   } | { case: undefined; value?: undefined };
 };
 
@@ -554,6 +687,13 @@ export declare type Change = Message<"commerce.v1.Change"> & {
    * @generated from field: string author_reason = 14;
    */
   authorReason: string;
+
+  /**
+   * A price migration that started: where its existing subscribers stand.
+   *
+   * @generated from field: commerce.v1.MigrationProgress migration = 15;
+   */
+  migration?: MigrationProgress | undefined;
 };
 
 /**
@@ -637,6 +777,12 @@ export declare type CreateChangeRequest = Message<"commerce.v1.CreateChangeReque
      */
     value: ListPriceContent;
     case: "listPrice";
+  } | {
+    /**
+     * @generated from field: commerce.v1.PriceMigrationContent price_migration = 3;
+     */
+    value: PriceMigrationContent;
+    case: "priceMigration";
   } | { case: undefined; value?: undefined };
 };
 
@@ -705,6 +851,12 @@ export declare type SaveVersionRequest = Message<"commerce.v1.SaveVersionRequest
      */
     value: ListPriceContent;
     case: "listPrice";
+  } | {
+    /**
+     * @generated from field: commerce.v1.PriceMigrationContent price_migration = 5;
+     */
+    value: PriceMigrationContent;
+    case: "priceMigration";
   } | { case: undefined; value?: undefined };
 };
 

@@ -59,6 +59,7 @@ const TABLE: Record<string, string[] | { offer: string[]; listPrice: string[] }>
   ValidateChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
   SubmitChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
   SimulateOffer: ["marketing", "commercial_lead", "finance"],
+  SimulateMigration: ["marketing", "commercial_lead", "finance"],
   ApproveChange: ["commercial_lead", "finance"],
   RejectChange: ["commercial_lead", "finance"],
   ScheduleChange: { offer: ["marketing", "commercial_lead"], listPrice: ["commercial_lead"] },
@@ -163,14 +164,14 @@ describe("the role matrix", () => {
   test("covers every method of the contract: public, the subscriber's, or in the matrix, exactly one of them", () => {
     const services = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService, SubscriberService, LaunchService];
     const contract = services.flatMap((service) => service.methods.map((method) => method.name));
-    // Catalog 4, Change 12, Quote 1, Simulation 1, Audit 3, Overview 1, People 1, Subscriber 4, Launch 4.
-    assert.equal(contract.length, 31, "the contract's methods were all read");
+    // Catalog 4, Change 12, Quote 1, Simulation 2, Audit 3, Overview 1, People 1, Subscriber 5, Launch 4.
+    assert.equal(contract.length, 33, "the contract's methods were all read");
     // The gateway binds a client to every service of the contract, and engineCalls() refuses a method no list names.
     assert.deepEqual((Object.values(SERVICES) as unknown[]).length, services.length);
     for (const service of services) assert.ok((Object.values(SERVICES) as unknown[]).includes(service), service.typeName);
     assert.deepEqual([...PUBLIC_METHODS].sort(), ["GetPriceList", "GetQuote", "ListDemoListeners", "ListMarkets", "ListOffers", "ListPeople", "ListPlans"]);
     // The brief of stage 5: these act for the listener of the site's session, with no x-actor.
-    assert.deepEqual([...SUBSCRIBER_METHODS].sort(), ["ConfirmQuote", "GetAccount", "VerifyStudent"]);
+    assert.deepEqual([...SUBSCRIBER_METHODS].sort(), ["AnswerPriceChange", "ConfirmQuote", "GetAccount", "VerifyStudent"]);
     for (const method of contract) {
       const kinds = [(PUBLIC_METHODS as readonly string[]).includes(method), (SUBSCRIBER_METHODS as readonly string[]).includes(method), Object.hasOwn(matrix, method)];
       assert.equal(kinds.filter(Boolean).length, 1, `${method} must be public, the subscriber's, or in the matrix, and only one of them`);

@@ -37,7 +37,7 @@ export const PUBLIC_METHODS = ["ListPeople", "ListMarkets", "ListPlans", "GetPri
  * session's, which the gateway writes itself (engine.ts): the browser never
  * names who it acts for.
  */
-export const SUBSCRIBER_METHODS = ["VerifyStudent", "ConfirmQuote", "GetAccount"] as const;
+export const SUBSCRIBER_METHODS = ["VerifyStudent", "ConfirmQuote", "GetAccount", "AnswerPriceChange"] as const;
 
 /** The other engine methods, and the roles that may call them. */
 export const METHOD_ROLES = {
@@ -48,6 +48,8 @@ export const METHOD_ROLES = {
   ValidateChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
   SubmitChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
   SimulateOffer: ["marketing", "commercial_lead", "finance"],
+  // A price migration's simulation (§8.7), for the same three roles.
+  SimulateMigration: ["marketing", "commercial_lead", "finance"],
   // Finance first: a person holding both signs as finance. The engine checks
   // which signatures the version needs and that its author does not sign.
   ApproveChange: ["finance", "commercial_lead"],

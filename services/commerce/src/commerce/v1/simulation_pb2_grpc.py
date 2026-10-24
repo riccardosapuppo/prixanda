@@ -39,6 +39,11 @@ class SimulationServiceStub(object):
                 request_serializer=commerce_dot_v1_dot_simulation__pb2.SimulateOfferRequest.SerializeToString,
                 response_deserializer=commerce_dot_v1_dot_simulation__pb2.SimulateOfferResponse.FromString,
                 _registered_method=True)
+        self.SimulateMigration = channel.unary_unary(
+                '/commerce.v1.SimulationService/SimulateMigration',
+                request_serializer=commerce_dot_v1_dot_simulation__pb2.SimulateMigrationRequest.SerializeToString,
+                response_deserializer=commerce_dot_v1_dot_simulation__pb2.SimulateMigrationResponse.FromString,
+                _registered_method=True)
 
 
 class SimulationServiceServicer(object):
@@ -50,6 +55,18 @@ class SimulationServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SimulateMigration(self, request, context):
+        """A price migration (§8.7): who pays what and from when, the revenue at risk
+        under an acceptance rate declared as an assumption, who would leave or move
+        to the free plan, and the prepaid passes the change never touches.
+        Assumptions: existing (the subscribers of the plan in the market, counted
+        in the data, or typed) and acceptance (a share in basis points; the
+        book's illustrative default, §16, or typed).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_SimulationServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -57,6 +74,11 @@ def add_SimulationServiceServicer_to_server(servicer, server):
                     servicer.SimulateOffer,
                     request_deserializer=commerce_dot_v1_dot_simulation__pb2.SimulateOfferRequest.FromString,
                     response_serializer=commerce_dot_v1_dot_simulation__pb2.SimulateOfferResponse.SerializeToString,
+            ),
+            'SimulateMigration': grpc.unary_unary_rpc_method_handler(
+                    servicer.SimulateMigration,
+                    request_deserializer=commerce_dot_v1_dot_simulation__pb2.SimulateMigrationRequest.FromString,
+                    response_serializer=commerce_dot_v1_dot_simulation__pb2.SimulateMigrationResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -86,6 +108,33 @@ class SimulationService(object):
             '/commerce.v1.SimulationService/SimulateOffer',
             commerce_dot_v1_dot_simulation__pb2.SimulateOfferRequest.SerializeToString,
             commerce_dot_v1_dot_simulation__pb2.SimulateOfferResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SimulateMigration(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/commerce.v1.SimulationService/SimulateMigration',
+            commerce_dot_v1_dot_simulation__pb2.SimulateMigrationRequest.SerializeToString,
+            commerce_dot_v1_dot_simulation__pb2.SimulateMigrationResponse.FromString,
             options,
             channel_credentials,
             insecure,

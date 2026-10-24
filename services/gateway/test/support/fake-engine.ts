@@ -1140,7 +1140,7 @@ export class FakeEngine {
         const kind: Kind = request.content.case === "listPrice" ? "listPrice" : "offer";
         const refused = this.#mayNot("CreateChange", context, kind);
         if (refused) return refused;
-        if (request.content.case === undefined) throw new ConnectError("a change needs its content", Code.InvalidArgument);
+        if (request.content.case !== "offer" && request.content.case !== "listPrice") throw new ConnectError("a change needs its content: an offer or a list price", Code.InvalidArgument);
         const id = String(this.#nextId++);
         const author = context.requestHeader.get("x-actor") ?? "";
         const now = this.#now();
@@ -1166,7 +1166,7 @@ export class FakeEngine {
         if (![ChangeState.DRAFT, ChangeState.VALIDATED, ChangeState.IN_APPROVAL, ChangeState.APPROVED].includes(stored.state)) {
           return this.#refuse(RefusalCode.WRONG_STATE, "This change takes no new versions.");
         }
-        if (request.content.case === undefined) throw new ConnectError("a version needs its content", Code.InvalidArgument);
+        if (request.content.case !== "offer" && request.content.case !== "listPrice") throw new ConnectError("a version needs its content: an offer or a list price", Code.InvalidArgument);
         const content = request.content.value;
         const hash = sha256(request.content.case === "offer" ? toBinary(OfferContentSchema, request.content.value) : toBinary(ListPriceContentSchema, request.content.value));
         stored.versions.push({ version: current + 1, author: context.requestHeader.get("x-actor") ?? "", createdAt: this.#now(), content, hash });
