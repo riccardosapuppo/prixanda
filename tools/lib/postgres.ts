@@ -13,7 +13,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import pg from "pg";
 import { platformKey } from "./paths.ts";
 import { assertFree } from "./ports.ts";
@@ -86,7 +86,11 @@ export async function startCluster(options: { dataDir: string; port: number; eph
   let app: Credentials;
   if (options.ephemeral || !existsSync(join(dataDir, "PG_VERSION"))) {
     await rm(dataDir, { recursive: true, force: true });
-    await mkdir(dataDir, { recursive: true });
+    // initdb creates the data directory itself. Given one that exists, it must
+    // change its permissions, which on Windows it cannot do under the
+    // restricted token it runs with when the user is an administrator (as on
+    // GitHub's Windows runners): "could not change permissions of directory".
+    await mkdir(dirname(dataDir), { recursive: true });
     owner = { user: "postgres", password: secret() };
     app = { user: APP_LOGIN, password: secret() };
     const passwordFile = `${dataDir}.password`;
