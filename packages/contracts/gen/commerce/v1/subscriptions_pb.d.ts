@@ -278,7 +278,8 @@ export declare type Subscription = Message<"commerce.v1.Subscription"> & {
   fullPrice?: Money | undefined;
 
   /**
-   * The next charge and its amount; empty on the free plan.
+   * The next charge and its amount; empty on the free plan, and when the
+   * subscription ends before it (ends_on).
    *
    * @generated from field: string next_billing_on = 14;
    */
@@ -288,6 +289,15 @@ export declare type Subscription = Message<"commerce.v1.Subscription"> & {
    * @generated from field: commerce.v1.Money next_charge = 15;
    */
   nextCharge?: Money | undefined;
+
+  /**
+   * The day a paid subscription ends if the listener does nothing more: after
+   * a no to a price change, or without the yes one needs (§8); from then the
+   * listener is on the free plan. Empty when it does not end.
+   *
+   * @generated from field: string ends_on = 16;
+   */
+  endsOn: string;
 };
 
 /**
@@ -630,6 +640,37 @@ export declare type PriceChange = Message<"commerce.v1.PriceChange"> & {
    * @generated from field: string legal_basis = 12;
    */
   legalBasis: string;
+
+  /**
+   * When new subscribers start paying the new price.
+   *
+   * @generated from field: commerce.v1.LocalTime new_subscribers_from = 13;
+   */
+  newSubscribersFrom?: LocalTime | undefined;
+
+  /**
+   * While the request waits, as of the market's day of the read: the first
+   * day charged at the new price, after a yes given that day (consent) or when
+   * the notice runs out (notice); and the day the paid subscription would end
+   * after a no, or without an answer (consent). if_no_leaves_on is empty when
+   * the market's choice keeps the subscription. Both empty once decided.
+   *
+   * @generated from field: string applies_from = 14;
+   */
+  appliesFrom: string;
+
+  /**
+   * @generated from field: string if_no_leaves_on = 15;
+   */
+  ifNoLeavesOn: string;
+
+  /**
+   * The day the paid subscription ends because of this change, once decided;
+   * empty when it does not end.
+   *
+   * @generated from field: string leaves_on = 16;
+   */
+  leavesOn: string;
 };
 
 /**
