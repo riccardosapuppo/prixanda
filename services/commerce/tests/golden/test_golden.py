@@ -4,11 +4,12 @@ through the engine's own functions."""
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
+from commerce.domain.billing import billing_date, billing_day_for, schedule
 from commerce.domain.economics import (
     Book, Campaign, break_even_retention, finance_conditions, recognize_monthly, signatures_needed, simulate,
 )
@@ -20,7 +21,7 @@ CASES = json.loads((Path(__file__).parent / "business_book.json").read_text(enco
 BOOK = Book()
 
 # The sections the stage-2 brief names; each must have at least one case.
-REQUIRED_SECTIONS = ["§3.5", "§3.6", "§5.4", "§5.5", "§6.5", "§6.7", "§8.7", "§9.2", "§14.2"]
+REQUIRED_SECTIONS = ["§3.5", "§3.6", "§5.4", "§5.5", "§6.5", "§6.7", "§8.7", "§9.2", "§14.1", "§14.2"]
 
 
 def campaign(given: dict) -> Campaign:
@@ -101,6 +102,15 @@ def run(case: dict) -> dict:
                 "signs": needs[0].role if len(needs) == 1 else [n.role for n in needs]}
     if kind == "sentence":
         return {"sentence": sentence(given)}
+    if kind == "billing":
+        start = date.fromisoformat(given["started_on"])
+        day = billing_day_for(start)
+        months = given["offer_months"]
+        prices = [given["offer_price"]] * months + [given["list_price"]]
+        charges = [[billing_date(start, day, k).isoformat(), format_money(Money(price, given["currency"]))]
+                   for k, price in enumerate(prices)]
+        plan = schedule(start, day, months, start)
+        return {"billing_day": day, "charges": charges, "full_price_from": plan.full_price_from.isoformat()}
     if kind == "price_change":
         terms = BOOK.terms(given["currency"], given["vat_bp"])
         before, after = terms.net(given["from"]), terms.net(given["to"])

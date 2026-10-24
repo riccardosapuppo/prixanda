@@ -24,6 +24,7 @@ from commerce.server.config import Config
 from commerce.server.logs import JsonLog
 from commerce.v1 import (
     audit_pb2_grpc, catalog_pb2_grpc, changes_pb2_grpc, overview_pb2_grpc, quotes_pb2_grpc, simulation_pb2_grpc,
+    subscriptions_pb2_grpc,
 )
 from engine_support import MARKETING
 
@@ -33,6 +34,7 @@ STUBS = {
     "ChangeService": changes_pb2_grpc.ChangeServiceStub, "SimulationService": simulation_pb2_grpc.SimulationServiceStub,
     "AuditService": audit_pb2_grpc.AuditServiceStub, "OverviewService": overview_pb2_grpc.OverviewServiceStub,
     "PeopleService": overview_pb2_grpc.PeopleServiceStub,
+    "SubscriberService": subscriptions_pb2_grpc.SubscriberServiceStub,
 }
 BY_NAME = {m.name: m for m in METHODS.values()}
 # What each method was seen doing over the wire in this session: "answer",
