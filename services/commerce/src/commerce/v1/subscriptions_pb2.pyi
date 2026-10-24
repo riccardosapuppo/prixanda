@@ -172,18 +172,66 @@ class ConfirmQuoteResponse(_message.Message):
     def __init__(self, confirmation: _Optional[_Union[Confirmation, _Mapping]] = ..., refusal: _Optional[_Union[_common_pb2.Refusal, _Mapping]] = ...) -> None: ...
 
 class Account(_message.Message):
-    __slots__ = ("subscriber_id", "market", "subscription", "student_verification", "payment")
+    __slots__ = ("subscriber_id", "market", "subscription", "student_verification", "payment", "price_changes")
     SUBSCRIBER_ID_FIELD_NUMBER: _ClassVar[int]
     MARKET_FIELD_NUMBER: _ClassVar[int]
     SUBSCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STUDENT_VERIFICATION_FIELD_NUMBER: _ClassVar[int]
     PAYMENT_FIELD_NUMBER: _ClassVar[int]
+    PRICE_CHANGES_FIELD_NUMBER: _ClassVar[int]
     subscriber_id: int
     market: str
     subscription: Subscription
     student_verification: StudentVerification
     payment: Payment
-    def __init__(self, subscriber_id: _Optional[int] = ..., market: _Optional[str] = ..., subscription: _Optional[_Union[Subscription, _Mapping]] = ..., student_verification: _Optional[_Union[StudentVerification, _Mapping]] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ...) -> None: ...
+    price_changes: _containers.RepeatedCompositeFieldContainer[PriceChange]
+    def __init__(self, subscriber_id: _Optional[int] = ..., market: _Optional[str] = ..., subscription: _Optional[_Union[Subscription, _Mapping]] = ..., student_verification: _Optional[_Union[StudentVerification, _Mapping]] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ..., price_changes: _Optional[_Iterable[_Union[PriceChange, _Mapping]]] = ...) -> None: ...
+
+class PriceChange(_message.Message):
+    __slots__ = ("price_change_id", "change_id", "plan", "old_price", "new_price", "kind", "sent_at", "window_ends", "state", "new_price_from", "if_no_answer", "legal_basis")
+    PRICE_CHANGE_ID_FIELD_NUMBER: _ClassVar[int]
+    CHANGE_ID_FIELD_NUMBER: _ClassVar[int]
+    PLAN_FIELD_NUMBER: _ClassVar[int]
+    OLD_PRICE_FIELD_NUMBER: _ClassVar[int]
+    NEW_PRICE_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    SENT_AT_FIELD_NUMBER: _ClassVar[int]
+    WINDOW_ENDS_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    NEW_PRICE_FROM_FIELD_NUMBER: _ClassVar[int]
+    IF_NO_ANSWER_FIELD_NUMBER: _ClassVar[int]
+    LEGAL_BASIS_FIELD_NUMBER: _ClassVar[int]
+    price_change_id: int
+    change_id: int
+    plan: str
+    old_price: _common_pb2.Money
+    new_price: _common_pb2.Money
+    kind: str
+    sent_at: str
+    window_ends: _common_pb2.LocalTime
+    state: str
+    new_price_from: str
+    if_no_answer: str
+    legal_basis: str
+    def __init__(self, price_change_id: _Optional[int] = ..., change_id: _Optional[int] = ..., plan: _Optional[str] = ..., old_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., new_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., kind: _Optional[str] = ..., sent_at: _Optional[str] = ..., window_ends: _Optional[_Union[_common_pb2.LocalTime, _Mapping]] = ..., state: _Optional[str] = ..., new_price_from: _Optional[str] = ..., if_no_answer: _Optional[str] = ..., legal_basis: _Optional[str] = ...) -> None: ...
+
+class AnswerPriceChangeRequest(_message.Message):
+    __slots__ = ("subscriber_id", "price_change_id", "accept")
+    SUBSCRIBER_ID_FIELD_NUMBER: _ClassVar[int]
+    PRICE_CHANGE_ID_FIELD_NUMBER: _ClassVar[int]
+    ACCEPT_FIELD_NUMBER: _ClassVar[int]
+    subscriber_id: int
+    price_change_id: int
+    accept: bool
+    def __init__(self, subscriber_id: _Optional[int] = ..., price_change_id: _Optional[int] = ..., accept: bool = ...) -> None: ...
+
+class AnswerPriceChangeResponse(_message.Message):
+    __slots__ = ("price_change", "refusal")
+    PRICE_CHANGE_FIELD_NUMBER: _ClassVar[int]
+    REFUSAL_FIELD_NUMBER: _ClassVar[int]
+    price_change: PriceChange
+    refusal: _common_pb2.Refusal
+    def __init__(self, price_change: _Optional[_Union[PriceChange, _Mapping]] = ..., refusal: _Optional[_Union[_common_pb2.Refusal, _Mapping]] = ...) -> None: ...
 
 class GetAccountRequest(_message.Message):
     __slots__ = ("subscriber_id",)

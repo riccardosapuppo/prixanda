@@ -133,6 +133,45 @@ message ListPriceContent {
   string starts_local = 5;
 }
 
+// A higher price for one plan in one market, for everyone (§8, §14.3): new
+// subscribers pay it from starts_local, like a new list price; the existing
+// subscribers of the plan in the market are asked for their consent, or told,
+// from notices_local, by the rules of their market (catalog.proto,
+// PriceChangePolicy), and pay it only as those rules say. The change starts at
+// notices_local. Finance signs it (§7.3, conditions 1 and 5).
+message PriceMigrationContent {
+  string title = 1;
+  string plan = 2;
+  string market = 3;
+  // The new price, above the list price in force.
+  Money amount = 4;
+  // When the existing subscribers are asked or told.
+  string notices_local = 5;
+  // When new subscribers start paying it; not before notices_local.
+  string starts_local = 6;
+}
+
+// How a price migration stands with the existing subscribers, once it started.
+message MigrationProgress {
+  // consent or notice: what the market's law asks for (PriceChangePolicy).
+  string requirement = 1;
+  // The end of the window: the consent deadline, or the end of the notice.
+  LocalTime window_ends = 2;
+  // The subscribers asked or told, and where each stands.
+  int64 asked = 3;
+  int64 waiting = 4;
+  int64 accepted = 5;
+  // Said no: in a consent market they keep their price until the window
+  // ends; in a notice market they leave before the new price applies.
+  int64 declined = 6;
+  // Gave no answer in a consent market by the end of the window.
+  int64 lapsed = 7;
+  // Paying the new price from their own date.
+  int64 new_price = 8;
+  // Moved to the free plan by the market's commercial choice, or ended.
+  int64 left = 9;
+}
+
 message ChangeVersion {
   int32 version = 1;
   string author = 2;
@@ -143,6 +182,7 @@ message ChangeVersion {
   oneof content {
     OfferContent offer = 5;
     ListPriceContent list_price = 6;
+    PriceMigrationContent price_migration = 7;
   }
 }
 
@@ -207,6 +247,8 @@ message Change {
   string sentence = 13;
   // Why the campaign is worth running despite a negative contribution (§7.3, condition 4).
   string author_reason = 14;
+  // A price migration that started: where its existing subscribers stand.
+  MigrationProgress migration = 15;
 }
 
 message ChangeSummary {
@@ -225,6 +267,7 @@ message CreateChangeRequest {
   oneof content {
     OfferContent offer = 1;
     ListPriceContent list_price = 2;
+    PriceMigrationContent price_migration = 3;
   }
 }
 
@@ -242,6 +285,7 @@ message SaveVersionRequest {
   oneof content {
     OfferContent offer = 3;
     ListPriceContent list_price = 4;
+    PriceMigrationContent price_migration = 5;
   }
 }
 

@@ -162,21 +162,61 @@ class ListPriceContent(_message.Message):
     starts_local: str
     def __init__(self, title: _Optional[str] = ..., plan: _Optional[str] = ..., market: _Optional[str] = ..., amount: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., starts_local: _Optional[str] = ...) -> None: ...
 
+class PriceMigrationContent(_message.Message):
+    __slots__ = ("title", "plan", "market", "amount", "notices_local", "starts_local")
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    PLAN_FIELD_NUMBER: _ClassVar[int]
+    MARKET_FIELD_NUMBER: _ClassVar[int]
+    AMOUNT_FIELD_NUMBER: _ClassVar[int]
+    NOTICES_LOCAL_FIELD_NUMBER: _ClassVar[int]
+    STARTS_LOCAL_FIELD_NUMBER: _ClassVar[int]
+    title: str
+    plan: str
+    market: str
+    amount: _common_pb2.Money
+    notices_local: str
+    starts_local: str
+    def __init__(self, title: _Optional[str] = ..., plan: _Optional[str] = ..., market: _Optional[str] = ..., amount: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., notices_local: _Optional[str] = ..., starts_local: _Optional[str] = ...) -> None: ...
+
+class MigrationProgress(_message.Message):
+    __slots__ = ("requirement", "window_ends", "asked", "waiting", "accepted", "declined", "lapsed", "new_price", "left")
+    REQUIREMENT_FIELD_NUMBER: _ClassVar[int]
+    WINDOW_ENDS_FIELD_NUMBER: _ClassVar[int]
+    ASKED_FIELD_NUMBER: _ClassVar[int]
+    WAITING_FIELD_NUMBER: _ClassVar[int]
+    ACCEPTED_FIELD_NUMBER: _ClassVar[int]
+    DECLINED_FIELD_NUMBER: _ClassVar[int]
+    LAPSED_FIELD_NUMBER: _ClassVar[int]
+    NEW_PRICE_FIELD_NUMBER: _ClassVar[int]
+    LEFT_FIELD_NUMBER: _ClassVar[int]
+    requirement: str
+    window_ends: _common_pb2.LocalTime
+    asked: int
+    waiting: int
+    accepted: int
+    declined: int
+    lapsed: int
+    new_price: int
+    left: int
+    def __init__(self, requirement: _Optional[str] = ..., window_ends: _Optional[_Union[_common_pb2.LocalTime, _Mapping]] = ..., asked: _Optional[int] = ..., waiting: _Optional[int] = ..., accepted: _Optional[int] = ..., declined: _Optional[int] = ..., lapsed: _Optional[int] = ..., new_price: _Optional[int] = ..., left: _Optional[int] = ...) -> None: ...
+
 class ChangeVersion(_message.Message):
-    __slots__ = ("version", "author", "created_at", "content_hash", "offer", "list_price")
+    __slots__ = ("version", "author", "created_at", "content_hash", "offer", "list_price", "price_migration")
     VERSION_FIELD_NUMBER: _ClassVar[int]
     AUTHOR_FIELD_NUMBER: _ClassVar[int]
     CREATED_AT_FIELD_NUMBER: _ClassVar[int]
     CONTENT_HASH_FIELD_NUMBER: _ClassVar[int]
     OFFER_FIELD_NUMBER: _ClassVar[int]
     LIST_PRICE_FIELD_NUMBER: _ClassVar[int]
+    PRICE_MIGRATION_FIELD_NUMBER: _ClassVar[int]
     version: int
     author: str
     created_at: str
     content_hash: bytes
     offer: OfferContent
     list_price: ListPriceContent
-    def __init__(self, version: _Optional[int] = ..., author: _Optional[str] = ..., created_at: _Optional[str] = ..., content_hash: _Optional[bytes] = ..., offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ...) -> None: ...
+    price_migration: PriceMigrationContent
+    def __init__(self, version: _Optional[int] = ..., author: _Optional[str] = ..., created_at: _Optional[str] = ..., content_hash: _Optional[bytes] = ..., offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ..., price_migration: _Optional[_Union[PriceMigrationContent, _Mapping]] = ...) -> None: ...
 
 class Approval(_message.Message):
     __slots__ = ("version", "approver", "role", "decided_at", "content_hash")
@@ -238,7 +278,7 @@ class ValidationReport(_message.Message):
     def __init__(self, version: _Optional[int] = ..., valid: bool = ..., findings: _Optional[_Iterable[_Union[ValidationFinding, _Mapping]]] = ..., eligible: _Optional[int] = ...) -> None: ...
 
 class Change(_message.Message):
-    __slots__ = ("id", "kind", "title", "state", "state_reason", "current_version", "created_by", "created_at", "versions", "approvals", "validation", "required_signatures", "sentence", "author_reason")
+    __slots__ = ("id", "kind", "title", "state", "state_reason", "current_version", "created_by", "created_at", "versions", "approvals", "validation", "required_signatures", "sentence", "author_reason", "migration")
     ID_FIELD_NUMBER: _ClassVar[int]
     KIND_FIELD_NUMBER: _ClassVar[int]
     TITLE_FIELD_NUMBER: _ClassVar[int]
@@ -253,6 +293,7 @@ class Change(_message.Message):
     REQUIRED_SIGNATURES_FIELD_NUMBER: _ClassVar[int]
     SENTENCE_FIELD_NUMBER: _ClassVar[int]
     AUTHOR_REASON_FIELD_NUMBER: _ClassVar[int]
+    MIGRATION_FIELD_NUMBER: _ClassVar[int]
     id: int
     kind: ChangeKind
     title: str
@@ -267,7 +308,8 @@ class Change(_message.Message):
     required_signatures: _containers.RepeatedCompositeFieldContainer[RequiredSignature]
     sentence: str
     author_reason: str
-    def __init__(self, id: _Optional[int] = ..., kind: _Optional[_Union[ChangeKind, str]] = ..., title: _Optional[str] = ..., state: _Optional[_Union[ChangeState, str]] = ..., state_reason: _Optional[str] = ..., current_version: _Optional[int] = ..., created_by: _Optional[str] = ..., created_at: _Optional[str] = ..., versions: _Optional[_Iterable[_Union[ChangeVersion, _Mapping]]] = ..., approvals: _Optional[_Iterable[_Union[Approval, _Mapping]]] = ..., validation: _Optional[_Union[ValidationReport, _Mapping]] = ..., required_signatures: _Optional[_Iterable[_Union[RequiredSignature, _Mapping]]] = ..., sentence: _Optional[str] = ..., author_reason: _Optional[str] = ...) -> None: ...
+    migration: MigrationProgress
+    def __init__(self, id: _Optional[int] = ..., kind: _Optional[_Union[ChangeKind, str]] = ..., title: _Optional[str] = ..., state: _Optional[_Union[ChangeState, str]] = ..., state_reason: _Optional[str] = ..., current_version: _Optional[int] = ..., created_by: _Optional[str] = ..., created_at: _Optional[str] = ..., versions: _Optional[_Iterable[_Union[ChangeVersion, _Mapping]]] = ..., approvals: _Optional[_Iterable[_Union[Approval, _Mapping]]] = ..., validation: _Optional[_Union[ValidationReport, _Mapping]] = ..., required_signatures: _Optional[_Iterable[_Union[RequiredSignature, _Mapping]]] = ..., sentence: _Optional[str] = ..., author_reason: _Optional[str] = ..., migration: _Optional[_Union[MigrationProgress, _Mapping]] = ...) -> None: ...
 
 class ChangeSummary(_message.Message):
     __slots__ = ("id", "kind", "title", "state", "current_version", "created_by", "markets", "required_signatures", "updated_at")
@@ -292,12 +334,14 @@ class ChangeSummary(_message.Message):
     def __init__(self, id: _Optional[int] = ..., kind: _Optional[_Union[ChangeKind, str]] = ..., title: _Optional[str] = ..., state: _Optional[_Union[ChangeState, str]] = ..., current_version: _Optional[int] = ..., created_by: _Optional[str] = ..., markets: _Optional[_Iterable[str]] = ..., required_signatures: _Optional[_Iterable[_Union[RequiredSignature, _Mapping]]] = ..., updated_at: _Optional[str] = ...) -> None: ...
 
 class CreateChangeRequest(_message.Message):
-    __slots__ = ("offer", "list_price")
+    __slots__ = ("offer", "list_price", "price_migration")
     OFFER_FIELD_NUMBER: _ClassVar[int]
     LIST_PRICE_FIELD_NUMBER: _ClassVar[int]
+    PRICE_MIGRATION_FIELD_NUMBER: _ClassVar[int]
     offer: OfferContent
     list_price: ListPriceContent
-    def __init__(self, offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ...) -> None: ...
+    price_migration: PriceMigrationContent
+    def __init__(self, offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ..., price_migration: _Optional[_Union[PriceMigrationContent, _Mapping]] = ...) -> None: ...
 
 class CreateChangeResponse(_message.Message):
     __slots__ = ("change", "refusal")
@@ -308,16 +352,18 @@ class CreateChangeResponse(_message.Message):
     def __init__(self, change: _Optional[_Union[Change, _Mapping]] = ..., refusal: _Optional[_Union[_common_pb2.Refusal, _Mapping]] = ...) -> None: ...
 
 class SaveVersionRequest(_message.Message):
-    __slots__ = ("change_id", "base_version", "offer", "list_price")
+    __slots__ = ("change_id", "base_version", "offer", "list_price", "price_migration")
     CHANGE_ID_FIELD_NUMBER: _ClassVar[int]
     BASE_VERSION_FIELD_NUMBER: _ClassVar[int]
     OFFER_FIELD_NUMBER: _ClassVar[int]
     LIST_PRICE_FIELD_NUMBER: _ClassVar[int]
+    PRICE_MIGRATION_FIELD_NUMBER: _ClassVar[int]
     change_id: int
     base_version: int
     offer: OfferContent
     list_price: ListPriceContent
-    def __init__(self, change_id: _Optional[int] = ..., base_version: _Optional[int] = ..., offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ...) -> None: ...
+    price_migration: PriceMigrationContent
+    def __init__(self, change_id: _Optional[int] = ..., base_version: _Optional[int] = ..., offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ..., price_migration: _Optional[_Union[PriceMigrationContent, _Mapping]] = ...) -> None: ...
 
 class SaveVersionResponse(_message.Message):
     __slots__ = ("change", "refusal")

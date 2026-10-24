@@ -62,6 +62,13 @@ export declare type Market = Message<"commerce.v1.Market"> & {
    * @generated from field: commerce.v1.Money floor = 8;
    */
   floor?: Money | undefined;
+
+  /**
+   * What happens before an existing subscriber pays more (§8).
+   *
+   * @generated from field: commerce.v1.PriceChangePolicy price_change_policy = 9;
+   */
+  priceChangePolicy?: PriceChangePolicy | undefined;
 };
 
 /**
@@ -69,6 +76,83 @@ export declare type Market = Message<"commerce.v1.Market"> & {
  * Use `create(MarketSchema)` to create a new message.
  */
 export declare const MarketSchema: GenMessage<Market>;
+
+/**
+ * Two questions never mixed (§8.1): what the law of the market requires before
+ * an existing subscriber pays a higher price, with its sources; and what the
+ * music service chose to do, a setting of the market and never law (§8.6).
+ *
+ * @generated from message commerce.v1.PriceChangePolicy
+ */
+export declare type PriceChangePolicy = Message<"commerce.v1.PriceChangePolicy"> & {
+  /**
+   * @generated from field: string market = 1;
+   */
+  market: string;
+
+  /**
+   * The law. consent: the subscriber must say yes, and silence is no (§8.2);
+   * notice: the subscriber is told in advance and may leave before the new
+   * price applies (§8.3 to §8.5).
+   *
+   * @generated from field: string legal_requirement = 2;
+   */
+  legalRequirement: string;
+
+  /**
+   * @generated from field: string legal_basis = 3;
+   */
+  legalBasis: string;
+
+  /**
+   * @generated from field: repeated string legal_sources = 4;
+   */
+  legalSources: string[];
+
+  /**
+   * The choices. How long the subscriber has: to consent, or before the new
+   * price applies after the notice.
+   *
+   * @generated from field: int32 window_days = 5;
+   */
+  windowDays: number;
+
+  /**
+   * What happens at the end of the window to those who did not consent
+   * (consent markets): move_to_free, end_at_period_end or keep_old_price; to
+   * those who did not leave (notice markets): new_price.
+   *
+   * @generated from field: string after_window = 6;
+   */
+  afterWindow: string;
+
+  /**
+   * The same choice in words, as the subscriber reads it.
+   *
+   * @generated from field: string commercial_choice = 7;
+   */
+  commercialChoice: string;
+
+  /**
+   * The other choices the market could make.
+   *
+   * @generated from field: repeated string alternatives = 8;
+   */
+  alternatives: string[];
+
+  /**
+   * "Rione's choice, configurable per market. Not a legal requirement."
+   *
+   * @generated from field: string label = 9;
+   */
+  label: string;
+};
+
+/**
+ * Describes the message commerce.v1.PriceChangePolicy.
+ * Use `create(PriceChangePolicySchema)` to create a new message.
+ */
+export declare const PriceChangePolicySchema: GenMessage<PriceChangePolicy>;
 
 /**
  * @generated from message commerce.v1.ListMarketsRequest

@@ -54,6 +54,11 @@ class SubscriberServiceStub(object):
                 request_serializer=commerce_dot_v1_dot_subscriptions__pb2.GetAccountRequest.SerializeToString,
                 response_deserializer=commerce_dot_v1_dot_subscriptions__pb2.GetAccountResponse.FromString,
                 _registered_method=True)
+        self.AnswerPriceChange = channel.unary_unary(
+                '/commerce.v1.SubscriberService/AnswerPriceChange',
+                request_serializer=commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeRequest.SerializeToString,
+                response_deserializer=commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeResponse.FromString,
+                _registered_method=True)
 
 
 class SubscriberServiceServicer(object):
@@ -100,6 +105,17 @@ class SubscriberServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def AnswerPriceChange(self, request, context):
+        """The listener's answer to a price change (§8): in a consent market, yes or
+        no; in a notice market, no means leaving before the new price applies, and
+        yes only says they read it. Once answered, the same answer comes back; an
+        answer after the window, or a different answer, is refused with
+        REFUSAL_CODE_WRONG_STATE.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_SubscriberServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -122,6 +138,11 @@ def add_SubscriberServiceServicer_to_server(servicer, server):
                     servicer.GetAccount,
                     request_deserializer=commerce_dot_v1_dot_subscriptions__pb2.GetAccountRequest.FromString,
                     response_serializer=commerce_dot_v1_dot_subscriptions__pb2.GetAccountResponse.SerializeToString,
+            ),
+            'AnswerPriceChange': grpc.unary_unary_rpc_method_handler(
+                    servicer.AnswerPriceChange,
+                    request_deserializer=commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeRequest.FromString,
+                    response_serializer=commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -232,6 +253,33 @@ class SubscriberService(object):
             '/commerce.v1.SubscriberService/GetAccount',
             commerce_dot_v1_dot_subscriptions__pb2.GetAccountRequest.SerializeToString,
             commerce_dot_v1_dot_subscriptions__pb2.GetAccountResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AnswerPriceChange(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/commerce.v1.SubscriberService/AnswerPriceChange',
+            commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeRequest.SerializeToString,
+            commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeResponse.FromString,
             options,
             channel_credentials,
             insecure,

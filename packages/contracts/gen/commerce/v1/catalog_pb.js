@@ -12,7 +12,7 @@ import { file_commerce_v1_common } from "./common_pb.js";
  * Describes the file commerce/v1/catalog.proto.
  */
 export const file_commerce_v1_catalog = /*@__PURE__*/
-  fileDesc("Chljb21tZXJjZS92MS9jYXRhbG9nLnByb3RvEgtjb21tZXJjZS52MSK+AQoGTWFya2V0EgwKBGNvZGUYASABKAkSDAoEbmFtZRgCIAEoCRIQCghjdXJyZW5jeRgDIAEoCRITCgttaW5vcl91bml0cxgEIAEoBRIRCgl0aW1lX3pvbmUYBSABKAkSDgoGdmF0X2JwGAYgASgFEisKD2FydGlzdHNfbWluaW11bRgHIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5EiEKBWZsb29yGAggASgLMhIuY29tbWVyY2UudjEuTW9uZXkiFAoSTGlzdE1hcmtldHNSZXF1ZXN0IjsKE0xpc3RNYXJrZXRzUmVzcG9uc2USJAoHbWFya2V0cxgBIAMoCzITLmNvbW1lcmNlLnYxLk1hcmtldCJyCgxFbnRpdGxlbWVudHMSFgoOc2tpcHNfcGVyX2hvdXIYASABKAUSDQoFYXVkaW8YAiABKAkSDwoHb2ZmbGluZRgDIAEoCBINCgVzZWF0cxgEIAEoBRIbChNuZWVkc19zdHVkZW50X2NoZWNrGAUgASgIIpMCCg5QcmljZUJyZWFrZG93bhIhCgVwcmljZRgBIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5Eh8KA3ZhdBgCIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5Eh8KA25ldBgDIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5EiMKB2FydGlzdHMYBCABKAsyEi5jb21tZXJjZS52MS5Nb25leRIiCgZ0b3BfdXAYBSABKAsyEi5jb21tZXJjZS52MS5Nb25leRIpCg1wYXltZW50X2Nvc3RzGAYgASgLMhIuY29tbWVyY2UudjEuTW9uZXkSKAoMZW5jb3JlX2tlZXBzGAcgASgLMhIuY29tbWVyY2UudjEuTW9uZXkitwEKBFBsYW4SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgRwYWlkGAMgASgIEi8KDGVudGl0bGVtZW50cxgEIAEoCzIZLmNvbW1lcmNlLnYxLkVudGl0bGVtZW50cxImCgpsaXN0X3ByaWNlGAUgASgLMhIuY29tbWVyY2UudjEuTW9uZXkSLgoJYnJlYWtkb3duGAYgASgLMhsuY29tbWVyY2UudjEuUHJpY2VCcmVha2Rvd24iLgoQTGlzdFBsYW5zUmVxdWVzdBIOCgZtYXJrZXQYASABKAkSCgoCYXQYAiABKAkiNQoRTGlzdFBsYW5zUmVzcG9uc2USIAoFcGxhbnMYASADKAsyES5jb21tZXJjZS52MS5QbGFuIucBCg5QcmljZUxpc3RFbnRyeRIOCgJpZBgBIAEoA0ICMAESDAoEcGxhbhgCIAEoCRIOCgZtYXJrZXQYAyABKAkSIgoGYW1vdW50GAQgASgLMhIuY29tbWVyY2UudjEuTW9uZXkSGAoQdmFsaWRfZnJvbV9sb2NhbBgFIAEoCRIZChF2YWxpZF91bnRpbF9sb2NhbBgGIAEoCRIVCgljaGFuZ2VfaWQYByABKANCAjABEhMKC2JlbG93X2Zsb29yGAggASgIEiIKBnRvcF91cBgJIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5IjMKE0dldFByaWNlTGlzdFJlcXVlc3QSDgoGbWFya2V0GAEgASgJEgwKBHBsYW4YAiABKAkiRAoUR2V0UHJpY2VMaXN0UmVzcG9uc2USLAoHZW50cmllcxgBIAMoCzIbLmNvbW1lcmNlLnYxLlByaWNlTGlzdEVudHJ5IvoCCg5QdWJsaXNoZWRPZmZlchIUCghvZmZlcl9pZBgBIAEoA0ICMAESDwoHdmVyc2lvbhgCIAEoBRIOCgZtYXJrZXQYAyABKAkSDAoEcGxhbhgEIAEoCRINCgV0aXRsZRgFIAEoCRIMCgR0ZXh0GAYgASgJEg0KBXRlcm1zGAcgASgJEiEKBXByaWNlGAggASgLMhIuY29tbWVyY2UudjEuTW9uZXkSJgoKbGlzdF9wcmljZRgJIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5Eh0KFW1vbnRoc19hdF9vZmZlcl9wcmljZRgKIAEoBRIuCg50YWtlYWJsZV91bnRpbBgLIAEoCzIWLmNvbW1lcmNlLnYxLkxvY2FsVGltZRIQCghhdWRpZW5jZRgMIAEoCRIbChNuZWVkc19zdHVkZW50X2NoZWNrGA0gASgIEi4KCWJyZWFrZG93bhgOIAEoCzIbLmNvbW1lcmNlLnYxLlByaWNlQnJlYWtkb3duIi8KEUxpc3RPZmZlcnNSZXF1ZXN0Eg4KBm1hcmtldBgBIAEoCRIKCgJhdBgCIAEoCSJBChJMaXN0T2ZmZXJzUmVzcG9uc2USKwoGb2ZmZXJzGAEgAygLMhsuY29tbWVyY2UudjEuUHVibGlzaGVkT2ZmZXIy0gIKDkNhdGFsb2dTZXJ2aWNlElAKC0xpc3RNYXJrZXRzEh8uY29tbWVyY2UudjEuTGlzdE1hcmtldHNSZXF1ZXN0GiAuY29tbWVyY2UudjEuTGlzdE1hcmtldHNSZXNwb25zZRJKCglMaXN0UGxhbnMSHS5jb21tZXJjZS52MS5MaXN0UGxhbnNSZXF1ZXN0Gh4uY29tbWVyY2UudjEuTGlzdFBsYW5zUmVzcG9uc2USUwoMR2V0UHJpY2VMaXN0EiAuY29tbWVyY2UudjEuR2V0UHJpY2VMaXN0UmVxdWVzdBohLmNvbW1lcmNlLnYxLkdldFByaWNlTGlzdFJlc3BvbnNlEk0KCkxpc3RPZmZlcnMSHi5jb21tZXJjZS52MS5MaXN0T2ZmZXJzUmVxdWVzdBofLmNvbW1lcmNlLnYxLkxpc3RPZmZlcnNSZXNwb25zZWIGcHJvdG8z", [file_commerce_v1_common]);
+  fileDesc("Chljb21tZXJjZS92MS9jYXRhbG9nLnByb3RvEgtjb21tZXJjZS52MSL7AQoGTWFya2V0EgwKBGNvZGUYASABKAkSDAoEbmFtZRgCIAEoCRIQCghjdXJyZW5jeRgDIAEoCRITCgttaW5vcl91bml0cxgEIAEoBRIRCgl0aW1lX3pvbmUYBSABKAkSDgoGdmF0X2JwGAYgASgFEisKD2FydGlzdHNfbWluaW11bRgHIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5EiEKBWZsb29yGAggASgLMhIuY29tbWVyY2UudjEuTW9uZXkSOwoTcHJpY2VfY2hhbmdlX3BvbGljeRgJIAEoCzIeLmNvbW1lcmNlLnYxLlByaWNlQ2hhbmdlUG9saWN5ItUBChFQcmljZUNoYW5nZVBvbGljeRIOCgZtYXJrZXQYASABKAkSGQoRbGVnYWxfcmVxdWlyZW1lbnQYAiABKAkSEwoLbGVnYWxfYmFzaXMYAyABKAkSFQoNbGVnYWxfc291cmNlcxgEIAMoCRITCgt3aW5kb3dfZGF5cxgFIAEoBRIUCgxhZnRlcl93aW5kb3cYBiABKAkSGQoRY29tbWVyY2lhbF9jaG9pY2UYByABKAkSFAoMYWx0ZXJuYXRpdmVzGAggAygJEg0KBWxhYmVsGAkgASgJIhQKEkxpc3RNYXJrZXRzUmVxdWVzdCI7ChNMaXN0TWFya2V0c1Jlc3BvbnNlEiQKB21hcmtldHMYASADKAsyEy5jb21tZXJjZS52MS5NYXJrZXQicgoMRW50aXRsZW1lbnRzEhYKDnNraXBzX3Blcl9ob3VyGAEgASgFEg0KBWF1ZGlvGAIgASgJEg8KB29mZmxpbmUYAyABKAgSDQoFc2VhdHMYBCABKAUSGwoTbmVlZHNfc3R1ZGVudF9jaGVjaxgFIAEoCCKTAgoOUHJpY2VCcmVha2Rvd24SIQoFcHJpY2UYASABKAsyEi5jb21tZXJjZS52MS5Nb25leRIfCgN2YXQYAiABKAsyEi5jb21tZXJjZS52MS5Nb25leRIfCgNuZXQYAyABKAsyEi5jb21tZXJjZS52MS5Nb25leRIjCgdhcnRpc3RzGAQgASgLMhIuY29tbWVyY2UudjEuTW9uZXkSIgoGdG9wX3VwGAUgASgLMhIuY29tbWVyY2UudjEuTW9uZXkSKQoNcGF5bWVudF9jb3N0cxgGIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5EigKDGVuY29yZV9rZWVwcxgHIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5IrcBCgRQbGFuEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDAoEcGFpZBgDIAEoCBIvCgxlbnRpdGxlbWVudHMYBCABKAsyGS5jb21tZXJjZS52MS5FbnRpdGxlbWVudHMSJgoKbGlzdF9wcmljZRgFIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5Ei4KCWJyZWFrZG93bhgGIAEoCzIbLmNvbW1lcmNlLnYxLlByaWNlQnJlYWtkb3duIi4KEExpc3RQbGFuc1JlcXVlc3QSDgoGbWFya2V0GAEgASgJEgoKAmF0GAIgASgJIjUKEUxpc3RQbGFuc1Jlc3BvbnNlEiAKBXBsYW5zGAEgAygLMhEuY29tbWVyY2UudjEuUGxhbiLnAQoOUHJpY2VMaXN0RW50cnkSDgoCaWQYASABKANCAjABEgwKBHBsYW4YAiABKAkSDgoGbWFya2V0GAMgASgJEiIKBmFtb3VudBgEIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5EhgKEHZhbGlkX2Zyb21fbG9jYWwYBSABKAkSGQoRdmFsaWRfdW50aWxfbG9jYWwYBiABKAkSFQoJY2hhbmdlX2lkGAcgASgDQgIwARITCgtiZWxvd19mbG9vchgIIAEoCBIiCgZ0b3BfdXAYCSABKAsyEi5jb21tZXJjZS52MS5Nb25leSIzChNHZXRQcmljZUxpc3RSZXF1ZXN0Eg4KBm1hcmtldBgBIAEoCRIMCgRwbGFuGAIgASgJIkQKFEdldFByaWNlTGlzdFJlc3BvbnNlEiwKB2VudHJpZXMYASADKAsyGy5jb21tZXJjZS52MS5QcmljZUxpc3RFbnRyeSL6AgoOUHVibGlzaGVkT2ZmZXISFAoIb2ZmZXJfaWQYASABKANCAjABEg8KB3ZlcnNpb24YAiABKAUSDgoGbWFya2V0GAMgASgJEgwKBHBsYW4YBCABKAkSDQoFdGl0bGUYBSABKAkSDAoEdGV4dBgGIAEoCRINCgV0ZXJtcxgHIAEoCRIhCgVwcmljZRgIIAEoCzISLmNvbW1lcmNlLnYxLk1vbmV5EiYKCmxpc3RfcHJpY2UYCSABKAsyEi5jb21tZXJjZS52MS5Nb25leRIdChVtb250aHNfYXRfb2ZmZXJfcHJpY2UYCiABKAUSLgoOdGFrZWFibGVfdW50aWwYCyABKAsyFi5jb21tZXJjZS52MS5Mb2NhbFRpbWUSEAoIYXVkaWVuY2UYDCABKAkSGwoTbmVlZHNfc3R1ZGVudF9jaGVjaxgNIAEoCBIuCglicmVha2Rvd24YDiABKAsyGy5jb21tZXJjZS52MS5QcmljZUJyZWFrZG93biIvChFMaXN0T2ZmZXJzUmVxdWVzdBIOCgZtYXJrZXQYASABKAkSCgoCYXQYAiABKAkiQQoSTGlzdE9mZmVyc1Jlc3BvbnNlEisKBm9mZmVycxgBIAMoCzIbLmNvbW1lcmNlLnYxLlB1Ymxpc2hlZE9mZmVyMtICCg5DYXRhbG9nU2VydmljZRJQCgtMaXN0TWFya2V0cxIfLmNvbW1lcmNlLnYxLkxpc3RNYXJrZXRzUmVxdWVzdBogLmNvbW1lcmNlLnYxLkxpc3RNYXJrZXRzUmVzcG9uc2USSgoJTGlzdFBsYW5zEh0uY29tbWVyY2UudjEuTGlzdFBsYW5zUmVxdWVzdBoeLmNvbW1lcmNlLnYxLkxpc3RQbGFuc1Jlc3BvbnNlElMKDEdldFByaWNlTGlzdBIgLmNvbW1lcmNlLnYxLkdldFByaWNlTGlzdFJlcXVlc3QaIS5jb21tZXJjZS52MS5HZXRQcmljZUxpc3RSZXNwb25zZRJNCgpMaXN0T2ZmZXJzEh4uY29tbWVyY2UudjEuTGlzdE9mZmVyc1JlcXVlc3QaHy5jb21tZXJjZS52MS5MaXN0T2ZmZXJzUmVzcG9uc2ViBnByb3RvMw", [file_commerce_v1_common]);
 
 /**
  * Describes the message commerce.v1.Market.
@@ -22,95 +22,102 @@ export const MarketSchema = /*@__PURE__*/
   messageDesc(file_commerce_v1_catalog, 0);
 
 /**
+ * Describes the message commerce.v1.PriceChangePolicy.
+ * Use `create(PriceChangePolicySchema)` to create a new message.
+ */
+export const PriceChangePolicySchema = /*@__PURE__*/
+  messageDesc(file_commerce_v1_catalog, 1);
+
+/**
  * Describes the message commerce.v1.ListMarketsRequest.
  * Use `create(ListMarketsRequestSchema)` to create a new message.
  */
 export const ListMarketsRequestSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 1);
+  messageDesc(file_commerce_v1_catalog, 2);
 
 /**
  * Describes the message commerce.v1.ListMarketsResponse.
  * Use `create(ListMarketsResponseSchema)` to create a new message.
  */
 export const ListMarketsResponseSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 2);
+  messageDesc(file_commerce_v1_catalog, 3);
 
 /**
  * Describes the message commerce.v1.Entitlements.
  * Use `create(EntitlementsSchema)` to create a new message.
  */
 export const EntitlementsSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 3);
+  messageDesc(file_commerce_v1_catalog, 4);
 
 /**
  * Describes the message commerce.v1.PriceBreakdown.
  * Use `create(PriceBreakdownSchema)` to create a new message.
  */
 export const PriceBreakdownSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 4);
+  messageDesc(file_commerce_v1_catalog, 5);
 
 /**
  * Describes the message commerce.v1.Plan.
  * Use `create(PlanSchema)` to create a new message.
  */
 export const PlanSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 5);
+  messageDesc(file_commerce_v1_catalog, 6);
 
 /**
  * Describes the message commerce.v1.ListPlansRequest.
  * Use `create(ListPlansRequestSchema)` to create a new message.
  */
 export const ListPlansRequestSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 6);
+  messageDesc(file_commerce_v1_catalog, 7);
 
 /**
  * Describes the message commerce.v1.ListPlansResponse.
  * Use `create(ListPlansResponseSchema)` to create a new message.
  */
 export const ListPlansResponseSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 7);
+  messageDesc(file_commerce_v1_catalog, 8);
 
 /**
  * Describes the message commerce.v1.PriceListEntry.
  * Use `create(PriceListEntrySchema)` to create a new message.
  */
 export const PriceListEntrySchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 8);
+  messageDesc(file_commerce_v1_catalog, 9);
 
 /**
  * Describes the message commerce.v1.GetPriceListRequest.
  * Use `create(GetPriceListRequestSchema)` to create a new message.
  */
 export const GetPriceListRequestSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 9);
+  messageDesc(file_commerce_v1_catalog, 10);
 
 /**
  * Describes the message commerce.v1.GetPriceListResponse.
  * Use `create(GetPriceListResponseSchema)` to create a new message.
  */
 export const GetPriceListResponseSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 10);
+  messageDesc(file_commerce_v1_catalog, 11);
 
 /**
  * Describes the message commerce.v1.PublishedOffer.
  * Use `create(PublishedOfferSchema)` to create a new message.
  */
 export const PublishedOfferSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 11);
+  messageDesc(file_commerce_v1_catalog, 12);
 
 /**
  * Describes the message commerce.v1.ListOffersRequest.
  * Use `create(ListOffersRequestSchema)` to create a new message.
  */
 export const ListOffersRequestSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 12);
+  messageDesc(file_commerce_v1_catalog, 13);
 
 /**
  * Describes the message commerce.v1.ListOffersResponse.
  * Use `create(ListOffersResponseSchema)` to create a new message.
  */
 export const ListOffersResponseSchema = /*@__PURE__*/
-  messageDesc(file_commerce_v1_catalog, 13);
+  messageDesc(file_commerce_v1_catalog, 14);
 
 /**
  * @generated from service commerce.v1.CatalogService
