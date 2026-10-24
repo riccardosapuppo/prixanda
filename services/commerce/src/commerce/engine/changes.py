@@ -24,8 +24,10 @@ from commerce.domain.economics import Book
 from commerce.domain.localtime import AmbiguousLocalTime, format_instant, format_local, to_instant, to_local
 from commerce.domain.money import Money
 from commerce.domain.offers import Content, ListPrice, Offer, from_json, local_times, shape_problems, to_json
-from commerce.domain.validation import BLOCKING, PENDING_OR_LIVE, Context, MarketFacts, Neighbour, report_to_json, validate
-from commerce.engine import contract, eligibility, records, reference
+from commerce.domain.validation import (
+    BLOCKING, PENDING_OR_LIVE, Context, MarketFacts, Neighbour, clash_words, report_to_json, validate,
+)
+from commerce.engine import clashes, contract, eligibility, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import (
     CHECK_VIOLATION, FOREIGN_KEY_VIOLATION, UNIQUE_VIOLATION, Connection, DatabaseError, utc_text,
@@ -262,6 +264,9 @@ class Changes:
         require_current(change, request.version)
         require_state(change, "draft", doing="validated")
         content, _, _ = await records.version_content(tx, change.id, change.current_version)
+        # One validation at a time among the changes this one can clash with:
+        # the other changes are read only once this lock is held.
+        await clashes.lock_neighbourhood(tx, content)
         now = self.clock.now()
         report = validate(content, await self._context(tx, change, content, now))
         await tx.execute(
@@ -409,6 +414,7 @@ class Changes:
         for market, moment in starts_of(content):
             zone = ref.markets[market].zone
             starts.append({"market": market, "local": format_local(moment), "utc": format_instant(to_instant(moment, zone))})
+        await clashes.lock_neighbourhood(tx, content)
         if isinstance(content, ListPrice):
             later = await tx.fetchval(
                 "select to_char(lower(valid), 'YYYY-MM-DD\"T\"HH24:MI') from list_price where plan_id = $1 and market = $2 "
@@ -417,12 +423,22 @@ class Changes:
             if later is not None:
                 raise Refused("OVERLAP", f"The price list already holds a {content.plan} price in {content.market} from {later}: "
                                          "the new price would overlap it (§4.1).", {"starts": later})
+            pending = await clashes.pending_list_price(tx, content, change.id, ("approved", "scheduled"))
+            if pending is not None:
+                raise Refused("OVERLAP", f"{pending.title} (#{pending.change_id}, {pending.state}) already changes this price: "
+                                         "only one of them can be scheduled.", {"change": pending.change_id})
         else:
             ended = [p.market for p in content.periods
                      if p.ends is not None and to_instant(p.ends, ref.markets[p.market].zone) <= now]
             if ended:
                 raise Refused("INVALID", f"The offer's period has already ended in {', '.join(ended)}: save a version with new dates.",
                               {"markets": ",".join(ended)})
+            clash = await clashes.first_clash(tx, content, change.id, ("approved", "scheduled", "active"))
+            if clash is not None:
+                other = clash.other
+                raise Refused("INVALID", clash_words(ref.markets[clash.market].name, other.title, other.change_id, other.state,
+                                                     content.group) + " Cancel one of them, or save a version with other dates.",
+                              {"check": "conflict", "market": clash.market, "change": other.change_id})
         await self._move(tx, change, "scheduled", now)
         await self._event(tx, call, now, "change.scheduled", change,
                           {"version": change.current_version, "from": "approved", "to": "scheduled", "starts": starts})

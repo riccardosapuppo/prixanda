@@ -150,6 +150,20 @@ def periods_overlap(a: OfferPeriod, b: OfferPeriod) -> bool:
     return a_before_b_ends and b_before_a_ends
 
 
+def clashes(offer: Offer, other: Offer, market: str) -> bool:
+    """Whether two offers of one non-combinability group reach the same people
+    in the same period of one market: they never stack (§6.1, §10.3), so only
+    one of them may go live. Validation, scheduling and activation all ask."""
+    mine, theirs = offer.period_in(market), other.period_in(market)
+    return (mine is not None and theirs is not None and bool(offer.group) and offer.group == other.group
+            and audiences_overlap(offer.audience, other.audience) and periods_overlap(mine, theirs))
+
+
+def clash_words(market_name: str, title: str, change_id: int, state: str, group: str | None) -> str:
+    return (f"{market_name}: {title} (#{change_id}, {state.replace('_', ' ')}) reaches the same people in the same "
+            f"period, in the same group {group}: they never stack.")
+
+
 class _Findings:
     def __init__(self) -> None:
         self.items: list[Finding] = []
@@ -265,13 +279,10 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
         for other in ctx.neighbours:
             if not isinstance(other.content, Offer) or other.state not in PENDING_OR_LIVE:
                 continue
-            theirs = other.content.period_in(code)
-            if (period is not None and theirs is not None and offer.group and other.content.group == offer.group
-                    and audiences_overlap(audience, other.content.audience) and periods_overlap(period, theirs)):
+            if clashes(offer, other.content, code):
                 conflicts.append(f"{other.title} (#{other.change_id})")
                 found.add("conflict", BLOCKING, code,
-                          f"{market.name}: {other.title} (#{other.change_id}, {other.state.replace('_', ' ')}) reaches "
-                          f"the same people in the same period, in the same group {offer.group}: they never stack.",
+                          clash_words(market.name, other.title, other.change_id, other.state, offer.group),
                           change=other.change_id)
 
         if plan is None:
