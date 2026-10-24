@@ -7,3 +7,6 @@ tools/lib/flyway.ts    # passes the cluster password to Flyway through the envir
 tools/check.ts         # hands the throwaway cluster's password to Flyway
 tools/db.ts            # hands the development cluster's password to Flyway
 tools/engine.ts        # hands the development cluster's password to Flyway before the engine starts
+apps/console/e2e/run.ts          # the console's end-to-end stack hands its throwaway cluster's password to Flyway
+apps/console/scripts/stack.ts    # the console's local stack hands its development cluster's password to Flyway
+apps/site/e2e/support/stack.ts   # the site's end-to-end stack hands its throwaway cluster's password to Flyway

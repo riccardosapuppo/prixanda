@@ -20,6 +20,7 @@ import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { buildConsole, GATEWAY_URL as E2E_GATEWAY_URL, runEndToEnd } from "../apps/console/e2e/run.ts";
 import { nestedSegmentFiles } from "../apps/site/scripts/segments.ts";
+import { licenseInventory, writeReport } from "./licenses.ts";
 import { flyway } from "./lib/flyway.ts";
 import { measure } from "./lib/measure.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
@@ -43,6 +44,9 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 const FLOOR = {
   typecheckedFiles: 14, contractFiles: 47, migrations: 16, pythonTests: 716, invariants: 17, generatedSubscribers: 5_000,
   faultsInjected: 12, measuredQueries: 7,
+  // npm's lockfile lists every platform's packages; the Python environment
+  // has one more on Windows (colorama, for pytest).
+  licensedPackages: 570,
 };
 // The change in two times (migrations V12 and V14): the version of the schema
 // before it, and the expansion, where the compatibility check stops on its way.
@@ -85,6 +89,24 @@ const SUITES: Suite[] = [
       if (ran.code !== 0) return failed(`${compared} files`, ran.output.slice(-3000));
       if (compared < FLOOR.contractFiles) return failed(`${compared} files`, `fewer than ${FLOOR.contractFiles} generated files compared`);
       return passed(`${compared} files`);
+    },
+  },
+  {
+    name: "licenses",
+    what: "every npm, Python and setup package under a licence the policy accepts (docs/legal-and-licensing.md)",
+    needsDatabase: false,
+    async run() {
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const inventory = await licenseInventory();
+      writeReport(inventory);
+      const counted = `${inventory.entries.length} packages`;
+      if (inventory.notRead.length > 0) return failed(counted, inventory.notRead.join("\n"));
+      if (inventory.unknown.length > 0) {
+        return failed(counted, inventory.unknown.map((entry) => `${entry.source} ${entry.name} ${entry.version}: ${entry.license}`).join("\n"));
+      }
+      if (inventory.entries.length < FLOOR.licensedPackages) return failed(counted, `fewer than ${FLOOR.licensedPackages} packages were read`);
+      const exceptions = inventory.entries.filter((entry) => entry.verdict.startsWith("exception")).length;
+      return passed(counted, `${exceptions} named exceptions`);
     },
   },
   {
