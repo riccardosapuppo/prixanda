@@ -171,8 +171,9 @@ never animate.
 ## Checks
 
 ```
-npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e
-npm run e2e -w site
+npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e,site-e2e-7
+npm run e2e -w site                 # both end-to-end tests, one after the other
+npm run e2e -w site -- gift         # stage 7's alone
 ```
 
 | Suite | What it checks | Floor |
@@ -219,7 +220,10 @@ One run on 24 October 2026, on a Windows virtual machine with 8 CPUs and
 published the pass 0.2 s after 09:00, the open page showed it 6.0 s after
 (it asks every 10 s), the first month was paid 0.2 s after the confirmation,
 9 audit events, axe on 9 pages with no violation, and 20 pages fitted at the
-five widths.
+five widths. The same day, `site-e2e-7`: the pass on the open page 10.1 s
+after its start (the page asks every 10 s), the code ready 0.3 s after the
+purchase, 5 audit events, the code in no log line, axe on 9 pages with no
+violation, 10 pages fitted.
 
 The end-to-end test needs Playwright's Chromium for playwright 1.62.1; the
 check reports the suite as not run, never as passed, when it is missing.
