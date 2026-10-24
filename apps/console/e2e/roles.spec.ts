@@ -53,10 +53,11 @@ test("roles that only read find a lock and the reason where the actions would be
   const id = await submittedOffer(`Locks ${RUN}`, `locks-${RUN}`);
   await enterAs(page, "Auditor");
   await page.goto("/campaigns/");
-  await expect(page.getByText("Marketing creates campaigns; this role reads them.")).toBeVisible();
+  await expect(page.getByText("Marketing creates campaigns; as Auditor you read them.")).toBeVisible();
   await expect(page.getByRole("link", { name: "New campaign" })).toHaveCount(0);
   await page.goto(`/campaigns/edit/?id=${id}&step=1`);
-  await expect(page.getByText(/Marketing creates and submits campaigns; as Auditor you read this one, with the fields locked\./)).toBeVisible();
+  await expect(page.getByText(/Marketing creates and submits campaigns\. As Auditor you read this one, with its fields read-only\./)).toBeVisible();
+  await expect(page.getByRole("link", { name: /in Approvals$/ })).toHaveCount(0);
   await expect(page.getByLabel("Campaign name")).toBeDisabled();
   await expect(page.getByRole("button", { name: "Save draft" })).toHaveCount(0);
   await page.goto(`/campaigns/simulation/?id=${id}`);

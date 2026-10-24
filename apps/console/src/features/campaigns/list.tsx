@@ -10,7 +10,7 @@ import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, ButtonLink, Chip, Empty, ErrorPanel, Loading, Locked, StateChip } from "../../components/ui.tsx";
 import { ChangesDocument, type ChangesQuery, type ChangeState, MarketsDocument } from "../../graphql/generated.ts";
 import { marketName } from "../../lib/markets.ts";
-import { can, ROLE_NAME, whoCan } from "../../lib/permissions.ts";
+import { approvesWithoutScheduling, asRole, can, primaryRole, waitingFor, whoDoes } from "../../lib/permissions.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn } from "../../lib/time.ts";
@@ -32,9 +32,8 @@ export function changeHref(row: { readonly id: string; readonly state: string })
 }
 
 function waitingWords(row: Row): string | null {
-  const missing = row.requiredSignatures.filter((signature) => !signature.signed);
-  if (row.state !== "IN_APPROVAL" || missing.length === 0) return null;
-  return `Waiting for ${missing.map((signature) => (signature.role === "COMMERCIAL_LEAD" ? "the commercial lead or Finance" : ROLE_NAME[signature.role])).join(" and ")}`;
+  if (row.state !== "IN_APPROVAL" || row.requiredSignatures.every((signature) => signature.signed)) return null;
+  return waitingFor(row.requiredSignatures);
 }
 
 function ChangesTable({ rows, labelledBy }: { readonly rows: readonly Row[]; readonly labelledBy: string }) {
@@ -96,7 +95,7 @@ export function CampaignsScreen() {
         actions={can(viewer.roles, "createOffer") ? <ButtonLink href="/campaigns/new/" weight="primary" icon="plus">New campaign</ButtonLink> : null}
       />
       <PageBody>
-        {!can(viewer.roles, "createOffer") ? <Locked>{whoCan("createOffer")} creates campaigns; this role reads them.</Locked> : null}
+        {!can(viewer.roles, "createOffer") ? <Locked>{whoDoes("createOffer", { one: "creates campaigns", many: "create campaigns" })}; {asRole(primaryRole(viewer.roles), { start: false })} you read them.</Locked> : null}
         <section className="grid gap-3" aria-labelledby={headingId}>
           <div className="zone-head">
             <h2 id={headingId}>Offers</h2>
@@ -184,7 +183,7 @@ export function ApprovalsScreen() {
           ) : <ChangesTable rows={approved.data.changes.nodes} labelledBy={approvedId} />}
           <p className="flex items-baseline gap-2 text-sm text-ink-2">
             <Icon name="info" size={15} className="translate-y-0.5" />
-            An approved offer starts once Marketing or the commercial lead schedules it; Finance approves but does not schedule.
+            An approved offer starts once {whoDoes("scheduleOffer", { one: "schedules it", many: "schedule it" }, { start: false, either: true })}; {approvesWithoutScheduling({ start: false })}.
           </p>
         </section>
       </PageBody>

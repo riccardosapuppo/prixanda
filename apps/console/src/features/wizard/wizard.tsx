@@ -12,7 +12,8 @@
 // comes back as a conflict, never overwritten (§6.3).
 //
 // Only Marketing creates and submits campaigns (§12): the other roles read
-// the same steps with the fields locked and a line that says why.
+// the same steps with the fields read-only, no Save draft, and a line that
+// says why; a role that reviews finds the way to Approvals.
 import { formatMoney } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
@@ -30,7 +31,7 @@ import {
   type OfferContent, type OfferForm, type Problem, type Segment, STEPS, type StepIndex, toInput,
 } from "../../lib/offer-form.ts";
 import { listeningWords } from "../../lib/diff.ts";
-import { can, primaryRole, ROLE_NAME, signatureWords, whoCan } from "../../lib/permissions.ts";
+import { asRole, can, conditionSigner, primaryRole, signatureWords, signerWords, whoDoes } from "../../lib/permissions.ts";
 import { useClock } from "../../lib/react/clock.tsx";
 import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
@@ -284,13 +285,21 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
       <StateChip state={change.state} />
       <span>Created by {change.createdBy.label} on {formatInstantIn(change.createdAt, CONSOLE_ZONE, { year: true })}</span>
     </>
-  ) : "A draft that only Marketing changes. Nothing reaches the site before approval and activation.";
+  ) : `A draft that only ${whoDoes("editOffer", { one: "changes", many: "change" }, { start: false })}. Nothing reaches the site before approval and activation.`;
+  // A role that reviews (signs or sends back) finds where it does so: the approval page.
+  const reviews = can(viewer.roles, "approve") || can(viewer.roles, "reject");
 
   return (
     <WizardFrame changeId={change?.id ?? null} title={title} sub={sub}>
       {uncarried && viewerCanEdit && editableState ? <Locked>{uncarried}</Locked> : null}
       {!viewerCanEdit ? (
-        <Locked>{whoCan("createOffer")} creates and submits campaigns{role ? `; as ${ROLE_NAME[role]} you read this one, with the fields locked` : ""}.</Locked>
+        <Locked>
+          {whoDoes("createOffer", { one: "creates and submits campaigns", many: "create and submit campaigns" })}.{" "}
+          {change === null
+            ? `${asRole(role)} you read the campaigns and do not start one.`
+            : `${asRole(role)} you read this one, with its fields read-only${reviews ? ", and you review it in Approvals" : ""}.`}
+          {change !== null && reviews ? <> <Link href={`/campaigns/approval/?id=${change.id}`}>Open v{change.currentVersion} in Approvals</Link></> : null}
+        </Locked>
       ) : !editableState && change ? (
         <Locked>This change is {change.state.toLowerCase()}: it takes no new versions. To offer something else, start a new campaign.</Locked>
       ) : change && (change.state === "IN_APPROVAL" || change.state === "APPROVED") ? (
@@ -322,7 +331,7 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
               busy={busy}
               problems={checkStep(form, 4, facts, now)}
               reason={reason}
-              reasonError={reasonTouched && change !== null && change.requiredSignatures.some((signature) => signature.conditions.includes(4)) && reason.trim() === "" ? "Write why the campaign is worth running: the contribution over 12 months is negative, and Finance reads this next to the numbers (§7.3, condition 4)." : null}
+              reasonError={reasonTouched && change !== null && change.requiredSignatures.some((signature) => signature.conditions.includes(4)) && reason.trim() === "" ? `Write why the campaign is worth running: the contribution over 12 months is negative, and ${conditionSigner()} reads this next to the numbers (§7.3, condition 4).` : null}
               onReason={setReason}
               onCheck={() => void onCheck()}
               onSubmit={() => void onSubmit()}
@@ -501,7 +510,7 @@ function PriceBlock({ entry, market, plan, disabled, shown, touch, updateMarket 
   );
 }
 
-/** Below the floor: Finance will sign (§5.4, §7.3 condition 2). The rule is the engine's; this only reads the floor it gives. */
+/** Below the floor: the finance condition's signer will sign (§5.4, §7.3 condition 2). The rule is the engine's; this only reads the floor it gives. */
 function FloorLine({ entry, market }: { readonly entry: MarketForm; readonly market: Market }) {
   if (entry.priceKind !== "fixed") return null;
   const typed = entry.fixed.trim().replace(",", ".");
@@ -514,7 +523,7 @@ function FloorLine({ entry, market }: { readonly entry: MarketForm; readonly mar
   return (
     <p className="flex items-baseline gap-2 text-sm">
       <Icon name="warning" size={15} className="translate-y-0.5 text-madder" />
-      <span>Below the floor in {market.name} ({formatMoney(market.floor)}). The service tops up the artists to the minimum, and Finance will have to sign (§7.3, condition 2).</span>
+      <span>Below the floor in {market.name} ({formatMoney(market.floor)}). The service tops up the artists to the minimum, and {conditionSigner()} will have to sign (§7.3, condition 2).</span>
     </p>
   );
 }
@@ -633,7 +642,7 @@ function StepCheck({ change, dirty, canEdit, busy, problems, reason, reasonError
           <section className="grid gap-2" aria-labelledby="checks-heading">
             <h3 id="checks-heading" className="text-base font-bold">What the engine checked in v{validation.version}</h3>
             <ul role="list" className="grid">
-              {validation.findings.length === 0 ? <li className="py-2 text-ink-2">No finding: nothing blocks it and no condition asks for Finance.</li> : null}
+              {validation.findings.length === 0 ? <li className="py-2 text-ink-2">No finding: nothing blocks it and no condition asks for {conditionSigner()}.</li> : null}
               {validation.findings.map((finding, index) => (
                 <li key={index} className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 border-b border-cord py-2">
                   <Icon name={finding.severity === "BLOCKING" ? "x-circle" : finding.severity === "NEEDS_SIGNATURE" ? "signature" : "info"} size={18} className={`mt-0.5 ${finding.severity === "BLOCKING" ? "text-madder" : "text-indigo"}`} />
@@ -654,7 +663,7 @@ function StepCheck({ change, dirty, canEdit, busy, problems, reason, reasonError
               <ul role="list" className="grid gap-1.5">
                 {change.requiredSignatures.map((signature) => (
                   <li key={signature.role} className="flex flex-wrap items-center gap-2">
-                    <Chip look="waiting" icon="hourglass-medium">{signature.role === "COMMERCIAL_LEAD" ? "The commercial lead or Finance" : ROLE_NAME[signature.role]}</Chip>
+                    <Chip look="waiting" icon="hourglass-medium">{signerWords(signature, { start: true })}</Chip>
                     <span className="text-sm">{signature.why}</span>
                   </li>
                 ))}
@@ -671,7 +680,7 @@ function StepCheck({ change, dirty, canEdit, busy, problems, reason, reasonError
                 <TextAreaField
                   id="author-reason"
                   label={needsReason ? "Why is it worth running? Required: the simulated contribution over 12 months is negative." : "Why is it worth running? Optional."}
-                  hint="Finance reads this next to the numbers."
+                  hint={`${conditionSigner({ start: true })} reads this next to the numbers.`}
                   rows={4}
                   value={reason}
                   maxLength={2000}
@@ -682,7 +691,7 @@ function StepCheck({ change, dirty, canEdit, busy, problems, reason, reasonError
                   Submit v{change.currentVersion} for approval
                 </Button>
               </section>
-            ) : <Locked>{whoCan("submitOffer")} submits campaigns for approval.</Locked>
+            ) : <Locked>{whoDoes("submitOffer", { one: "submits campaigns for approval", many: "submit campaigns for approval" })}.</Locked>
           ) : null}
         </>
       ) : null}

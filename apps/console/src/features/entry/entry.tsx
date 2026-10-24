@@ -8,7 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button, ErrorPanel, Loading } from "../../components/ui.tsx";
 import { PeopleDocument } from "../../graphql/generated.ts";
-import { primaryRole, ROLE_DUTIES } from "../../lib/permissions.ts";
+import { primaryRole, TEAM } from "../../lib/permissions.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useSession } from "../../lib/react/session.tsx";
 
@@ -69,7 +69,7 @@ export function Entry() {
                     <p className="text-lg font-bold">{person.label}</p>
                     {role ? (
                       <p className="text-sm text-ink-2">
-                        <b className="font-semibold text-ink">Can</b> {ROLE_DUTIES[role].can}. <b className="font-semibold text-ink">Cannot</b> {ROLE_DUTIES[role].cannot}.
+                        <b className="font-semibold text-ink">Can</b> {TEAM.roles[role].can}. <b className="font-semibold text-ink">Cannot</b> {TEAM.roles[role].cannot}.
                       </p>
                     ) : null}
                   </div>

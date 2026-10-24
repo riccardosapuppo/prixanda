@@ -11,6 +11,7 @@ import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Empty, ErrorPanel, Loading, StateChip } from "../../components/ui.tsx";
 import { ChangesDocument, LaunchesDocument, MarketsDocument } from "../../graphql/generated.ts";
 import { marketName, marketZone } from "../../lib/markets.ts";
+import { whoDoes } from "../../lib/permissions.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
 
@@ -46,7 +47,7 @@ export function LaunchesScreen() {
         <section className="grid gap-3" aria-labelledby={headingId}>
           <div className="zone-head"><h2 id={headingId}>Scheduled and live</h2></div>
           {scheduled.isPending ? <Loading what="the launches" /> : scheduled.isError ? <ErrorPanel error={scheduled.error} retry={() => void scheduled.refetch()} /> : scheduled.data.changes.nodes.length === 0 ? (
-            <Empty icon="rocket-launch">Nothing is scheduled or live. An approved offer appears here once Marketing or the commercial lead schedules it.</Empty>
+            <Empty icon="rocket-launch">Nothing is scheduled or live. An approved offer appears here once {whoDoes("scheduleOffer", { one: "schedules it", many: "schedule it" }, { start: false, either: true })}.</Empty>
           ) : (
             <ul role="list" className="grid">
               {scheduled.data.changes.nodes.map((change) => (

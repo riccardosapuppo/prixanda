@@ -1,6 +1,7 @@
 // The audit log as the auditor reads it: a verification speaks of the head it
-// was given, a head typed afterwards clears it; Marketing reads the log and
-// finds a lock where the verification and the export would be.
+// was given, a head typed afterwards clears it; Marketing reads the log, the
+// page says §11.4 word for word, and a lock stands where the verification and
+// the export would be.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
 import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
@@ -79,9 +80,9 @@ export const MarketingReadsAndFindsTheLocks: Story = {
   play: async ({ canvasElement }) => {
     const page = within(canvasElement);
     await expect(await page.findByText("Keep it to people who have never paid.")).toBeInTheDocument();
-    await expect(page.getByText("Everyone on the team reads the log. The auditor exports it. The auditor and the on-call engineer verify the chain.")).toBeInTheDocument();
-    await expect(page.getByText("The auditor and the on-call engineer verify the chain.", { exact: true })).toBeInTheDocument();
-    await expect(page.getByText("The auditor exports the log's head.")).toBeInTheDocument();
+    await expect(page.getByText("Everyone on the team reads the log, so any decision can be traced from any seat; the auditor exports it, and the auditor and the on-call engineer verify the chain. Nobody can change it through Plancia.")).toBeInTheDocument();
+    await expect(page.getByText("The auditor and the on-call engineer verify the chain. As Marketing you read every event below.")).toBeInTheDocument();
+    await expect(page.getByText("The auditor exports the log, with the head of the chain kept outside the database. As Marketing you read it, like everyone on the team.")).toBeInTheDocument();
     await expect(page.queryByRole("button", { name: "Verify the chain" })).toBeNull();
   },
 };

@@ -11,6 +11,7 @@ import { PageBody, PageHead } from "../../components/frame.tsx";
 import { Callout, ErrorPanel, Loading } from "../../components/ui.tsx";
 import { PriceListDocument, type PriceListQuery } from "../../graphql/generated.ts";
 import { byMarketOrder, PLAN_ORDER, planName } from "../../lib/markets.ts";
+import { conditionSigner, whoDoes } from "../../lib/permissions.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { formatLocal } from "../../lib/time.ts";
 
@@ -23,7 +24,7 @@ export function PriceListScreen() {
       <PageHead title="Price list" sub="One price per plan, market and period, VAT included. A price in force is never edited: a new one starts later (§4.2)." />
       <PageBody>
         <Callout icon="lock-simple" tone="quiet">
-          The commercial lead owns the price list; a new list price is a change that Finance approves (§7.3, condition 1). The console shows it read only.
+          {whoDoes("createListPrice", { one: "owns the price list", many: "own the price list" })}; a new list price is a change that {conditionSigner()} signs (§7.3, condition 1). The console shows it read only.
         </Callout>
         {list.isPending ? <Loading what="the price list" lines={10} /> : list.isError ? <ErrorPanel error={list.error} retry={() => void list.refetch()} /> : (
           <>
@@ -66,7 +67,7 @@ export function PriceListScreen() {
                       <Icon name="warning" size={16} className="translate-y-0.5 text-madder" />
                       <span>
                         {list.data.markets.find((market) => market.code === entry.market)?.name}, {planName(entry.plan)} at {formatMoney(entry.amount)}: below the floor, so the service adds{" "}
-                        <b>{formatMoney(entry.topUp)}</b> a month to every subscription to keep the artists at their minimum, a choice Finance approved (§5.5).
+                        <b>{formatMoney(entry.topUp)}</b> a month to every subscription to keep the artists at their minimum, a choice {conditionSigner()} approved (§5.5).
                       </span>
                     </li>
                   ))}

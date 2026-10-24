@@ -1,7 +1,10 @@
-// The home for two people: Marketing reads who pays and what waits, and a
-// box of the same size says who reads revenue (the console does not even
-// ask for it); Finance reads the revenue and the place where unearned pass
-// value will be. The week draws the pass waiting for Finance on its lane.
+// The home for three people. Marketing reads who pays and what waits, each
+// approval with what it changes; in the places of revenue and of the value of
+// prepaid passes not yet earned it finds who reads them (the console does
+// not even ask for revenue). The commercial lead reads revenue and finds the
+// unearned value reserved to Finance; Finance reads revenue and the place
+// where the unearned value will be, without numbers. The week draws the pass
+// waiting for Finance on its lane.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
 import { MARKETS, overview, WEEK } from "../../stories/fixtures.ts";
@@ -36,11 +39,25 @@ export const MarketingDoesNotReadRevenue: Story = {
   args: { viewer: PEOPLE["marketing"]!, gateway: gatewayFor() },
   play: async ({ canvasElement, args }) => {
     const page = within(canvasElement);
-    await expect(await page.findByText("Finance and the commercial lead read revenue.")).toBeInTheDocument();
+    await expect(await page.findByText("Finance and the commercial lead read revenue and the standing top-ups.")).toBeInTheDocument();
+    await expect(page.getByText("Finance reads the value of prepaid passes sold and not yet earned (§9.2).")).toBeInTheDocument();
+    await expect(page.getAllByText("As Marketing you read what every role reads: the changes, the home and the audit log (§12.2).", { exact: false })).toHaveLength(2);
     await expect(page.getByText("You wrote v3. Someone else has to approve it.")).toBeInTheDocument();
+    await expect(page.getByText("Italy, Student: from €5.79 to €2.99 for 3 months, new subscribers only; 10,000 eligible; conflicts: none.")).toBeInTheDocument();
     const asked = args.gateway.calls.find((call) => call.operation === "Home")?.variables as { readsRevenue: boolean };
     await expect(asked.readsRevenue).toBe(false);
     await expect(page.queryByText(/Standing top-ups this month/)).toBeNull();
+  },
+};
+
+export const TheCommercialLeadReadsRevenueNotUnearnedValue: Story = {
+  args: { viewer: PEOPLE["lead"]!, gateway: gatewayFor() },
+  play: async ({ canvasElement, args }) => {
+    const page = within(canvasElement);
+    await expect(await page.findByRole("heading", { name: /€20,097\.14\s*Revenue this month, without VAT/ })).toBeInTheDocument();
+    await expect(page.getByText("Finance reads the value of prepaid passes sold and not yet earned (§9.2).")).toBeInTheDocument();
+    const asked = args.gateway.calls.find((call) => call.operation === "Home")?.variables as { readsRevenue: boolean };
+    await expect(asked.readsRevenue).toBe(true);
   },
 };
 
@@ -49,7 +66,9 @@ export const FinanceReadsRevenue: Story = {
   play: async ({ canvasElement }) => {
     const page = within(canvasElement);
     await expect(await page.findByRole("heading", { name: /€20,097\.14\s*Revenue this month, without VAT/ })).toBeInTheDocument();
-    await expect(page.getByText(/Prepaid passes sold and not yet earned/)).toBeInTheDocument();
+    await expect(page.getByRole("heading", { name: "Prepaid passes sold, not yet earned" })).toBeInTheDocument();
+    await expect(page.getByText("It arrives with the prepaid pass, which is not on sale yet.")).toBeInTheDocument();
+    await expect(page.queryByText(/reads the value of prepaid passes/)).toBeNull();
     await expect(page.getByText("As Finance you can sign v3: review it first.")).toBeInTheDocument();
   },
 };

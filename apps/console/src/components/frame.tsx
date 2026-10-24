@@ -10,7 +10,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import { PeopleDocument } from "../graphql/generated.ts";
-import { primaryRole, ROLE_DUTIES, ROLE_NAME } from "../lib/permissions.ts";
+import { primaryRole, ROLE_NAME, TEAM } from "../lib/permissions.ts";
 import { useMinute } from "../lib/react/clock.tsx";
 import { useGatewayQuery } from "../lib/react/gateway.tsx";
 import { useSession } from "../lib/react/session.tsx";
@@ -119,7 +119,7 @@ function Rail({ section }: { readonly section: Section }) {
             Demo entry by role, not a login.
             {role ? (
               <>
-                {" "}<b className="font-semibold text-rail-ink">Can</b> {ROLE_DUTIES[role].can}. <b className="font-semibold text-rail-ink">Cannot</b> {ROLE_DUTIES[role].cannot}.
+                {" "}<b className="font-semibold text-rail-ink">Can</b> {TEAM.roles[role].can}. <b className="font-semibold text-rail-ink">Cannot</b> {TEAM.roles[role].cannot}.
               </>
             ) : null}
           </p>

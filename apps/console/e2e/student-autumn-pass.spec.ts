@@ -183,10 +183,10 @@ test("the audit log holds every step, with the request ids born in the console; 
     await expect(table.getByText(action, { exact: true })).toBeVisible();
   }
   await expect(table.getByText(/console:[0-9a-f-]{36}/).first()).toBeVisible();
-  await expect(page.getByText("Everyone on the team reads the log. The auditor exports it. The auditor and the on-call engineer verify the chain.")).toBeVisible();
+  await expect(page.getByText("Everyone on the team reads the log, so any decision can be traced from any seat; the auditor exports it, and the auditor and the on-call engineer verify the chain. Nobody can change it through Plancia.")).toBeVisible();
   // Marketing reads the log, and finds neither the verification nor the export: a lock says who does them.
-  await expect(page.getByText("The auditor and the on-call engineer verify the chain.", { exact: true })).toBeVisible();
-  await expect(page.getByText("The auditor exports the log's head.", { exact: true })).toBeVisible();
+  await expect(page.getByText("The auditor and the on-call engineer verify the chain. As Marketing you read every event below.")).toBeVisible();
+  await expect(page.getByText("The auditor exports the log, with the head of the chain kept outside the database. As Marketing you read it, like everyone on the team.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Verify the chain" })).toHaveCount(0);
   await axe(page, "the audit log as Marketing");
 
@@ -201,13 +201,14 @@ test("the audit log holds every step, with the request ids born in the console; 
 test("revenue is for Finance and the commercial lead; the others see who reads it, and the server refuses them", async () => {
   await switchTo(page, "Marketing");
   await page.goto("/");
-  await expect(page.getByText("Finance and the commercial lead read revenue.")).toBeVisible();
+  await expect(page.getByText("Finance and the commercial lead read revenue and the standing top-ups.")).toBeVisible();
+  await expect(page.getByText("Finance reads the value of prepaid passes sold and not yet earned (§9.2).")).toBeVisible();
   const asked = await callByHand(page, "query { overview { monthlyRevenueEur } }", {});
   expect(asked.body.errors?.[0]?.extensions?.code).toBe("FORBIDDEN");
   await switchTo(page, "Finance");
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Revenue this month, without VAT/ })).toContainText("€");
-  await expect(page.getByText(/Prepaid passes sold and not yet earned/)).toBeVisible();
+  await expect(page.getByText("It arrives with the prepaid pass, which is not on sale yet.")).toBeVisible();
 });
 
 test("the price list reads the same for every role, and the launches page says what is not built yet", async () => {

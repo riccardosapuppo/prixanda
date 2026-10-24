@@ -1,6 +1,7 @@
 // The guided creation: Continue stops on the first field to fix, with its own
 // message; the example fills the form and the page beside it writes the
-// price the Italian way; a role that only reads finds the fields locked.
+// price the Italian way; a role that only reads finds the fields read-only,
+// no Save draft, and, when it reviews, the way to Approvals.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
 import { MARKETS, PLANS_IT, studentPass } from "../../stories/fixtures.ts";
@@ -66,7 +67,8 @@ export const LockedForFinance: Story = {
   parameters: { route: { pathname: "/campaigns/edit/", query: { id: "7", step: "1" } } },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement);
-    await expect(await page.findByText(/Marketing creates and submits campaigns; as Finance you read this one, with the fields locked\./)).toBeInTheDocument();
+    await expect(await page.findByText(/Marketing creates and submits campaigns\. As Finance you read this one, with its fields read-only, and you review it in Approvals\./)).toBeInTheDocument();
+    await expect(page.getByRole("link", { name: "Open v3 in Approvals" })).toHaveAttribute("href", "/campaigns/approval/?id=7");
     await expect(page.getByLabelText("Campaign name")).toBeDisabled();
     await expect(page.queryByRole("button", { name: "Save draft" })).toBeNull();
   },

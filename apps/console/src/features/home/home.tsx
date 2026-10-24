@@ -2,8 +2,14 @@
 // The home: the five things the commercial team looks at first, each leading
 // to an action (the owner's brief): what waits for approval, what launches in
 // the next seven days, today's incidents, who pays by plan and market, and
-// this month's revenue without VAT, which only finance and the commercial
-// lead read (§12.2). Below, the week as lanes.
+// this month's revenue without VAT. Two figures are reserved (§12.2):
+// revenue for finance and the commercial lead, the value of prepaid passes
+// sold and not yet earned for finance (§9.2, with the prepaid pass: its place
+// is kept, without numbers). Every other role finds, in the same place, who
+// reads them. Below, the week as lanes.
+//
+// The first row has two columns that end together: the approvals, each with
+// what it changes, and beside them the launches above the incidents.
 import { BRAND, formatCount, formatMoney } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
@@ -13,7 +19,7 @@ import { ButtonLink, Chip, Empty, ErrorPanel, Loading, Locked, StateChip } from 
 import { HomeDocument, type HomeQuery } from "../../graphql/generated.ts";
 import { byMarketOrder, marketName, marketZone, PLAN_ORDER, planName } from "../../lib/markets.ts";
 import {
-  can, conditionWords, decide, decisionSentence, primaryRole, type Role, ROLE_NAME, whoCan,
+  can, conditionSigner, conditionWords, decide, decisionSentence, everyoneReadsWords, primaryRole, signerWords, waitingFor, whoDoes,
 } from "../../lib/permissions.ts";
 import { useMinute } from "../../lib/react/clock.tsx";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
@@ -28,6 +34,7 @@ export function HomeScreen() {
   const viewer = useViewer();
   const now = useMinute();
   const readsRevenue = can(viewer.roles, "readRevenue");
+  const readsUnearned = can(viewer.roles, "readUnearnedValue");
   const home = useGatewayQuery(HomeDocument, { readsRevenue });
 
   return (
@@ -40,16 +47,23 @@ export function HomeScreen() {
           <ErrorPanel error={home.error} retry={() => void home.refetch()} />
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] xl:gap-12">
-              <ApprovalsZone waiting={home.data.overview.waitingForApproval} markets={home.data.markets} viewer={viewer} />
-              <div className="grid content-start gap-8">
+            <div className="grid grid-cols-1 gap-8 xl:grid-cols-2 xl:gap-12">
+              <div className="home-column">
+                <ApprovalsZone waiting={home.data.overview.waitingForApproval} markets={home.data.markets} viewer={viewer} />
+              </div>
+              <div className="home-column">
                 <LaunchesZone launches={home.data.overview.launchesNext7Days} markets={home.data.markets} />
                 <IncidentsZone incidents={home.data.overview.incidentsToday} />
               </div>
             </div>
             <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] xl:gap-12">
-              <SubscribersZone overview={home.data.overview} markets={home.data.markets} now={now} />
-              {readsRevenue ? <RevenueZone overview={home.data.overview} markets={home.data.markets} roles={viewer.roles} /> : <RevenueLocked viewer={viewer} />}
+              <div className="home-column">
+                <SubscribersZone overview={home.data.overview} markets={home.data.markets} now={now} />
+                {readsUnearned ? <UnearnedToCome /> : <UnearnedLocked viewer={viewer} />}
+              </div>
+              <div className="home-column">
+                {readsRevenue ? <RevenueZone overview={home.data.overview} markets={home.data.markets} /> : <RevenueLocked viewer={viewer} />}
+              </div>
             </div>
             <WeekZone markets={home.data.markets} />
           </>
@@ -59,11 +73,12 @@ export function HomeScreen() {
   );
 }
 
-function ZoneHead({ count, title, action, id }: { readonly count?: ReactNode; readonly title: ReactNode; readonly action?: ReactNode; readonly id: string }) {
+function ZoneHead({ count, title, action, id, locked = false }: { readonly count?: ReactNode; readonly title: ReactNode; readonly action?: ReactNode; readonly id: string; readonly locked?: boolean }) {
   return (
     <div className="zone-head">
       <h2 id={id}>
         {count !== undefined ? <span className="count">{count}</span> : null}
+        {locked ? <Icon name="lock-simple" size={18} className="self-center text-ink-2" /> : null}
         <span>{title}</span>
       </h2>
       {action}
@@ -71,16 +86,10 @@ function ZoneHead({ count, title, action, id }: { readonly count?: ReactNode; re
   );
 }
 
-function waitingFor(signatures: readonly { readonly role: Role; readonly conditions: readonly number[]; readonly signed: boolean; readonly why: string }[]): string {
-  const missing = signatures.filter((signature) => !signature.signed);
-  if (missing.length === 0) return "Signed: moving to approved";
-  return `Waiting for ${missing.map((signature) => (signature.role === "COMMERCIAL_LEAD" ? "the commercial lead or Finance" : ROLE_NAME[signature.role])).join(" and ")}`;
-}
-
 function ApprovalsZone({ waiting, markets, viewer }: { readonly waiting: Overview["waitingForApproval"]; readonly markets: Markets; readonly viewer: Viewer }) {
   const role = primaryRole(viewer.roles);
   return (
-    <section className="grid content-start gap-3" aria-labelledby="home-approvals">
+    <section className="zone zone--listed" aria-labelledby="home-approvals">
       <ZoneHead id="home-approvals" count={formatCount(waiting.length)} title="Waiting for approval" action={<ButtonLink href="/approvals/" size="small">All approvals</ButtonLink>} />
       {waiting.length === 0 ? (
         <Empty icon="seal-check">Nothing waiting. Changes submitted for approval show up here with who has to sign.</Empty>
@@ -97,7 +106,7 @@ function ApprovalsZone({ waiting, markets, viewer }: { readonly waiting: Overvie
               approvals: change.details.approvals.map((approval) => ({ version: approval.version, approverId: approval.approver.id })),
             }, viewer);
             return (
-              <li key={change.id} className="grid gap-1.5 border-b border-cord py-3 first:pt-1">
+              <li key={change.id} className="grid gap-1.5 border-t border-cord py-3 first:border-t-0 first:pt-1 last:pb-0">
                 <div className="flex items-baseline justify-between gap-3">
                   <h3 className="text-base font-bold leading-snug">
                     {change.title} <span className="font-semibold text-ink-2">v{change.currentVersion}</span>
@@ -111,10 +120,11 @@ function ApprovalsZone({ waiting, markets, viewer }: { readonly waiting: Overvie
                   <span className="inline-flex items-center gap-1"><Icon name="pen-nib" size={14} />{change.createdBy.label}</span>
                   <span className="inline-flex items-center gap-1"><Icon name="clock" size={14} />{formatInstantIn(change.updatedAt, CONSOLE_ZONE)}</span>
                 </p>
+                {change.details.sentence ? <p className="text-sm leading-relaxed">{change.details.sentence}</p> : null}
                 <div className="flex flex-wrap items-center gap-2">
                   <Chip look="waiting" icon="hourglass-medium">{waitingFor(change.requiredSignatures)}</Chip>
                   {change.requiredSignatures.filter((signature) => signature.conditions.length).map((signature) => (
-                    <span key={signature.role} className="text-sm">{signature.role === "FINANCE" ? "Finance" : ROLE_NAME[signature.role]} signs: {conditionWords(signature.conditions)}</span>
+                    <span key={signature.role} className="text-sm">{signerWords(signature, { start: true })} signs: {conditionWords(signature.conditions)}</span>
                   ))}
                 </div>
                 <p className="flex items-baseline gap-2 text-sm">
@@ -147,14 +157,14 @@ function MoreLink({ href, count, what }: { readonly href: string; readonly count
 
 function LaunchesZone({ launches, markets }: { readonly launches: Overview["launchesNext7Days"]; readonly markets: Markets }) {
   return (
-    <section className="grid content-start gap-3" aria-labelledby="home-launches">
+    <section className="zone zone--listed" aria-labelledby="home-launches">
       <ZoneHead id="home-launches" count={formatCount(launches.length)} title="Launching in the next 7 days" action={<ButtonLink href="/launches/" size="small">All launches</ButtonLink>} />
       {launches.length === 0 ? (
         <Empty icon="calendar-blank">Nothing starts in the next seven days. An approved offer shows up here once it has a start date this week.</Empty>
       ) : (
         <ul role="list" className="grid">
           {launches.slice(0, SHOWN).map((launch) => (
-            <li key={`${launch.change.id}-${launch.starts.market}`} className="grid gap-1.5 border-b border-cord py-3 first:pt-1">
+            <li key={`${launch.change.id}-${launch.starts.market}`} className="grid gap-1.5 border-t border-cord py-3 first:border-t-0 first:pt-1 last:pb-0">
               <div className="flex items-baseline justify-between gap-3">
                 <h3 className="text-base font-bold leading-snug">
                   {launch.title} <span className="font-semibold text-ink-2">v{launch.change.currentVersion}</span>
@@ -184,14 +194,14 @@ function LaunchesZone({ launches, markets }: { readonly launches: Overview["laun
 
 function IncidentsZone({ incidents }: { readonly incidents: Overview["incidentsToday"] }) {
   return (
-    <section className="grid content-start gap-3" aria-labelledby="home-incidents">
+    <section className="zone zone--listed" aria-labelledby="home-incidents">
       <ZoneHead id="home-incidents" count={formatCount(incidents.length)} title="Incidents today" />
       {incidents.length === 0 ? (
         <Empty icon="shield-check">No incidents today. When an activation fails, it shows up here with what happened, step by step.</Empty>
       ) : (
         <ul role="list" className="grid">
           {incidents.map((incident) => (
-            <li key={incident.run} className="grid gap-1.5 border-b border-cord py-3 first:pt-1">
+            <li key={incident.run} className="grid gap-1.5 border-t border-cord py-3 first:border-t-0 first:pt-1 last:pb-0">
               <p className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
                 <Chip look={incident.state === "OPEN" ? "rejected" : "done"} icon={incident.state === "OPEN" ? "warning" : incident.state === "RECOVERED" ? "arrows-clockwise" : "check-circle"}>
                   {incident.state === "OPEN" ? "Open" : incident.state === "RECOVERED" ? "Recovered on its own" : "Resolved by a person"}
@@ -216,7 +226,7 @@ function SubscribersZone({ overview, markets, now }: { readonly overview: Overvi
   const planTotal = (plan: string) => ordered.reduce((sum, market) => sum + paid(market.code, plan), 0);
   const freeTotal = ordered.reduce((sum, market) => sum + free(market.code), 0);
   return (
-    <section className="grid content-start gap-3" aria-labelledby="home-subscribers">
+    <section className="zone" aria-labelledby="home-subscribers">
       <ZoneHead id="home-subscribers" count={formatCount(total)} title="Paying subscribers by plan and market" action={<ButtonLink href="/price-list/" size="small">Plans and prices</ButtonLink>} />
       <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="home-subscribers">
         <table className="data min-w-[34rem]">
@@ -256,10 +266,10 @@ function SubscribersZone({ overview, markets, now }: { readonly overview: Overvi
   );
 }
 
-function RevenueZone({ overview, markets, roles }: { readonly overview: Overview; readonly markets: Markets; readonly roles: readonly Role[] }) {
+function RevenueZone({ overview, markets }: { readonly overview: Overview; readonly markets: Markets }) {
   const rows = byMarketOrder(markets).map((market) => ({ market, revenue: overview.monthlyRevenue?.find((row) => row.market === market.code) }));
   return (
-    <section className="grid content-start gap-3" aria-labelledby="home-revenue">
+    <section className="zone" aria-labelledby="home-revenue">
       <ZoneHead
         id="home-revenue"
         count={overview.monthlyRevenueEur ? formatMoney(overview.monthlyRevenueEur) : undefined}
@@ -303,17 +313,9 @@ function RevenueZone({ overview, markets, roles }: { readonly overview: Overview
           <span>Standing top-ups this month</span>
           <b>{formatMoney(overview.monthlyTopUps)}</b>
           <p className="col-start-2 col-end-4 text-xs text-ink-2">
-            What {BRAND.service} adds to reach the artists' minimum where a list price is below the floor, as finance approved (§5.5).
+            What {BRAND.service} adds to reach the artists' minimum where a list price is below the floor, as {conditionSigner()} approved (§5.5).
           </p>
         </div>
-      ) : null}
-      {can(roles, "readUnearnedValue") ? (
-        <p className="flex items-baseline gap-2 border border-dashed border-edge bg-stone px-3 py-2.5 text-sm">
-          <Icon name="gift" size={16} className="translate-y-0.5 text-ink-2" />
-          <span>
-            <b className="font-semibold">Prepaid passes sold and not yet earned</b> (§9.2): this figure arrives with the prepaid pass, which is not on sale yet.
-          </span>
-        </p>
       ) : null}
       <p className="flex items-baseline gap-1.5 text-xs text-ink-2">
         <Icon name="flask" size={14} className="translate-y-0.5" />
@@ -323,22 +325,55 @@ function RevenueZone({ overview, markets, roles }: { readonly overview: Overview
   );
 }
 
+/** Revenue, for a role that does not read it: the same place, who reads it, and what this role reads. */
 function RevenueLocked({ viewer }: { readonly viewer: Viewer }) {
-  const role = primaryRole(viewer.roles);
   return (
-    <section className="grid content-start gap-3" aria-labelledby="home-revenue">
-      <ZoneHead id="home-revenue" title="Revenue this month, without VAT" />
-      <div className="grid min-h-[16rem] content-start gap-3 border border-dashed border-edge bg-stone px-4 py-4">
-        <Locked className="locked--plain">
-          {whoCan("readRevenue").replace(/^./, (first) => first.toUpperCase())} read revenue.
-        </Locked>
-        <p className="max-w-[60ch] text-sm text-ink-2">
-          {role ? `As ${ROLE_NAME[role]} you see who pays and what waits for a decision, not what comes in. ` : ""}
-          The engine leaves revenue and the artists' top-ups out of its answers to other roles, and the gateway refuses them (§12.2).
+    <section className="zone zone--reserved" aria-labelledby="home-revenue">
+      <ZoneHead id="home-revenue" title="Revenue this month, without VAT" locked />
+      <div className="reserved">
+        <Locked className="locked--plain">{whoDoes("readRevenue", { one: "reads revenue and the standing top-ups", many: "read revenue and the standing top-ups" })}.</Locked>
+        <p className="max-w-[56ch] text-sm text-ink-2">
+          {everyoneReadsWords(primaryRole(viewer.roles))} The engine leaves these figures out of its answers to other roles, and the gateway refuses them.
         </p>
         <p className="text-sm">
           <Link href="/price-list/">The price list</Link> is open to every role.
         </p>
+      </div>
+    </section>
+  );
+}
+
+const UNEARNED_TITLE = "Prepaid passes sold, not yet earned";
+
+/** The value of prepaid passes sold and not yet earned, for Finance: its place, without numbers until the prepaid pass is on sale (§9.2). */
+function UnearnedToCome() {
+  return (
+    <section className="zone zone--reserved" aria-labelledby="home-unearned">
+      <ZoneHead id="home-unearned" title={UNEARNED_TITLE} />
+      <div className="reserved">
+        <p className="flex items-baseline gap-2 font-semibold">
+          <Icon name="gift" size={18} className="translate-y-0.5 text-ink-2" />
+          It arrives with the prepaid pass, which is not on sale yet.
+        </p>
+        <p className="max-w-[56ch] text-sm text-ink-2">
+          Then, by market: the net value of the passes sold and not yet earned. A pass is earned in equal monthly parts from its activation, the last part
+          taking the remainder; an unused code stays unearned until it expires (§9.2).
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/** The same place, for a role that does not read it: who does. */
+function UnearnedLocked({ viewer }: { readonly viewer: Viewer }) {
+  return (
+    <section className="zone zone--reserved" aria-labelledby="home-unearned">
+      <ZoneHead id="home-unearned" title={UNEARNED_TITLE} locked />
+      <div className="reserved">
+        <Locked className="locked--plain">
+          {whoDoes("readUnearnedValue", { one: "reads the value of prepaid passes sold and not yet earned", many: "read the value of prepaid passes sold and not yet earned" })} (§9.2).
+        </Locked>
+        <p className="max-w-[56ch] text-sm text-ink-2">{everyoneReadsWords(primaryRole(viewer.roles))}</p>
       </div>
     </section>
   );

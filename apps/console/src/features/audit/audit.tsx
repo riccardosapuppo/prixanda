@@ -1,10 +1,12 @@
 "use client";
 // The audit log (business book §11): every change of state wrote one event
 // in the same transaction as the change, with who, what, before and after,
-// when, why and the request it came from. Everyone on the team reads it; the
-// auditor exports its head, to keep outside the database; the auditor and the
-// on-call engineer verify the chain (§11.4, §12.2). What the chain really
-// guarantees is said on the page, no more.
+// when, why and the request it came from. The page says §11.4 word for word,
+// with the roles from the team's table (lib/permissions.ts): everyone reads
+// the log, the auditor exports it with its head, the auditor and the on-call
+// engineer verify the chain. What the chain really guarantees is said on the
+// page, no more.
+import { BRAND } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -14,7 +16,7 @@ import { Button, Callout, Empty, ErrorPanel, Loading, Locked } from "../../compo
 import {
   AuditEventsDocument, type AuditEventsQuery, ExportAuditHeadDocument, PeopleDocument, VerifyAuditChainDocument, type VerifyAuditChainQuery,
 } from "../../graphql/generated.ts";
-import { can, ROLE_NAME, type Role } from "../../lib/permissions.ts";
+import { asRole, can, logRule, primaryRole, ROLE_NAME, type Role, whoDoes } from "../../lib/permissions.ts";
 import { useAction, useGateway, useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatUtcTime } from "../../lib/time.ts";
@@ -29,7 +31,8 @@ const ACTIONS = [
   "student.verified", "subscription.confirmed",
 ] as const;
 
-export const ROLES_SENTENCE = "Everyone on the team reads the log. The auditor exports it. The auditor and the on-call engineer verify the chain.";
+/** §11.4, as the page says it. */
+export const LOG_RULE = logRule(BRAND.platform);
 
 function actorRole(role: string): string {
   if (role === "SYSTEM") return "The engine's job";
@@ -81,17 +84,24 @@ export function AuditScreen() {
         <section className="grid grid-cols-1 gap-x-12 gap-y-5 border-t-2 border-ink pt-3 xl:grid-cols-[minmax(0,7fr)_minmax(18rem,4fr)]" aria-labelledby="chain">
           <div className="grid content-start gap-3">
             <h2 id="chain" className="text-xl font-bold">The chain</h2>
-            <p className="font-semibold">{ROLES_SENTENCE}</p>
+            <p className="font-semibold">{LOG_RULE}</p>
             <p className="max-w-[70ch]">
               Each event stores the hash of the one before it, computed by the database under a lock. Recomputing the chain shows an event changed,
               removed or reordered after the fact. It is tamper-evident against the exported head, not immutable: an administrator of the database
               could rewrite every later hash, and only a head exported earlier and kept elsewhere shows that (§11.3).
             </p>
-            {can(viewer.roles, "verifyChain") ? <Verify exported={exported} /> : <Locked>The auditor and the on-call engineer verify the chain.</Locked>}
+            {can(viewer.roles, "verifyChain") ? <Verify exported={exported} /> : (
+              <Locked>{whoDoes("verifyChain", { one: "verifies the chain", many: "verify the chain" })}. {asRole(primaryRole(viewer.roles))} you read every event below.</Locked>
+            )}
           </div>
           <div className="grid content-start gap-3 border border-cord bg-stone-0 p-4">
             <h2 className="text-xl font-bold">Export with the head</h2>
-            {can(viewer.roles, "exportHead") ? <Export onExported={setExported} /> : <Locked>The auditor exports the log's head.</Locked>}
+            {can(viewer.roles, "exportHead") ? <Export onExported={setExported} /> : (
+              <Locked>
+                {whoDoes("exportHead", { one: "exports the log, with the head of the chain kept outside the database", many: "export the log, with the head of the chain kept outside the database" })}.{" "}
+                {asRole(primaryRole(viewer.roles))} you read it, like everyone on the team.
+              </Locked>
+            )}
           </div>
         </section>
 

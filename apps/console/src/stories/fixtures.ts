@@ -133,6 +133,7 @@ export function overview(readsRevenue: boolean): HomeQuery["overview"] {
       markets: ["IT"], requiredSignatures: pass.requiredSignatures, updatedAt: "2026-10-23T15:20:05Z",
       details: {
         id: pass.id,
+        sentence: pass.sentence,
         versions: pass.versions.map((version) => ({ version: version.version, author: { id: version.author.id } })),
         current: { version: 3, author: { id: "marketing-1" }, content: { __typename: "OfferContent", plan: "student" } },
         approvals: [],

@@ -24,7 +24,9 @@ import {
 } from "../../graphql/generated.ts";
 import { describeChanges } from "../../lib/diff.ts";
 import { marketName, marketZone } from "../../lib/markets.ts";
-import { type ApprovalView, can, decide, decisionSentence, primaryRole, ROLE_NAME, type Role, sendsBack, whoCan } from "../../lib/permissions.ts";
+import {
+  type ApprovalView, approvesWithoutScheduling, can, decide, decisionSentence, primaryRole, ROLE_NAME, type Role, sendsBack, signerWords, whoDoes,
+} from "../../lib/permissions.ts";
 import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
@@ -141,7 +143,7 @@ function Evidence({ change, events, markets }: { readonly change: Change; readon
           <ul role="list" className="grid gap-2">
             {change.requiredSignatures.map((signature) => (
               <li key={signature.role} className="flex flex-wrap items-center gap-2">
-                {signature.signed ? <Chip look="done" icon="check-circle">Signed</Chip> : <Chip look="waiting" icon="hourglass-medium">Waiting for {signature.role === "COMMERCIAL_LEAD" ? "the commercial lead or Finance" : ROLE_NAME[signature.role]}</Chip>}
+                {signature.signed ? <Chip look="done" icon="check-circle">Signed</Chip> : <Chip look="waiting" icon="hourglass-medium">Waiting for {signerWords(signature)}</Chip>}
                 <span>{signature.why}</span>
               </li>
             ))}
@@ -161,7 +163,7 @@ function Evidence({ change, events, markets }: { readonly change: Change; readon
 
       {firstMarket && can(viewer.roles, "simulate") ? <SimulationInShort change={change} market={firstMarket} marketLabel={marketName(markets, firstMarket)} /> : (
         <Block id="simulation" title="The simulation, in short">
-          <p className="text-ink-2">{whoCan("simulate").replace(/^./, (first) => first.toUpperCase())} run simulations; the conditions that ask for Finance are above, with the reasons the engine gave.</p>
+          <p className="text-ink-2">{whoDoes("simulate", { one: "runs simulations", many: "run simulations" })}; the conditions that ask for a signature are above, with the reasons the engine gave.</p>
         </Block>
       )}
 
@@ -346,7 +348,7 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
             <p>Approved. It starts only once it is scheduled: {startWords}.</p>
             <Button weight="primary" icon="calendar-check" busy={schedule.isPending} onClick={() => setConfirming("schedule")} className="justify-self-start">Schedule the launch</Button>
           </>
-        ) : <Locked>Approved. {whoCan("scheduleOffer").replace(/^./, (first) => first.toUpperCase())} schedule the launch; Finance approves but does not schedule.</Locked>
+        ) : <Locked>Approved. {whoDoes("scheduleOffer", { one: "schedules the launch", many: "schedule the launch" })}; {approvesWithoutScheduling({ start: false })}.</Locked>
       ) : null}
 
       {change.state === "SCHEDULED" ? (
@@ -354,7 +356,7 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
           <p>Scheduled. The engine activates it at {startWords}, and publishes the catalog with it in one transaction (§7.5).</p>
           {offer && can(viewer.roles, "cancelOffer") ? (
             <Button icon="x-circle" onClick={() => setReasonOpen(reasonOpen === "cancel" ? null : "cancel")} aria-expanded={reasonOpen === "cancel"} aria-controls="decision-reason-form" className="justify-self-start">Cancel the launch</Button>
-          ) : <Locked>{whoCan("cancelOffer").replace(/^./, (first) => first.toUpperCase())} can cancel a scheduled launch.</Locked>}
+          ) : <Locked>{whoDoes("cancelOffer", { one: "can cancel a scheduled launch", many: "can cancel a scheduled launch" })}.</Locked>}
         </>
       ) : null}
 
@@ -363,7 +365,7 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
           <p>Live on the site.</p>
           {can(viewer.roles, "suspend") ? (
             <Button icon="pause" onClick={() => setReasonOpen(reasonOpen === "suspend" ? null : "suspend")} aria-expanded={reasonOpen === "suspend"} aria-controls="decision-reason-form" className="justify-self-start">Suspend it</Button>
-          ) : <Locked>The on-call engineer suspends a live offer, with a reason.</Locked>}
+          ) : <Locked>{whoDoes("suspend", { one: "suspends a live offer", many: "suspend a live offer" })}, with a reason.</Locked>}
         </>
       ) : null}
 
@@ -406,7 +408,7 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
       >
         <p>This approval names v{change.currentVersion} and its fingerprint:</p>
         <p className="code">{fingerprint}</p>
-        <Callout icon="warning"><b>This can't be undone.</b> Any edit afterwards makes v{change.currentVersion + 1}, which needs its own approval. Once every signature is there, Marketing or the commercial lead schedules it.</Callout>
+        <Callout icon="warning"><b>This can't be undone.</b> Any edit afterwards makes v{change.currentVersion + 1}, which needs its own approval. Once every signature is there, {whoDoes("scheduleOffer", { one: "schedules it", many: "schedule it" }, { start: false, either: true })}.</Callout>
       </ConfirmDialog>
 
       <ConfirmDialog
@@ -462,7 +464,7 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
       >
         <p>{change.title} v{change.currentVersion}, with this reason:</p>
         <blockquote className="said m-0"><p>{reason.trim()}</p></blockquote>
-        <Callout icon="warning"><b>This can't be undone.</b> To offer it again, Marketing starts a new campaign.</Callout>
+        <Callout icon="warning"><b>This can't be undone.</b> To offer it again, {whoDoes("createOffer", { one: "starts a new campaign", many: "start a new campaign" }, { start: false, either: true })}.</Callout>
       </ConfirmDialog>
       {busy ? <span className="sr-only" role="status">Sending</span> : null}
       <ButtonLink href="/approvals/" size="small" weight="quiet" icon="arrow-left" className="justify-self-start">All approvals</ButtonLink>

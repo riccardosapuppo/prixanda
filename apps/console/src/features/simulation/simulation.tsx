@@ -13,7 +13,7 @@ import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, Callout, ErrorPanel, Loading, Locked, StateChip } from "../../components/ui.tsx";
 import { type AssumptionName, ChangeDocument, type ChangeQuery, MarketsDocument, SimulateOfferDocument, type SimulateOfferQuery } from "../../graphql/generated.ts";
 import { marketName } from "../../lib/markets.ts";
-import { can, whoCan } from "../../lib/permissions.ts";
+import { can, conditionSigner, otherwiseSigner, ROLES, TEAM, whoDoes } from "../../lib/permissions.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn } from "../../lib/time.ts";
@@ -28,11 +28,8 @@ const EDITABLE: readonly { readonly name: AssumptionName; readonly label: string
   { name: "RETENTION", label: "Retention", hint: "Takers who stay at the list price after the offer" },
 ];
 
-/** The engine's way of naming who typed a value, as the console names roles. */
-const TYPED_BY: Readonly<Record<string, string>> = {
-  marketing: "Marketing", finance: "Finance", "the commercial lead": "the commercial lead",
-  "the catalog manager": "the catalog manager", "the on-call engineer": "the on-call engineer", "the auditor": "the auditor",
-};
+/** The engine names who typed a value in lower case ("typed by marketing"); the console names roles as the team's table says them. */
+const TYPED_BY: Readonly<Record<string, string>> = Object.fromEntries(ROLES.map((role) => [TEAM.roles[role].said.toLowerCase(), TEAM.roles[role].said]));
 
 /** "typed by marketing at 2026-10-24T18:13:05Z" as "Typed by Marketing at 24 Oct 20:13 Rome". */
 export function sourceWords(source: string): string {
@@ -83,7 +80,7 @@ export function SimulationScreen() {
       <PageBody className="gap-6">
         <CampaignTabs changeId={data.id} current="simulation" />
         {!can(viewer.roles, "simulate") ? (
-          <Locked>{whoCan("simulate").replace(/^./, (first) => first.toUpperCase())} run simulations. The approval page shows this campaign's figures in short.</Locked>
+          <Locked>{whoDoes("simulate", { one: "runs simulations", many: "run simulations" })}. The approval page shows this campaign's figures in short.</Locked>
         ) : sold.length === 0 ? (
           <Callout icon="info" tone="quiet">v{data.currentVersion} has no price yet: give it one in the campaign's step 2, and it can be simulated.</Callout>
         ) : (
@@ -182,7 +179,7 @@ function Results({ simulation, change, market, busy }: { readonly simulation: Si
         <dl className="m-0 flex flex-wrap gap-x-8 gap-y-3 border border-cord bg-stone-0 px-4 py-3">
           <div className="grid"><dt className="text-xs text-ink-2">Discount cost</dt><dd className="m-0 text-lg font-bold">{formatMoney(simulation.discountCost)}</dd></div>
           <div className="grid"><dt className="text-xs text-ink-2">Top-up cost</dt><dd className="m-0 text-lg font-bold">{formatMoney(simulation.topUpCost)}</dd></div>
-          {threshold ? <div className="grid max-w-[24rem]"><dt className="text-xs text-ink-2">Together, against Finance's threshold</dt><dd className="m-0 font-semibold">{threshold.detail}</dd></div> : null}
+          {threshold ? <div className="grid max-w-[24rem]"><dt className="text-xs text-ink-2">Together, against {conditionSigner()}'s threshold</dt><dd className="m-0 font-semibold">{threshold.detail}</dd></div> : null}
         </dl>
       </section>
 
@@ -202,9 +199,9 @@ function Results({ simulation, change, market, busy }: { readonly simulation: Si
       <section className="grid gap-3 border-t-2 border-ink pt-3" aria-labelledby="risks">
         <h2 id="risks" className="text-xl font-bold">Risks</h2>
         <ul role="list" className="grid">
-          {loses ? <Risk icon="warning">At these assumptions the campaign loses {formatMoney(absolute(contribution))} over {months} months: the author has to say why it is still worth running, and Finance signs (§7.3, condition 4).</Risk> : null}
+          {loses ? <Risk icon="warning">At these assumptions the campaign loses {formatMoney(absolute(contribution))} over {months} months: the author has to say why it is still worth running, and {conditionSigner()} signs (§7.3, condition 4).</Risk> : null}
           {simulation.financeConditions.filter((condition) => condition.met && condition.number !== 4).map((condition) => (
-            <Risk key={condition.number} icon="warning">{condition.detail}. Finance signs (§7.3, condition {condition.number}).</Risk>
+            <Risk key={condition.number} icon="warning">{condition.detail}. {conditionSigner({ start: true })} signs (§7.3, condition {condition.number}).</Risk>
           ))}
           <Risk icon="info">Top-up cost: {formatMoney(simulation.topUpCost)}, what keeping the artists at their minimum costs over the offer months.</Risk>
           <Risk icon="info">Discount cost: {formatMoney(simulation.discountCost)}, revenue given up on the {formatCount(simulation.cannibalized)} takers who would have paid anyway.</Risk>
@@ -375,7 +372,7 @@ function WhoSigns({ simulation }: { readonly simulation: Simulation }) {
         ))}
       </ol>
       <p className="text-sm">
-        {met.length ? <><b>Finance signs</b>: condition{met.length > 1 ? "s" : ""} {met.join(met.length > 2 ? ", " : " and ")} in this market.</> : <>No condition is met here: <b>the commercial lead or Finance</b> signs.</>}
+        {met.length ? <><b>{conditionSigner({ start: true })} signs</b>: condition{met.length > 1 ? "s" : ""} {met.join(met.length > 2 ? ", " : " and ")} in this market.</> : <>No condition is met here: <b>{otherwiseSigner()}</b> signs.</>}
       </p>
       {met.includes(4) ? <p className="text-xs text-ink-2">Why is it worth running? Required: the contribution over {simulation.horizonMonths} months is negative.</p> : null}
     </section>
