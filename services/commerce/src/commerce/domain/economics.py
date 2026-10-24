@@ -306,18 +306,30 @@ def finance_rule(number: int, book: Book) -> str:
 
 def finance_conditions(book: Book, *, sets_list_price: bool, below_floor: list[str],
                        discount_and_top_up: Money | None, contribution: Money | None, horizon_months: int,
-                       asks_consent: bool = False) -> list[FinanceCondition]:
+                       asks_consent: bool = False, no_takers: list[str] | None = None) -> list[FinanceCondition]:
     """The five conditions of §7.3, each met or not, with the numbers.
 
     below_floor lists the offer prices under their market's floor, already in
     words ("Italy: €2.99 against a floor of €6.10"). The simulated amounts are
     in the reporting currency (§3.6), summed over the markets; None when there
-    is nothing to simulate (a list price)."""
+    is nothing to simulate (a list price).
+
+    no_takers names the markets whose simulated takers round to zero: there
+    the simulation shows no effect either way, and condition 4 counts as met,
+    because an effect that cannot be shown is finance's to sign (§7.3)."""
     def condition(number: int, met: bool, detail: str) -> FinanceCondition:
         return FinanceCondition(number, finance_rule(number, book), met, detail)
 
     threshold = book.finance_threshold
     over = f"over {horizon_months} months"
+    unseen = no_takers or []
+    if contribution is None:
+        contribution_detail = "Nothing to simulate."
+    else:
+        contribution_detail = f"{format_money(contribution)} {over}"
+        if unseen:
+            contribution_detail += (f"; the simulated takers round to zero in {listing(unseen)}, so the effect "
+                                    "cannot be shown and finance signs for it")
     return [
         condition(1, sets_list_price,
                   "This change sets a list price." if sets_list_price else "No list price is created or changed."),
@@ -326,8 +338,7 @@ def finance_conditions(book: Book, *, sets_list_price: bool, below_floor: list[s
         condition(3, discount_and_top_up is not None and discount_and_top_up > threshold,
                   f"{format_money(discount_and_top_up)} {over}, against {format_money(threshold)}"
                   if discount_and_top_up is not None else "Nothing to simulate."),
-        condition(4, contribution is not None and contribution.amount < 0,
-                  f"{format_money(contribution)} {over}" if contribution is not None else "Nothing to simulate."),
+        condition(4, contribution is not None and (contribution.amount < 0 or bool(unseen)), contribution_detail),
         condition(5, asks_consent,
                   "Existing subscribers are asked to accept a higher price." if asks_consent else "No price migration."),
     ]

@@ -21,9 +21,9 @@ async def test_from_draft_to_a_quote(world):
     assert change.state == changes_pb2.CHANGE_STATE_VALIDATED
     assert change.sentence == "Italy, Student: from €5.79 to €2.99 for 3 months, new subscribers only; 1 eligible; conflicts: none."
     assert change.validation.eligible == 1
-    # One eligible person: T = round(1 × 12%) = 0 takers, so the simulated contribution is zero and
-    # only condition 2 (the price under the floor) calls finance.
-    assert [(s.role, list(s.conditions), s.signed) for s in change.required_signatures] == [(3, [2], False)]
+    # One eligible person: T = round(1 × 12%) = 0 takers. The simulation shows no effect, so
+    # condition 4 counts as met (§7.3), next to condition 2, the price under the floor.
+    assert [(s.role, list(s.conditions), s.signed) for s in change.required_signatures] == [(3, [2, 4], False)]
 
     submitted = await world.call("SubmitChange", changes_pb2.SubmitChangeRequest(
         change_id=change.id, version=1, author_reason="We are buying students for the autumn."), MARKETING)
