@@ -1,6 +1,8 @@
 """The subscriber's side (business book §4.3, §4.5, §6.1, §10, §14.1, §14.5):
 the demo's listeners, a student verification, a quote confirmed into a
-subscription at exactly its price, and the account, with every refusal."""
+subscription at exactly its price, its payment asked for through the outbox
+(test_payments.py follows the provider's events), and the account, with every
+refusal."""
 
 from __future__ import annotations
 
@@ -9,8 +11,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 
+from commerce.engine import payments
 from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound
-from commerce.engine.providers import ChargeResult
+from commerce.engine.providers import FAILED, ChargeResult, ProviderEvent
 from commerce.invariants import check
 from commerce.v1 import changes_pb2, common_pb2, quotes_pb2, subscriptions_pb2
 from engine_support import FINANCE, MARKETING, ON_CALL, PUBLIC, new_key, scheduled, student_autumn
@@ -110,14 +113,16 @@ async def test_the_student_subscribes_at_the_quoted_price_and_sees_from_when_the
     offer = await autumn_on_sale(world)
     q = await quote(world, plan="student", market="IT", offer_id=offer, subscriber_id=101)
     done = (await confirm(world, q.quote_id, 101)).confirmation
-    s, r = done.subscription, done.receipt
+    s, p = done.subscription, done.payment
     assert (s.plan, s.market, s.paid, s.price.amount_minor, s.started_on, s.billing_day) == (
         "student", "IT", True, 299, "2026-10-26", 26)
     assert (s.offer_id, s.offer_title, s.offer_months, s.offer_months_left) == (offer, "Student Autumn Pass", 3, 3)
     assert (s.full_price_from, s.full_price.amount_minor) == ("2027-01-26", 579)
     assert (s.next_billing_on, s.next_charge.amount_minor) == ("2026-11-26", 299)
-    assert (r.amount.amount_minor, r.provider, r.demonstration) == (299, "simulated", True)
-    assert r.provider_reference.startswith("sim-pay-") and "no payment was taken" in r.note
+    # The charge comes after the confirmation commits: the payment is pending, and no receipt yet.
+    assert (p.state, p.amount.amount_minor, p.provider, p.settled_at) == (subscriptions_pb2.PAYMENT_STATE_PENDING, 299,
+                                                                          "simulated", "")
+    assert not done.HasField("receipt") and not p.HasField("receipt")
     history = await world.owner.fetch("select plan_id, started_on, ended_on from subscription where subscriber_id = 101 "
                                       "order by started_on")
     assert [(h["plan_id"], h["started_on"], h["ended_on"]) for h in history] == [
@@ -125,10 +130,19 @@ async def test_the_student_subscribes_at_the_quoted_price_and_sees_from_when_the
     [event] = await world.events("subscription.confirmed")
     assert (event["actor"], event["actor_role"], event["subject"]) == ("subscriber-101", "subscriber", f"subscription:{s.subscription_id}")
     assert f'"quote": "{q.quote_id}"' in event["body"] and '"full_price_from": "2027-01-26"' in event["body"]
-    assert await account(world, 101) == subscriptions_pb2.Account(
-        subscriber_id=101, market="IT", subscription=s,
-        student_verification=subscriptions_pb2.StudentVerification(
-            verified_on="2026-09-01", valid_until="2027-09-01", provider="simulated", valid=True))
+    assert '"payment_state": "pending"' in event["body"]
+    [delivery] = await world.engine.deliver_outbox()
+    assert (delivery.topic, delivery.delivered, delivery.facts["applied"]) == ("payment.charge", True, 1)
+    mine = await account(world, 101)
+    assert mine.subscription == s and mine.student_verification == subscriptions_pb2.StudentVerification(
+        verified_on="2026-09-01", valid_until="2027-09-01", provider="simulated", valid=True)
+    assert (mine.payment.payment_id, mine.payment.state) == (p.payment_id, subscriptions_pb2.PAYMENT_STATE_SUCCEEDED)
+    r = mine.payment.receipt
+    assert (r.amount.amount_minor, r.provider, r.demonstration) == (299, "simulated", True)
+    assert r.provider_reference.startswith("sim-pay-") and "no payment was taken" in r.note
+    # The confirmation's request id follows the charge to the event that settled it.
+    [settled] = await world.events("payment.succeeded")
+    assert (settled["actor"], settled["actor_role"], settled["request_id"]) == ("payments", "system", event["request_id"])
     report = await check(world.owner)
     assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
 
@@ -171,7 +185,8 @@ async def test_the_same_key_confirms_once(world):
     first = await confirm(world, q.quote_id, 101, key=key)
     again = await confirm(world, q.quote_id, 101, key=key)
     assert again == first
-    assert await world.owner.fetchval("select count(*) from receipt") == 1
+    assert await world.owner.fetchval("select count(*) from payment") == 1
+    assert await world.owner.fetchval("select count(*) from outbox_message where topic = 'payment.charge'") == 1
 
 
 async def test_an_expired_quote_is_refused(world):
@@ -274,17 +289,33 @@ async def test_two_confirmations_of_one_listener_at_once_subscribe_once(world):
     assert await world.owner.fetchval("select count(*) from subscription where subscriber_id = 401 and paid") == 1
 
 
-async def test_a_declined_payment_writes_nothing(world, monkeypatch):
+async def test_a_declined_payment_ends_the_paid_plan_at_the_end_of_the_day(world, monkeypatch):
     async def decline(charge):
-        return ChargeResult(False, "simulated", "sim-pay-declined", "The card was declined.")
+        event = ProviderEvent("simulated", "evt_declined_0001", FAILED, charge.payment_id, "sim-pay-declined",
+                              world.clock.now(), "The card was declined.")
+        return ChargeResult("simulated", "sim-pay-declined", (event,))
 
-    monkeypatch.setattr(world.engine.subscribers.payments, "charge", decline)
+    monkeypatch.setattr(world.engine.payments, "charge", decline)
     q = await quote(world, plan="individual", market="FR", subscriber_id=401)
-    response = await confirm(world, q.quote_id, 401)
-    assert response.refusal.code == REFUSAL.REFUSAL_CODE_PAYMENT_DECLINED and response.refusal.reason == "The card was declined."
-    assert await world.owner.fetchval("select count(*) from subscription where subscriber_id = 401") == 1
+    confirmed = (await confirm(world, q.quote_id, 401)).confirmation
+    assert confirmed.payment.state == subscriptions_pb2.PAYMENT_STATE_PENDING
+    await world.engine.deliver_outbox()
+    today = await account(world, 401)
+    assert (today.subscription.plan, today.payment.state, today.payment.failure_reason) == (
+        "individual", subscriptions_pb2.PAYMENT_STATE_FAILED, "The card was declined.")
+    assert not today.payment.HasField("receipt")
+    history = await world.owner.fetch("select plan_id, started_on, ended_on from subscription where subscriber_id = 401 "
+                                      "order by started_on")
+    assert [(h["plan_id"], h["started_on"], h["ended_on"]) for h in history] == [
+        ("free", date(2026, 1, 10), date(2026, 10, 24)), ("individual", date(2026, 10, 24), date(2026, 10, 25)),
+        ("free", date(2026, 10, 25), None)]
     assert await world.owner.fetchval("select count(*) from receipt") == 0
-    assert await world.events("subscription.confirmed") == []
+    [failed] = await world.events("payment.failed")
+    [confirmation] = await world.events("subscription.confirmed")
+    assert failed["request_id"] == confirmation["request_id"]
+    world.clock.advance(days=1)
+    tomorrow = await account(world, 401)
+    assert (tomorrow.subscription.plan, tomorrow.HasField("payment")) == ("free", False)
 
 
 async def test_a_free_plan_that_started_today_cannot_end_today(world):
@@ -315,3 +346,25 @@ async def test_account_errors(world):
         await account(world, 9_999)
     with pytest.raises(InvalidArgument):
         await account(world, 0)
+
+
+async def test_a_second_confirmation_waits_for_the_first_and_reads_what_it_wrote(world, monkeypatch):
+    first = await quote(world, plan="individual", market="FR", subscriber_id=401)
+    second = await quote(world, plan="duo", market="FR", subscriber_id=401)
+    release = asyncio.Event()
+    asking = payments.request
+
+    async def held(tx, **fields):
+        message = await asking(tx, **fields)
+        await release.wait()  # the first confirmation keeps its transaction, and its locks, open
+        return message
+
+    monkeypatch.setattr(payments, "request", held)
+    one = asyncio.create_task(confirm(world, first.quote_id, 401))
+    await asyncio.sleep(0.3)
+    monkeypatch.setattr(payments, "request", asking)
+    two = asyncio.create_task(confirm(world, second.quote_id, 401))
+    await asyncio.sleep(0.3)  # the second is waiting for the first
+    release.set()
+    assert (await one).WhichOneof("outcome") == "confirmation"
+    assert (await two).refusal.code == REFUSAL.REFUSAL_CODE_ALREADY_SUBSCRIBED

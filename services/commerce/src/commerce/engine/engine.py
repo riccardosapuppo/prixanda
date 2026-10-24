@@ -10,10 +10,17 @@ mixes two moments.
 A business refusal comes back inside the response; any write the refused call
 had begun is rolled back to a savepoint first, while the refusal itself, and
 a failed validation's report, are kept.
+
+The engine's own jobs run outside any call, on the server's timer: the
+launches (launches.py), the end of offers whose periods are over, the
+outbox's deliveries, and the pruning of idempotency keys. A write that
+leaves work for them (a confirmed quote's charge, a launch retried) wakes the
+timer, so that the work starts at once rather than at the next tick.
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -26,13 +33,18 @@ from commerce.engine.catalog import Catalog
 from commerce.engine.changes import Changes
 from commerce.engine.database import RETRYABLE, Connection, Database, DatabaseError, DatabaseUnavailable
 from commerce.engine.errors import EngineError, InvalidArgument, PermissionDenied, Refused, Unavailable
+from commerce.engine.launches import Happened, Launches, Probe
+from commerce.engine.outbox import Delivery, Relay, SiteInbox
 from commerce.engine.overview import Overview
-from commerce.engine.publication import Publisher, activate_due, end_due
-from commerce.engine.quotes import Quotes
+from commerce.engine.payments import Charges, ProviderEvents
 from commerce.engine.providers import PaymentProvider, SimulatedPayments, SimulatedStudentVerifier, StudentVerifier
+from commerce.engine.publication import Outcome, Publisher, end_due
+from commerce.engine.quotes import Quotes
 from commerce.engine.simulation import Simulation
 from commerce.engine.subscribers import Subscribers
-from commerce.v1 import audit_pb2, catalog_pb2, changes_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2
+from commerce.v1 import (
+    audit_pb2, catalog_pb2, changes_pb2, launches_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2,
+)
 
 PACKAGE = "commerce.v1"
 
@@ -83,6 +95,10 @@ METHODS: dict[str, Method] = {m.full_name: m for m in [
     _m("SubscriberService", "VerifyStudent", subscriptions_pb2, public=True, writes=True),
     _m("SubscriberService", "ConfirmQuote", subscriptions_pb2, public=True, writes=True),
     _m("SubscriberService", "GetAccount", subscriptions_pb2, public=True),
+    _m("LaunchService", "ListLaunches", launches_pb2),
+    _m("LaunchService", "GetLaunch", launches_pb2),
+    _m("LaunchService", "RetryLaunch", launches_pb2, writes=True),
+    _m("LaunchService", "CancelLaunch", launches_pb2, writes=True),
 ]}
 
 Handler = Callable[[Connection, Call, Any], Awaitable[Any]]
@@ -90,20 +106,27 @@ Handler = Callable[[Connection, Call, Any], Awaitable[Any]]
 
 class Engine:
     def __init__(self, db: Database, clock: Clock, book: Book | None = None, *,
-                 payments: PaymentProvider | None = None, verifier: StudentVerifier | None = None) -> None:
+                 payments: PaymentProvider | None = None, verifier: StudentVerifier | None = None,
+                 probe: Probe | None = None) -> None:
         self.db = db
         self.clock = clock
         self.book = book or Book()
         self.publisher = Publisher()
+        # Simulated unless a real provider is given: no money moves, no student record is checked.
+        self.payments = payments or SimulatedPayments(clock)
+        self.provider_events = ProviderEvents(db, clock)
+        self.relay = Relay(db, clock, [SiteInbox(db, clock), Charges(db, self.payments, self.provider_events)])
+        # The probe is the fault-injection tests' only: see launches.py.
+        self.launches = Launches(db, clock, self.publisher, self.relay, probe=probe)
         self.catalog = Catalog(clock, self.book, self.publisher)
         self.changes = Changes(clock, self.book, self.publisher)
         self.quotes = Quotes(clock, self.book, self.catalog)
         self.simulation = Simulation(clock, self.book)
         self.audit = AuditLog(clock)
         self.overview = Overview(clock, self.book)
-        # Simulated unless a real provider is given: no money moves, no student record is checked.
-        self.subscribers = Subscribers(clock, self.book, self.catalog, payments or SimulatedPayments(),
-                                       verifier or SimulatedStudentVerifier())
+        self.subscribers = Subscribers(clock, self.book, self.catalog, self.payments, verifier or SimulatedStudentVerifier())
+        # Set by a write that leaves work for the jobs; the server's timer waits on it.
+        self.wake = asyncio.Event()
         self.handlers: dict[str, Handler] = {
             "ListMarkets": self.catalog.list_markets, "ListPlans": self.catalog.list_plans,
             "GetPriceList": self.catalog.get_price_list, "ListOffers": self.catalog.list_offers,
@@ -120,6 +143,8 @@ class Engine:
             "ListDemoListeners": self.subscribers.list_demo_listeners,
             "VerifyStudent": self.subscribers.verify_student, "ConfirmQuote": self.subscribers.confirm_quote,
             "GetAccount": self.subscribers.get_account,
+            "ListLaunches": self.launches.list_launches, "GetLaunch": self.launches.get_launch,
+            "RetryLaunch": self.launches.retry_launch, "CancelLaunch": self.launches.cancel_launch,
         }
 
     async def handle(self, full_name: str, call: Call, request: Any) -> Any:
@@ -176,24 +201,53 @@ class Engine:
 
                     response = await self._answer(method, in_savepoint, tx, call, request)
                     await idempotency.complete(tx, call, response, self.clock.now())
-                    return response
+                self.wake.set()
+                return response
             except DatabaseError as error:
                 if error.sqlstate in RETRYABLE and attempt < attempts - 1:
                     continue
                 raise
         raise AssertionError("unreachable")
 
-    # The engine's own jobs, until stage 6 turns them into a job runner.
+    # -- the engine's own jobs ----------------------------------------------
 
-    async def activate_due(self):
+    async def run_launches(self) -> list[Happened]:
+        """A pass of the launches: opens those due, raises the alarm on late ones, moves the others on."""
         try:
-            return await activate_due(self.db, self.clock, self.publisher)
+            return await self.launches.run_pass()
         except DatabaseUnavailable as error:
             raise Unavailable(str(error)) from error
 
-    async def end_due(self):
+    async def activate_due(self) -> list[Outcome]:
+        """A pass of the launches, told change by change: activated, refused, failed or cancelled in this pass."""
+        outcomes: dict[int, Outcome] = {}
+        for happened in await self.run_launches():
+            change = happened.change
+            if happened.event == "launch_done":
+                outcomes[change] = Outcome(change, "activated", int(happened.detail["snapshot"]))
+            elif happened.event == "launch_refused":
+                outcomes[change] = Outcome(change, "refused", error=str(happened.detail["reason"]))
+            elif happened.event == "launch_cancelled":
+                outcomes[change] = Outcome(change, "cancelled", error=str(happened.detail["reason"]))
+            elif happened.event == "launch_step_failed" and change not in outcomes:
+                outcomes[change] = Outcome(change, "failed", error=str(happened.detail["error"]))
+        return list(outcomes.values())
+
+    async def end_due(self) -> list[Outcome]:
         try:
             return await end_due(self.db, self.clock, self.publisher)
+        except DatabaseUnavailable as error:
+            raise Unavailable(str(error)) from error
+
+    async def deliver_outbox(self) -> list[Delivery]:
+        try:
+            return await self.relay.deliver_due()
+        except DatabaseUnavailable as error:
+            raise Unavailable(str(error)) from error
+
+    async def prune_idempotency_keys(self) -> int:
+        try:
+            return await idempotency.prune(self.db, self.clock)
         except DatabaseUnavailable as error:
             raise Unavailable(str(error)) from error
 

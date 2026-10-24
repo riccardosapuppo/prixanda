@@ -30,7 +30,10 @@ INSUFFICIENT_PRIVILEGE = "42501"
 # Raised by the triggers of the migrations: RL001 a price in force is edited,
 # RL002 a change moves outside the book's states, RL003 an approval breaks a
 # rule, RL004 a version is edited, RL005 a row written once is changed,
-# RL006 an idempotent call is completed twice, RL007 a draft is published.
+# RL006 an idempotent call is completed twice, or pruned while it runs,
+# RL007 a draft is published, RL008 a launch, a step or an incident moves in
+# a way the job does not, RL009 an outbox message, a notice of the site, a
+# payment or an event of the provider changes after the fact.
 RETRYABLE = (SERIALIZATION_FAILURE, DEADLOCK_DETECTED)
 
 

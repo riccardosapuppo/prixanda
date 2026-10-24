@@ -1,10 +1,12 @@
 """Idempotency keys (migration V7): the same key with the same request gives
 the same outcome, refusals included, without doing the work twice; the same
-key with another request is refused; a call that failed records nothing."""
+key with another request is refused; a call that failed records nothing; and
+the keys of calls finished a week ago are pruned (V11)."""
 
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 import pytest
 
@@ -99,3 +101,23 @@ async def test_a_public_quote_with_a_key_is_the_same_quote(world):
     assert await world.owner.fetchval("select scope from idempotent_call") == "(public)"
     other = await world.call("GetQuote", request, LEAD, key=key)
     assert other.quote.quote_id != first.quote.quote_id
+
+
+async def test_the_keys_of_calls_finished_a_week_ago_are_pruned(world):
+    old, recent = new_key(), new_key()
+    first = await world.call("CreateChange", create_request(), MARKETING, key=old)
+    world.clock.advance(days=6)
+    await world.call("CreateChange", create_request(title="Student Winter Pass"), MARKETING, key=recent)
+    # A call still running, as a stop of the engine in the middle of it would leave its claim.
+    await world.owner.execute(
+        "insert into idempotent_call (scope, key, method, request_hash, started_at, request_id) "
+        "values ('marketing-1', 'key-still-running-1', 'commerce.v1.ChangeService/CreateChange', $1, $2, 'req-00000001')",
+        bytes(32), world.clock.now() - timedelta(days=30))
+    world.clock.advance(days=2)  # eight days after the first call, two after the recent one
+    assert await world.engine.prune_idempotency_keys() == 1
+    left = {r["key"] for r in await world.owner.fetch("select key from idempotent_call")}
+    assert left == {recent, "key-still-running-1"}
+    # What a week is for: a retry with a pruned key is a new call, and does the work again.
+    again = await world.call("CreateChange", create_request(), MARKETING, key=old)
+    assert again.change.id != first.change.id
+    assert await world.engine.prune_idempotency_keys() == 0

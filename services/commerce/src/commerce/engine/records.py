@@ -25,11 +25,11 @@ ZERO_HASH = "decode(repeat('00', 32), 'hex')"
 
 
 async def record(tx: Connection, *, at: datetime, actor: str, role: str, action: str, subject: str, request_id: str,
-                 body: dict, reason: str | None = None) -> None:
-    """One audit event; the database chains it under its lock (migration V4)."""
-    await tx.execute(
+                 body: dict, reason: str | None = None) -> int:
+    """One audit event, and its sequence number; the database chains it under its lock (migration V4)."""
+    return await tx.fetchval(
         "insert into audit_event (at, actor, actor_role, action, subject, request_id, reason, body, prev_hash, hash) "
-        f"values ($1::text::timestamptz, $2, $3, $4, $5, $6, $7, $8::text::jsonb, {ZERO_HASH}, {ZERO_HASH})",
+        f"values ($1::text::timestamptz, $2, $3, $4, $5, $6, $7, $8::text::jsonb, {ZERO_HASH}, {ZERO_HASH}) returning seq",
         format_instant(at), actor, role, action, subject, request_id, reason, json.dumps(body, sort_keys=True))
 
 
@@ -91,6 +91,13 @@ async def latest_validation(tx: Connection, change_id: int, version: int) -> dic
 
 def needs_from_report(report: dict) -> list[SignatureNeed]:
     return [SignatureNeed(s["role"], tuple(s["conditions"]), s["why"]) for s in report.get("signatures", [])]
+
+
+def starts_of(content: Content) -> list[tuple[str, datetime]]:
+    """The local start of each market a change starts in."""
+    if isinstance(content, ListPrice):
+        return [(content.market, content.starts)] if content.market and content.starts else []
+    return [(p.market, p.starts) for p in content.periods if p.starts is not None]
 
 
 def markets_of(content: Content) -> list[str]:
