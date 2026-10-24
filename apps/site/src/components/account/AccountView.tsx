@@ -1,13 +1,16 @@
 "use client";
 // The demo listener's account: the plan and what it costs month by month, the
-// months left at an offer's price and the day the full price starts, the
-// student check, and the first month's payment (§4.3, §4.5, §6.1, §10).
-// Every date and amount is the engine's.
+// months left at an offer's price and the day the full price starts, the day
+// a paid plan ends, the student check, and the first month's payment (§4.3,
+// §4.5, §6.1, §10). Then a price change of the plan, asking for consent or
+// telling in advance (§8), and the prepaid passes: the codes bought, and the
+// way to activate one (§9). Every date and amount is the engine's.
 //
-// The payment is asynchronous: the confirmation leaves it pending, and the
-// simulated provider settles it moments later. While it is pending the page
-// reads the account again every second, for thirty seconds at most; then it
-// says the provider has not answered yet, and lets the visitor ask again.
+// Payments are asynchronous: a confirmation or a purchase leaves its payment
+// pending, and the simulated provider settles it moments later. While one is
+// pending the page reads the account again every second, for thirty seconds
+// at most; then it says the provider has not answered yet, and lets the
+// visitor ask again.
 import { formatSitePrice, type MoneyLike } from "design";
 import { Icon } from "design/icon";
 import type { Route } from "next";
@@ -21,12 +24,18 @@ import type { SitePaymentFragment } from "../../graphql/generated.ts";
 import { lastDayBefore, siteDay, siteDayAt } from "../../lib/dates.ts";
 import { Entrance } from "../listener/Entrance.tsx";
 import { Failure, Loading } from "../ui/States.tsx";
+import { ActivateCode, codeMoney, PrepaidCodes } from "./Prepaid.tsx";
+import { PriceChanges } from "./PriceChanges.tsx";
+
+/** Whether something of the account waits for the payment provider. */
+const waiting = (me: Me | null | undefined) =>
+  me?.account.payment?.state === "PENDING" || (me?.account.prepaidCodes ?? []).some((code) => code.state === "PENDING");
 
 export function AccountView() {
   const [timedOut, setTimedOut] = useState(false);
   const stopped = useRef(false);
-  const me = useMe({ readAgain: (read) => (read?.account.payment?.state === "PENDING" && !stopped.current ? PAYMENT_POLL_MS : false) });
-  const pending = me.data?.account.payment?.state === "PENDING";
+  const me = useMe({ readAgain: (read) => (waiting(read) && !stopped.current ? PAYMENT_POLL_MS : false) });
+  const pending = waiting(me.data);
 
   // Thirty seconds of asking at most, from the moment the payment is seen pending.
   useEffect(() => {
@@ -75,7 +84,8 @@ function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly tim
   const markets = useMarkets();
   const plans = usePlans(market ?? "IT");
   const signOut = useSignOut();
-  const { subscription, payment, studentVerification } = me.account;
+  const { subscription, payment, studentVerification, priceChanges, prepaidCodes } = me.account;
+  const askingYes = priceChanges.some((change) => change.state === "WAITING" && change.kind === "CONSENT");
   const write = (money: MoneyLike) => (market ? formatSitePrice(money, market) : `${money.amountMinor} ${money.currency}`);
   const marketData = markets.data?.find((each) => each.code === me.market);
   const marketName = marketData?.name ?? me.market;
@@ -99,7 +109,14 @@ function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly tim
 
       <dl className="m-0 grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-x-12 gap-y-4 border-y border-cord py-4">
         <Fact term={copy.account.plan}>{copy.account.planIn(planName, marketName)}</Fact>
-        <Fact term={copy.account.price}>{subscription.paid ? copy.account.perMonth(write(subscription.price)) : write(subscription.price)}</Fact>
+        {subscription.prepaidCode && subscription.prepaidPrice ? (
+          <Fact term={copy.account.price}>
+            {copy.account.prepaid(write(subscription.prepaidPrice))}
+            <span className="block font-normal text-ink-2">{copy.account.prepaidNever}</span>
+          </Fact>
+        ) : (
+          <Fact term={copy.account.price}>{subscription.paid ? copy.account.perMonth(write(subscription.price)) : write(subscription.price)}</Fact>
+        )}
         {subscription.offerTitle ? (
           <Fact term={copy.account.offer}>{copy.account.offerLeft(subscription.offerTitle, subscription.offerMonthsLeft, subscription.offerMonths)}</Fact>
         ) : null}
@@ -109,6 +126,11 @@ function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly tim
         {subscription.nextBillingOn && subscription.nextCharge ? (
           <Fact term={copy.account.nextBilling}>{copy.account.nextCharge(siteDay(subscription.nextBillingOn), write(subscription.nextCharge))}</Fact>
         ) : null}
+        {subscription.endsOn ? (
+          <Fact term={copy.account.ends}>
+            {askingYes ? copy.account.endsWithoutYes(siteDay(subscription.endsOn)) : copy.account.endsOn(siteDay(subscription.endsOn))}
+          </Fact>
+        ) : null}
         <Fact term={copy.account.studentCheck}>
           {studentVerification === null
             ? copy.account.noCheck
@@ -117,6 +139,10 @@ function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly tim
               : copy.account.checkExpired(lastDayBefore(studentVerification.validUntil))}
         </Fact>
       </dl>
+
+      {market && priceChanges.length > 0 ? (
+        <PriceChanges changes={priceChanges} market={market} marketName={marketName} planName={planName} />
+      ) : null}
 
       {!subscription.paid ? (
         <div className="grid justify-items-start gap-3">
@@ -131,6 +157,18 @@ function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly tim
       {payment ? (
         <PaymentPanel payment={payment} write={write} timeZone={marketData?.timeZone ?? "UTC"} timedOut={timedOut} onCheckAgain={onCheckAgain} />
       ) : null}
+
+      {prepaidCodes.length > 0 ? <PrepaidCodes codes={prepaidCodes} write={codeMoney} timeZone={marketData?.timeZone ?? "UTC"} /> : null}
+      {prepaidCodes.some((code) => code.state === "PENDING") && timedOut ? (
+        <p className="m-0 flex flex-wrap items-center gap-3">
+          <span>{copy.gift.slow}</span>
+          <button type="button" className="btn" onClick={onCheckAgain}>
+            <Icon name="arrows-clockwise" size={16} />
+            {copy.gift.checkAgain}
+          </button>
+        </p>
+      ) : null}
+      <ActivateCode me={me} />
     </div>
   );
 }

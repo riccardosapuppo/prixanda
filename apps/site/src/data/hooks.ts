@@ -3,12 +3,13 @@
 // src/graphql in TanStack Query, under a key of keys.ts, so two parts of a
 // page asking the same thing share one request. Mutations that change the
 // demo listener's session or account update or refresh what the pages read.
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { LABELS, RELEASES } from "../content/editorial.ts";
 import {
-  SiteConfirmSubscription, SiteDemoListeners, SiteMarkets, SiteMe, type SiteMeQuery, SiteOffers, type SiteOffersQuery, SitePlans,
-  SiteRequestQuote, type SiteRequestQuoteMutationVariables, SiteVerifyStudent,
+  SiteActivatePrepaidPass, SiteAnswerPriceChange, SiteBuyPrepaidPass, SiteConfirmSubscription, SiteDemoListeners, SiteMarkets, SiteMe,
+  type SiteMeQuery, SiteOffers, type SiteOffersQuery, SitePlans, SitePrepaidPasses, type SitePrepaidPassesQuery, SiteRequestQuote,
+  type SiteRequestQuoteMutationVariables, SiteVerifyStudent,
 } from "../graphql/generated.ts";
 import type { SiteApi } from "./api.ts";
 import { OFFERS_REFRESH_MS } from "./config.ts";
@@ -18,6 +19,7 @@ import { useSiteApi } from "./provider.tsx";
 import { signInOptions, signOutOptions } from "./session.ts";
 
 export type Offer = SiteOffersQuery["offers"][number];
+export type PrepaidPass = SitePrepaidPassesQuery["prepaidPasses"][number];
 export type Me = NonNullable<SiteMeQuery["me"]>;
 
 export { keys };
@@ -71,6 +73,35 @@ export function useOffers(market: SiteMarket, { live = true }: { readonly live?:
     queryFn: async ({ signal }) => (await api.query(SiteOffers, { market }, signal)).offers,
     staleTime: 0,
     refetchInterval: live ? OFFERS_REFRESH_MS : false,
+  });
+}
+
+const prepaidPassesQuery = (api: SiteApi, market: SiteMarket, live: boolean) => ({
+  queryKey: keys.prepaidPasses(market),
+  queryFn: async ({ signal }: { readonly signal: AbortSignal }) => (await api.query(SitePrepaidPasses, { market }, signal)).prepaidPasses,
+  staleTime: 0,
+  refetchInterval: live ? OFFERS_REFRESH_MS : (false as const),
+});
+
+/** The prepaid passes on sale in a market now (§9), asked again like the offers while the page is open. */
+export function usePrepaidPasses(market: SiteMarket, { live = true }: { readonly live?: boolean } = {}) {
+  const api = useSiteApi();
+  return useQuery(prepaidPassesQuery(api, market, live));
+}
+
+/**
+ * The prepaid passes on sale in every market the site knows: where a pass is
+ * sold, when the market the visitor looks at has none. The header asks it
+ * too, to offer the way to the pass only while one is on sale somewhere.
+ */
+export function usePrepaidPassesEverywhere({ live = true }: { readonly live?: boolean } = {}) {
+  const api = useSiteApi();
+  return useQueries({
+    queries: SITE_MARKETS.map((market) => prepaidPassesQuery(api, market, live)),
+    combine: (results) => ({
+      passes: results.flatMap((result) => result.data ?? []),
+      settled: results.every((result) => !result.isPending),
+    }),
   });
 }
 
@@ -148,6 +179,43 @@ export function useRequestQuote() {
   return useMutation({
     mutationFn: ({ idempotencyKey, ...variables }: SiteRequestQuoteMutationVariables & { readonly idempotencyKey: string }) =>
       api.mutate(SiteRequestQuote, variables, { idempotencyKey }),
+  });
+}
+
+/** A yes or a no to a price change of the session's listener (§8); the account then shows what follows. */
+export function useAnswerPriceChange() {
+  const api = useSiteApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ priceChangeId, accept, idempotencyKey }: { readonly priceChangeId: string; readonly accept: boolean; readonly idempotencyKey: string }) =>
+      api.mutate(SiteAnswerPriceChange, { priceChangeId, accept }, { idempotencyKey }),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.me }),
+  });
+}
+
+/**
+ * Buys a prepaid pass for the session's listener, to keep or to give (§9). A
+ * demonstration: the simulated provider settles the payment moments later, and
+ * the code comes back pending until it does.
+ */
+export function useBuyPrepaidPass() {
+  const api = useSiteApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ passId, idempotencyKey }: { readonly passId: string; readonly idempotencyKey: string }) =>
+      api.mutate(SiteBuyPrepaidPass, { passId }, { idempotencyKey }),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.me }),
+  });
+}
+
+/** Activates a prepaid pass's code for the session's listener: its months from today, never charged, then Free (§9). */
+export function useActivatePrepaidPass() {
+  const api = useSiteApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ code, idempotencyKey }: { readonly code: string; readonly idempotencyKey: string }) =>
+      api.mutate(SiteActivatePrepaidPass, { code }, { idempotencyKey }),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.me }),
   });
 }
 
