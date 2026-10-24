@@ -11,7 +11,7 @@ the console's schema at all:
 
 | | Schema | Port | For |
 |---|---|---|---|
-| Console's API | `schema/internal.graphql` | 4621 | changes, approvals, simulations, the audit log, the home's numbers |
+| Console's API | `schema/internal.graphql` | 4621 | changes, approvals, simulations, launches, the audit log, the home's numbers |
 | Site's API | `schema/public.graphql` | 4622 | markets, plans, list prices, offers on sale, quotes; the demo's listeners, a student verification, a subscription, the account |
 
 Both answer at `/graphql`, with `/health` next to it.
@@ -167,11 +167,17 @@ A refusal on the site is `Refusal { code reason }`, with the site's codes:
 `OFFER_ENDED` (asking for a quote of an offer no longer on sale),
 `QUOTE_EXPIRED`, `NOT_ELIGIBLE`, `ALREADY_SUBSCRIBED`, `NOT_COMBINABLE`,
 `CAP_REACHED`, `PAYMENT_DECLINED` (a charge declined at the confirmation, by
-an engine that still charges there), and `NOT_AVAILABLE` for any other. The
-engine's sentence travels only where it names nothing the site does not
-already show; for `NOT_COMBINABLE`, `CAP_REACHED` and `PAYMENT_DECLINED`,
-whose sentences name an offer's group, its cap or the provider's words, and
-for `NOT_AVAILABLE`, the gateway writes its own.
+an engine that still charges there), and `NOT_AVAILABLE` for any other.
+Every reason is a sentence of the gateway's, never the engine's: the engine
+writes for the console, naming listeners and offers by their numbers
+("Subscriber #5003 is not among..."), and groups and caps the site does not
+show. A `NOT_ELIGIBLE` reason says who the offer is for, in the words of its
+page ("It is for: verified students in Italy who have never had a paid
+plan."), or that a student verification is missing, or that the offer is not
+sold in the listener's market. In the tests every answer of the site's API
+goes through a guard that fails on a number written with `#`, the word
+`Subscriber` or an identifier of the audit log (`INTERNAL_IN_PUBLIC` in
+`test/support/harness.ts`).
 
 ## Answers and errors
 
@@ -202,6 +208,32 @@ refusal on operations that have an outcome, `FORBIDDEN` on reads. The revenue
 fields of the home (`monthlyRevenue`, `monthlyRevenueEur`, `monthlyTopUps`)
 are for finance and the commercial lead only; the other roles get
 `FORBIDDEN` on those fields and the rest of the home.
+
+## Launches
+
+Since stage 6 the engine activates a scheduled change through a launch: a
+job of five steps (check, prepare, publish, notify, verify), each in a
+transaction of its own, begun a minute before the start and resumed where it
+stopped after a fault. The console's schema reads them and acts on them:
+
+- `launches(filter: { state, changeId }, first, after)`: newest first, by
+  keyset on the launch's id (the cursor is the engine's, opaque here);
+- `launch(id)`: one launch with its steps (state, attempts, times, error,
+  facts), its cause, the live catalog snapshot before and after it
+  published, its resolution, the sequence numbers of the audit events it
+  wrote (`auditEventSeqs`, which `auditEvents` finds) and its incidents. A
+  page of launches carries no steps and no audit events;
+- `retryLaunch(launchId, reason)` and `cancelLaunch(launchId, reason)`: the
+  on-call engineer's alone (§12: "retry or cancel a launch that stopped"),
+  with an Idempotency-Key; cancelling needs a reason, and a launch that has
+  not published (its change is cancelled with it). Every other role gets a
+  `ROLE_NOT_ALLOWED` refusal before the engine hears anything.
+
+Every role reads the launches. The home's incidents carry their launch
+(`launchId`, null for a late start the engine has not begun to launch), their
+kind (`LATE`, `FAILED`, `REFUSED`), when they opened and closed, and how
+(`resolution`); an incident is `OPEN`, `RECOVERED` (its launch went through
+on its own) or `RESOLVED` (a person retried or cancelled it).
 
 ## Sessions, CSRF and CORS
 
@@ -393,6 +425,10 @@ account, the first month's payment pending at the confirmation and settled
 by the provider's event shortly after (the account then has the receipt,
 which says no money moved), and in the log a `subscription.confirmed`
 written by the subscriber with the site's request id, the chain still whole.
+And the console reads the pass's launch: one launch of the change, done, its
+five steps done at one attempt each, the catalog snapshot before and after
+it, and among the audit events it names the change's activation, which
+carries its run as the request id.
 
 The engine reads the machine's clock when it runs for real, and nothing in
 it moves time. The test starts the same `serve()` through a launcher of its

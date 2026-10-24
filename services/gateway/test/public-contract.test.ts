@@ -16,7 +16,7 @@ import {
 import { buildPublicSchema } from "../src/core/schemas.ts";
 import { connectEngine } from "../src/node/grpc.ts";
 import { LISTENERS, SENTINEL } from "./support/fake-engine.ts";
-import { codes, type Harness, SITE_ORIGIN, startHarness } from "./support/harness.ts";
+import { type Client, codes, type Harness, internalIn, SITE_ORIGIN, startHarness } from "./support/harness.ts";
 
 /** Everything the site's API may show, and nothing else. */
 const ALLOWED = [
@@ -431,6 +431,67 @@ describe("the site's API, answered by an engine that plants marked values in eve
     const console = await site.raw({ method: "OPTIONS", headers: { origin: "http://console.test:4631", "access-control-request-method": "POST" } });
     assert.equal(console.status, 403);
     assert.equal(console.headers["access-control-allow-origin"], undefined);
+  });
+});
+
+describe("the site's refusals: the gateway's sentences, never the engine's", () => {
+  // Every answer of a site's client in these tests goes through the harness's
+  // guard (INTERNAL_IN_PUBLIC): a number written with #, the word Subscriber,
+  // an identifier of the audit log fail the test that received them.
+  let harness: Harness;
+  before(async () => {
+    harness = await startHarness();
+    harness.clock.advance(Date.parse("2026-10-26T09:30:00Z") - harness.clock.now().getTime());
+  });
+  after(async () => {
+    await harness.close();
+  });
+
+  test("the guard finds what the engine writes, so its silence below means something", () => {
+    for (const engineSaid of [
+      "Subscriber #5003 is not among verified students in italy who have never had a paid plan.",
+      "Offer #9001 is no longer on sale in Italy.",
+      "subject subscription:12", "actor subscriber-5001", "request launch-12", "payment pay_0123456789abcdef",
+    ]) {
+      assert.notEqual(internalIn(engineSaid), null, engineSaid);
+    }
+    for (const siteSays of ["It is for: verified students in Italy who have never had a paid plan.", "New subscribers only. One pass per verified student."]) {
+      assert.equal(internalIn(siteSays), null, siteSays);
+    }
+  });
+
+  test("every refusal a listener or a visitor can meet reads the site's sentence", async () => {
+    const quoteOf = async (client: Client, plan: string, offerId: string | null) =>
+      (await client.graphql(`mutation ($o: ID) { requestQuote(plan: "${plan}", market: "IT", offerId: $o) { __typename ... on Quote { id } ... on Refusal { code reason } } }`, {
+        variables: { o: offerId },
+      })).body.data.requestQuote;
+    const france = harness.site();
+    await france.signInAsListener(LISTENERS.freeInFrance);
+    assert.deepEqual(await quoteOf(france, "student", "9001"), { __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "It is not sold in your market." });
+    assert.deepEqual((await france.graphql("mutation { verifyStudent { __typename ... on Refusal { code reason } } }")).body.data.verifyStudent,
+      { __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "The student verification found no student record for you." });
+    const unverified = harness.site();
+    await unverified.signInAsListener(LISTENERS.unverified);
+    assert.deepEqual(await quoteOf(unverified, "student", null),
+      { __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "It needs a student verification that is valid today: verify first." });
+    const visitor = harness.site();
+    assert.deepEqual(await quoteOf(visitor, "student", "424"), { __typename: "Refusal", code: "OFFER_ENDED", reason: "This offer is no longer on sale." });
+    const theirs = await quoteOf(visitor, "student", "9001");
+    await visitor.signInAsListener(LISTENERS.paidBefore);
+    const confirmed = await visitor.graphql("mutation ($q: ID!) { confirmSubscription(quoteId: $q) { __typename ... on Refusal { code reason } } }", { variables: { q: theirs.id } });
+    assert.deepEqual(confirmed.body.data.confirmSubscription,
+      { __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "It is for: verified students in Italy who have never had a paid plan." });
+
+    // What the engine itself answered there, read from it directly: its own sentences, with the numbers.
+    const engine = connectEngine(harness.engine.url, harness.engine.token);
+    try {
+      const headers = { "x-request-id": "engine-says-0001", "idempotency-key": "engine-says-key-0001" };
+      const answer = await engine.client.quotes.getQuote({ plan: "student", market: "IT", offerId: "9001", subscriberId: LISTENERS.freeInFrance }, { headers });
+      assert.equal(answer.outcome.case, "refusal");
+      assert.notEqual(internalIn(answer.outcome.value?.reason ?? ""), null, `the engine said: ${answer.outcome.value?.reason}`);
+    } finally {
+      engine.close();
+    }
   });
 });
 

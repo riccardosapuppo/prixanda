@@ -280,15 +280,17 @@ const SUITES: Suite[] = [
           auditEvents: number;
           engineExit: number | null;
           subscription: { price: string; months: number; fullPrice: string; fullPriceFrom: string; payment: string; logged: boolean } | null;
+          launchSteps: number;
         };
         const euros = (minor: string) => (Number(minor) / 100).toFixed(2);
         const paid = summary.subscription
           ? `subscribed at ${euros(summary.subscription.price)} × ${summary.subscription.months}, then ${euros(summary.subscription.fullPrice)} from ${summary.subscription.fullPriceFrom}, the first month ${summary.subscription.payment}`
           : "no subscription";
-        const counted = `${tests.counted}; on the site ${summary.activationMs === null ? "never" : `${(summary.activationMs / 1000).toFixed(1)} s`} after 09:00; ${summary.auditEvents} audit events; ${paid}`;
+        const counted = `${tests.counted}; on the site ${summary.activationMs === null ? "never" : `${(summary.activationMs / 1000).toFixed(1)} s`} after 09:00; ${summary.auditEvents} audit events; ${paid}; launch read with ${summary.launchSteps} steps done`;
         if (tests.outcome !== "passed") return { ...tests, counted };
         if (summary.auditEvents < GATEWAY_FLOOR.integrationAuditEvents) return failed(counted, `fewer than ${GATEWAY_FLOOR.integrationAuditEvents} audit events of the pass were found`);
         if (!summary.subscription?.logged) return failed(counted, "the student's subscription was not found in the audit log");
+        if (summary.launchSteps !== 5) return failed(counted, "the console did not read the pass's launch with its five steps done");
         if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
         return passed(counted);
       } finally {
@@ -315,7 +317,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 46, coreFiles: 19, generated: 3, schemaTests: 19, tests: 185, dataloaderOffers: 25, integrationTests: 8, integrationAuditEvents: 7,
+  files: 47, coreFiles: 19, generated: 3, schemaTests: 21, tests: 193, dataloaderOffers: 25, integrationTests: 9, integrationAuditEvents: 7,
 };
 
 /**

@@ -27,42 +27,56 @@ const AUDIO = new Map<string, AudioQuality>([["standard", "STANDARD"], ["lossles
 const QUOTE_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 /**
- * What the site says for a refusal of the engine: its own code, and the
- * engine's sentence (null) or one of its own. The engine's sentence travels
- * only where it names nothing but what the site already shows; where it names
- * what the console sets and the site does not show (an offer's
- * non-combinability group, its cap on redemptions), the gateway says it in its
- * own words. A refusal not listed reads NOT_AVAILABLE and a fixed sentence,
- * so nothing internal travels in its words.
+ * What the site says for a refusal of the engine: its own code, and a
+ * sentence of the gateway's, never the engine's. The engine writes for the
+ * console: its sentences name listeners and offers by their numbers ("Subscriber
+ * #5003"), groups and caps the site does not show. The site's sentence may use
+ * the refusal's facts that the site shows anyway: an offer's audience, in the
+ * words of its page. A refusal not listed reads NOT_AVAILABLE.
  */
-type Said = { readonly code: PublicRefusalCode; readonly sentence: string | null };
+type Said = { readonly code: PublicRefusalCode; readonly sentence: (facts: Readonly<Record<string, string>>) => string };
+
+const said = (code: PublicRefusalCode, sentence: string | Said["sentence"]): Said =>
+  ({ code, sentence: typeof sentence === "string" ? () => sentence : sentence });
+
+/**
+ * Why a listener may not take an offer or a plan, from the engine's facts:
+ * the offer's audience as its page words it ("It is for: verified students in
+ * Italy who have never had a paid plan."), a student verification missing, or
+ * another market.
+ */
+function notEligible(facts: Readonly<Record<string, string>>): string {
+  const audience = facts["audience"]?.trim();
+  if (audience) return `It is for: ${audience.charAt(0).toLowerCase()}${audience.slice(1)}.`;
+  if (facts["check"] === "student") return "It needs a student verification that is valid today: verify first.";
+  if (facts["market"]) return "It is not sold in your market.";
+  return "You cannot take it.";
+}
 
 /** Asking for a quote: an offer that is not on sale is over, as far as a visitor can tell. */
 const QUOTE_REFUSALS = new Map<RefusalCode, Said>([
-  [RefusalCode.QUOTE_EXPIRED, { code: "OFFER_ENDED", sentence: null }],
-  [RefusalCode.NOT_ELIGIBLE, { code: "NOT_ELIGIBLE", sentence: null }],
+  [RefusalCode.QUOTE_EXPIRED, said("OFFER_ENDED", "This offer is no longer on sale.")],
+  [RefusalCode.NOT_ELIGIBLE, said("NOT_ELIGIBLE", notEligible)],
 ]);
 
 const VERIFICATION_REFUSALS = new Map<RefusalCode, Said>([
-  [RefusalCode.NOT_ELIGIBLE, { code: "NOT_ELIGIBLE", sentence: null }],
+  [RefusalCode.NOT_ELIGIBLE, said("NOT_ELIGIBLE", "The student verification found no student record for you.")],
 ]);
 
 const SUBSCRIPTION_REFUSALS = new Map<RefusalCode, Said>([
-  [RefusalCode.QUOTE_EXPIRED, { code: "QUOTE_EXPIRED", sentence: null }],
-  [RefusalCode.NOT_ELIGIBLE, { code: "NOT_ELIGIBLE", sentence: null }],
-  [RefusalCode.ALREADY_SUBSCRIBED, { code: "ALREADY_SUBSCRIBED", sentence: null }],
-  [RefusalCode.NOT_COMBINABLE, {
-    code: "NOT_COMBINABLE",
-    sentence: "You already took an offer that does not combine with this one: offers of the same kind never stack (§10.3).",
-  }],
-  [RefusalCode.CAP_REACHED, { code: "CAP_REACHED", sentence: "This offer has been taken as many times as it can be." }],
-  [RefusalCode.PAYMENT_DECLINED, { code: "PAYMENT_DECLINED", sentence: "The payment provider declined the charge, so no subscription was made." }],
+  [RefusalCode.QUOTE_EXPIRED, said("QUOTE_EXPIRED", "This quote has expired, or its offer is no longer on sale: ask for a new quote.")],
+  [RefusalCode.NOT_ELIGIBLE, said("NOT_ELIGIBLE", notEligible)],
+  [RefusalCode.ALREADY_SUBSCRIBED, said("ALREADY_SUBSCRIBED", "A paid subscription of yours is already running.")],
+  [RefusalCode.NOT_COMBINABLE, said("NOT_COMBINABLE",
+    "You already took an offer that does not combine with this one: offers of the same kind never stack (§10.3).")],
+  [RefusalCode.CAP_REACHED, said("CAP_REACHED", "This offer has been taken as many times as it can be.")],
+  [RefusalCode.PAYMENT_DECLINED, said("PAYMENT_DECLINED", "The payment provider declined the charge, so no subscription was made.")],
 ]);
 
 function refusal(table: ReadonlyMap<RefusalCode, Said>, otherwise: string, refused: Refusal): PublicRefusalModel {
-  const said = table.get(refused.code);
-  return said
-    ? { $typeName: "gateway.PublicRefusal", code: said.code, reason: said.sentence ?? refused.reason }
+  const known = table.get(refused.code);
+  return known
+    ? { $typeName: "gateway.PublicRefusal", code: known.code, reason: known.sentence(refused.facts) }
     : { $typeName: "gateway.PublicRefusal", code: "NOT_AVAILABLE", reason: otherwise };
 }
 
