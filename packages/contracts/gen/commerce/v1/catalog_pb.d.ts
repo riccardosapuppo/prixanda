@@ -450,6 +450,16 @@ export declare type PublishedOffer = Message<"commerce.v1.PublishedOffer"> & {
    * @generated from field: bool needs_student_check = 13;
    */
   needsStudentCheck: boolean;
+
+  /**
+   * Where the offer price goes, per subscription per month in the offer's
+   * market (§3.5, §5), as ListPlans gives it for a list price: below the
+   * market's floor, top_up is what the music service adds so that the artists
+   * get their minimum (§5.4).
+   *
+   * @generated from field: commerce.v1.PriceBreakdown breakdown = 14;
+   */
+  breakdown?: PriceBreakdown | undefined;
 };
 
 /**

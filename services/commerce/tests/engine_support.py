@@ -154,6 +154,20 @@ async def scheduled(world: World, content, who=MARKETING, signer=FINANCE, schedu
     return response.change
 
 
+async def past_validation_by_hand(world, content, who=MARKETING_2) -> changes_pb2.Change:
+    """A second campaign moved along by the database's owner, as a validation
+    race before this check, or a hand edit, could leave one."""
+    change = await create(world, content, who)
+    for state in ("validated", "in_approval"):
+        await world.owner.execute("update change set state = $2 where id = $1", change.id, state)
+    await world.owner.execute(
+        "insert into approval (change_id, version, author, content_hash, approver, role, decided_at) "
+        "select change_id, version, author, content_hash, 'finance-1', 'finance', $2 from change_version where change_id = $1",
+        change.id, world.clock.now())
+    await world.owner.execute("update change set state = 'approved' where id = $1", change.id)
+    return change
+
+
 async def add_students(world: World, count: int) -> None:
     """Verified students in Italy who never paid, beyond the seeded one."""
     for n in range(count):

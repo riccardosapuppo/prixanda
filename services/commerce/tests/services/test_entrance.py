@@ -18,7 +18,7 @@ PUBLIC_METHODS = {"ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "Lis
                   "ListDemoListeners", "VerifyStudent", "ConfirmQuote", "GetAccount"}
 WRITING_METHODS = {"CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange",
                    "ScheduleChange", "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent",
-                   "ConfirmQuote"}
+                   "ConfirmQuote", "RetryLaunch", "CancelLaunch"}
 
 
 def test_the_public_methods_are_the_ones_agreed_with_the_gateway():

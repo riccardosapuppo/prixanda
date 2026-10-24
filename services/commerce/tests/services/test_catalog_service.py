@@ -100,3 +100,19 @@ async def test_the_struck_through_price_is_the_list_price_in_force_that_day(worl
                                 PUBLIC)).offers
     assert (later.price.amount_minor, later.list_price.amount_minor) == (919, 1_149)
     assert later.list_price.currency == later.price.currency == "EUR"
+
+
+async def test_an_offer_says_where_its_price_goes_with_the_top_up_below_the_floor(world):
+    # §14.1: of the Student Autumn Pass's 2,99 € the subscriber's share for the artists is 1,47 €, and the
+    # music service adds 1,53 € so that the artists get their 3,00 € minimum.
+    await scheduled(world, student_autumn(), MARKETING, FINANCE)
+    world.clock.at = datetime(2026, 10, 26, 7, 59, 30, tzinfo=UTC)
+    await world.engine.activate_due()
+    [offer] = (await world.call("ListOffers", catalog_pb2.ListOffersRequest(market="IT", at="2026-10-26T08:00:00Z"),
+                                PUBLIC)).offers
+    b = offer.breakdown
+    assert (b.price.amount_minor, b.vat.amount_minor, b.net.amount_minor) == (299, 54, 245)
+    assert (b.artists.amount_minor, b.top_up.amount_minor, b.artists.amount_minor - b.top_up.amount_minor) == (300, 153, 147)
+    assert b.price == offer.price and b.artists.currency == "EUR"
+    plans = {p.id: p for p in (await world.call("ListPlans", catalog_pb2.ListPlansRequest(market="IT"), PUBLIC)).plans}
+    assert plans["student"].breakdown.price.amount_minor == 579  # the list price's own breakdown, as before

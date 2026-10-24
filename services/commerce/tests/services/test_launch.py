@@ -1,6 +1,7 @@
 """From approved to live and back (business book §4.2, §7.1, §7.5, §12):
-ScheduleChange, CancelChange, SuspendChange, and the minimal activation that
-publishes the catalog in one transaction."""
+ScheduleChange, CancelChange, SuspendChange, and the activation, a launch
+that publishes the catalog in one transaction (test_launch_runs.py follows a
+launch step by step)."""
 
 from __future__ import annotations
 
@@ -117,17 +118,12 @@ async def test_activation_waits_for_its_minute(world):
     assert await world.owner.fetchval("select count(*) from catalog_publication") == 0
 
 
-async def test_two_activations_of_one_change_at_once_publish_once(world):
+async def test_two_passes_at_once_publish_once(world):
     change = await scheduled(world, student_autumn())
-    now = at(2026, 10, 26, 7, 59, 30)
-    publisher = world.engine.publisher
-
-    async def activate(request_id: str):
-        async with world.engine.db.transaction() as tx:
-            return await publisher.activate(tx, change.id, now, request_id)
-
-    first, second = await asyncio.gather(activate("activation-first-1"), activate("activation-second-1"))
-    assert sorted([first.action, second.action]) == ["activated", "skipped"]
+    world.clock.at = at(2026, 10, 26, 7, 59, 30)
+    await asyncio.gather(world.engine.run_launches(), world.engine.run_launches())
+    assert await world.owner.fetchval("select count(*) from launch") == 1
+    assert await world.owner.fetchval("select state from launch where change_id = $1", change.id) == "done"
     assert await world.owner.fetchval("select count(*) from catalog_publication") == 1
     assert len(await world.events("change.activated")) == 1
 
@@ -173,10 +169,10 @@ async def test_a_list_price_ends_when_a_later_one_takes_over(world):
     assert len(await world.events("change.ended")) == 1
 
 
-async def test_a_failed_activation_leaves_nothing_half_done(world):
+async def test_a_refused_activation_leaves_nothing_half_done(world):
     change = await scheduled(world, family_rise(), LEAD, FINANCE)
     # A later price slipped into the price list after scheduling (by hand, as an
-    # administrator could): the activation must fail whole.
+    # administrator could): the launch is refused, whole.
     await world.owner.execute("update list_price set valid = tsrange(lower(valid), '2026-12-15') "
                               "where plan_id = 'family' and market = 'DE'")
     await world.owner.execute("insert into list_price (plan_id, market, currency, amount_minor, valid) "
@@ -184,7 +180,7 @@ async def test_a_failed_activation_leaves_nothing_half_done(world):
     events_before = await world.owner.fetchval("select count(*) from audit_event")
     world.clock.at = at(2026, 11, 30, 23, 0)
     [outcome] = await world.engine.activate_due()
-    assert outcome.action == "failed" and "overlap" in outcome.error
+    assert outcome.action == "refused" and "overlap" in outcome.error
     assert await world.owner.fetchval("select state from change where id = $1", change.id) == "scheduled"
     assert await world.owner.fetchval("select count(*) from catalog_publication") == 0
     assert await world.owner.fetchval("select count(*) from audit_event") == events_before
@@ -234,29 +230,30 @@ async def test_a_list_price_in_force_is_not_suspended(world):
     assert response.refusal.code == REFUSAL.REFUSAL_CODE_WRONG_STATE and response.refusal.facts["kind"] == "list_price"
 
 
-async def test_an_activation_interleaved_with_a_suspension_stays_on_the_site(world, monkeypatch):
-    # The activation pass reads the clock, then a suspension publishes with a later time before the
-    # activation takes the publication lock: the activation's catalog comes later in the sequence with
-    # an earlier time. The site must still show the activated offer.
+async def test_a_snapshot_prepared_before_a_suspension_is_built_again(world):
+    # The launch prepared its snapshot with the first offer in it; then, before it publishes, a suspension
+    # takes the first offer off the site, five minutes later. The prepared snapshot must not go live: the
+    # site shows the launched offer, and not the suspended one.
     first = await live(world)  # live from 26 October
     gift = student_autumn(title="Autumn gift", plan="individual", non_combinability_group="gift-offers",
                           audience=changes_pb2.Audience(segment=changes_pb2.SEGMENT_NEVER_PAID),
                           prices=[changes_pb2.OfferPrice(market="IT", fixed=common_pb2.Money(amount_minor=899, currency="EUR"))],
                           periods=[changes_pb2.OfferPeriod(market="IT", starts_local="2026-10-27T09:00")])
     second = await scheduled(world, gift, MARKETING, FINANCE)
-    publisher = world.engine.publisher
-    original = publisher.activate
 
-    async def suspend_first_then_activate(tx, change_id, now, request_id):
-        world.clock.at = at(2026, 10, 27, 8, 5)  # five minutes after the pass read its clock
-        await suspend(world, first, reason="The page shows the wrong price.")
-        return await original(tx, change_id, now, request_id)
+    async def suspend_first(step, phase, tx):
+        if (step, phase) == ("publish", "start"):
+            world.clock.at = at(2026, 10, 27, 8, 5)
+            await suspend(world, first, reason="The page shows the wrong price.")
 
-    monkeypatch.setattr(publisher, "activate", suspend_first_then_activate)
+    world.engine.launches.probe = suspend_first
     world.clock.at = at(2026, 10, 27, 7, 59, 30)
     [outcome] = await world.engine.activate_due()
     assert (outcome.change_id, outcome.action) == (second.id, "activated")
     world.clock.at = at(2026, 10, 27, 9, 0)
     assert [o.offer_id for o in await offers(world)] == [second.id]
+    facts = await world.owner.fetchval("select facts->>'prepared snapshot' from launch_step s join launch l on l.id = s.launch_id "
+                                       "where l.change_id = $1 and s.name = 'publish'", second.id)
+    assert "replaced: the catalog changed meanwhile" in facts
     times = await world.owner.fetch("select published_at from catalog_publication order by seq")
     assert [t["published_at"] for t in times] == sorted(t["published_at"] for t in times)

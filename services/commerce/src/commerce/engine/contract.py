@@ -34,6 +34,11 @@ def _enum_name(enum, prefix: str, value: int) -> str | None:
         raise InvalidArgument(f"{value} is not a value of {prefix.rstrip('_').lower()}") from error
 
 
+def enum_name(enum, prefix: str, value: int) -> str | None:
+    """The lower-case name of a contract enum's value without its prefix; None when unspecified."""
+    return _enum_name(enum, prefix, value)
+
+
 def role_to_proto(role: str) -> int:
     return ROLE.Value(f"ROLE_{role.upper()}")
 

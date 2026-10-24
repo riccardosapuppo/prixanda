@@ -27,7 +27,7 @@ from commerce.domain.offers import Content, ListPrice, Offer, from_json, local_t
 from commerce.domain.validation import (
     BLOCKING, PENDING_OR_LIVE, Context, MarketFacts, Neighbour, report_to_json, validate,
 )
-from commerce.engine import clashes, contract, eligibility, records, reference
+from commerce.engine import clashes, contract, eligibility, launches, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import (
     CHECK_VIOLATION, FOREIGN_KEY_VIOLATION, UNIQUE_VIOLATION, Connection, DatabaseError, utc_text,
@@ -102,10 +102,10 @@ class Changes:
             change_id, version, author, format_instant(now), json.dumps(to_json(content)))
 
     async def _event(self, tx: Connection, call: Call, now: datetime, action: str, change: records.ChangeRow | int,
-                     body: dict, reason: str | None = None) -> None:
+                     body: dict, reason: str | None = None) -> int:
         change_id = change if isinstance(change, int) else change.id
-        await records.record(tx, at=now, actor=call.actor, role=call.role, action=action, subject=f"change:{change_id}",
-                             request_id=call.request_id, body={"change": change_id, **body}, reason=reason)
+        return await records.record(tx, at=now, actor=call.actor, role=call.role, action=action, subject=f"change:{change_id}",
+                                    request_id=call.request_id, body={"change": change_id, **body}, reason=reason)
 
     async def _move(self, tx: Connection, change: records.ChangeRow, to: str, now: datetime, reason: str | None = None) -> None:
         await tx.execute("update change set state = $2, state_reason = $3, updated_at = $4::text::timestamptz where id = $1",
@@ -311,7 +311,7 @@ class Changes:
         content, _, _ = await records.version_content(tx, change.id, change.current_version)
         now = self.clock.now()
         ref = await reference.load(tx, now)
-        passed = [(market, moment) for market, moment in starts_of(content)
+        passed = [(market, moment) for market, moment in records.starts_of(content)
                   if to_instant(moment, ref.markets[market].zone) <= now]
         if passed:
             market, moment = passed[0]
@@ -422,7 +422,7 @@ class Changes:
         now = self.clock.now()
         ref = await reference.load(tx, now)
         starts = []
-        for market, moment in starts_of(content):
+        for market, moment in records.starts_of(content):
             zone = ref.markets[market].zone
             starts.append({"market": market, "local": format_local(moment), "utc": format_instant(to_instant(moment, zone))})
         await clashes.lock_neighbourhood(tx, content)
@@ -454,14 +454,19 @@ class Changes:
         return changes_pb2.ScheduleChangeResponse(change=await records.load_change(tx, change.id))
 
     async def cancel(self, tx: Connection, call: Call, request: changes_pb2.CancelChangeRequest) -> changes_pb2.CancelChangeResponse:
+        # Its launch first, then the change: the order a launch's steps take them in.
+        await tx.execute("select id from launch where change_id = $1 for update", request.change_id)
         change = await records.lock_change(tx, request.change_id)
         require_role(call, policy.CANCELLERS[change.kind], f"cancel {policy.KIND_NAMES[change.kind]}")
         require_state(change, "scheduled", doing="cancelled")
         reason = reason_text(request.reason, "you cancel it")
         now = self.clock.now()
         await self._move(tx, change, "cancelled", now, reason)
-        await self._event(tx, call, now, "change.cancelled", change,
-                          {"version": change.current_version, "from": "scheduled", "to": "cancelled"}, reason=reason)
+        event = await self._event(tx, call, now, "change.cancelled", change,
+                                  {"version": change.current_version, "from": "scheduled", "to": "cancelled"}, reason=reason)
+        # A launch under way that has not published stops with it (§7.5).
+        await launches.withdraw(tx, change.id, actor=call.actor, role=call.role, reason=reason, now=now,
+                                request_id=call.request_id, events=(event,))
         return changes_pb2.CancelChangeResponse(change=await records.load_change(tx, change.id))
 
     async def suspend(self, tx: Connection, call: Call, request: changes_pb2.SuspendChangeRequest) -> changes_pb2.SuspendChangeResponse:
@@ -480,12 +485,6 @@ class Changes:
         await self.publisher.publish(tx, now=now, actor=call.actor, role=call.role, request_id=call.request_id,
                                      cause={"suspended": change.id})
         return changes_pb2.SuspendChangeResponse(change=await records.load_change(tx, change.id))
-
-
-def starts_of(content: Content) -> list[tuple[str, datetime]]:
-    if isinstance(content, ListPrice):
-        return [(content.market, content.starts)] if content.market and content.starts else []
-    return [(p.market, p.starts) for p in content.periods if p.starts is not None]
 
 
 def encode_cursor(updated_at: str, change_id: int) -> str:
