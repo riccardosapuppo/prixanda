@@ -1,0 +1,25 @@
+{
+  "name": "gateway",
+  "private": true,
+  "type": "module",
+  "description": "The GraphQL gateway in front of the commerce engine: an internal schema for the console, a public one for the site.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/node/main.ts",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "measure": "node scripts/measure-dataloader.ts",
+    "typecheck": "tsc -p tsconfig.core.json && tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@apollo/server": "5.5.1",
+    "@bufbuild/protobuf": "2.16.0",
+    "@connectrpc/connect": "2.2.0",
+    "@connectrpc/connect-node": "2.2.0",
+    "contracts": "file:../../packages/contracts",
+    "dataloader": "2.2.3",
+    "graphql": "16.14.2"
+  }
+}
