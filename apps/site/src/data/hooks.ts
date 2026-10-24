@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   SiteMarkets, SiteOffers, SitePlans, SiteRequestQuote, type SiteOffersQuery, type SiteRequestQuoteMutationVariables,
 } from "../graphql/generated.ts";
+import { LABELS, RELEASES } from "../content/editorial.ts";
 import { OFFERS_REFRESH_MS } from "./config.ts";
 import { isSiteMarket, SITE_MARKETS, type SiteMarket } from "./markets.ts";
 import { useSiteApi } from "./provider.tsx";
@@ -52,6 +53,19 @@ export function useOffers(market: SiteMarket, { live = true }: { readonly live?:
     staleTime: 0,
     refetchInterval: live ? OFFERS_REFRESH_MS : false,
   });
+}
+
+/**
+ * The editorial catalogue (src/content/editorial.ts): static content of the
+ * fictional service, served through the data layer like the rest, so a page
+ * cannot tell, and a remote catalogue would change only these two hooks.
+ */
+export function useLabels() {
+  return useQuery({ queryKey: ["editorial", "labels"], queryFn: () => LABELS, initialData: LABELS, staleTime: Number.POSITIVE_INFINITY });
+}
+
+export function useReleases() {
+  return useQuery({ queryKey: ["editorial", "releases"], queryFn: () => RELEASES, initialData: RELEASES, staleTime: Number.POSITIVE_INFINITY });
 }
 
 /** A quote from the engine; the variables carry the action's idempotency key. */

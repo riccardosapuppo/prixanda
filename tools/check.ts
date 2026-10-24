@@ -365,7 +365,7 @@ async function nodeTests(suite: string, files: string[], floor: number): Promise
 // pages its static build must hold. Its build calls the gateway's public API
 // where the end-to-end test starts it (CHECK_GATEWAY_PUBLIC_PORT).
 const siteDir = join(repoRoot, "apps", "site");
-const SITE_FLOOR = { files: 22, nodeFiles: 15, operations: 4, unitTests: 36 };
+const SITE_FLOOR = { files: 23, nodeFiles: 16, operations: 4, unitTests: 42 };
 const SITE_PAGES = ["index.html", "campaign/index.html", "404.html"];
 const SITE_CHECK_API = `http://127.0.0.1:${Number(process.env["CHECK_GATEWAY_PUBLIC_PORT"] ?? 4622)}/graphql`;
 
