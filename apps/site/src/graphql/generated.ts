@@ -33,6 +33,10 @@ export type RefusalCode =
   | 'CAP_REACHED'
   /** The payment provider declined a charge taken at the confirmation, so nothing was subscribed. A payment asked after the confirmation fails as a FAILED payment instead. */
   | 'PAYMENT_DECLINED'
+  /** A price change takes no other answer: it was answered already, or its window has ended. */
+  | 'ANSWER_CLOSED'
+  /** A prepaid pass's code cannot be activated: its payment has not gone through, it has been used, or its time to be activated has ended. */
+  | 'CODE_NOT_USABLE'
   /** This cannot be done here now. */
   | 'NOT_AVAILABLE';
 
