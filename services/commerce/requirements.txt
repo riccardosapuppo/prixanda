@@ -1,0 +1,4 @@
+# The engine's packages, pinned. tzdata gives zoneinfo the time zone rules on
+# Windows, which has no system copy of them.
+asyncpg==0.32.0
+tzdata==2026.5

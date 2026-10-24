@@ -1,0 +1,221 @@
+{
+  "about": "Flyway's command line for PostgreSQL only, and the Java runtime it needs, pinned by checksum. tools/setup.ts downloads them into .tools/; nothing is installed.",
+  "flyway": "13.10.0",
+  "mainClass": "org.flywaydb.commandline.Main",
+  "jre": {
+    "win32-x64": {
+      "version": "21.0.12.1+1",
+      "folder": "jdk-21.0.12.1+1-jre",
+      "bytes": 48999141,
+      "sha256": "d35f31e712f0fcf6ac5a093edc90204fbff22f720ba3950bd09d331d5e621636",
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_x64_windows_hotspot_21.0.12.1_1.zip"
+    },
+    "linux-x64": {
+      "version": "21.0.12.1+1",
+      "folder": "jdk-21.0.12.1+1-jre",
+      "bytes": 52059408,
+      "sha256": "2413149700df0f7d440500a84a8f764c535f21e5a5e87d38328b64eec2c5b500",
+      "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_x64_linux_hotspot_21.0.12.1_1.tar.gz"
+    }
+  },
+  "jars": [
+    {
+      "name": "annotations-26.1.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/jetbrains/annotations/26.1.0/annotations-26.1.0.jar",
+      "sha1": "c1e9226d7ca6661020c58c94397da0cc3673d5e4",
+      "bytes": 31094
+    },
+    {
+      "name": "commons-lang3-3.18.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/apache/commons/commons-lang3/3.18.0/commons-lang3-3.18.0.jar",
+      "sha1": "fb14946f0e39748a6571de0635acbe44e7885491",
+      "bytes": 702952
+    },
+    {
+      "name": "commons-text-1.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/apache/commons/commons-text/1.10.0/commons-text-1.10.0.jar",
+      "sha1": "3363381aef8cef2dbc1023b3e3a9433b08b64e01",
+      "bytes": 238400
+    },
+    {
+      "name": "flyway-command-mcp-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-command-mcp/13.10.0/flyway-command-mcp-13.10.0.jar",
+      "sha1": "2b228759c548fc3a57e2dbee1ffbdd0774dc033d",
+      "bytes": 19121
+    },
+    {
+      "name": "flyway-command-test-connection-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-command-test-connection/13.10.0/flyway-command-test-connection-13.10.0.jar",
+      "sha1": "1e6d084cb9fb98368d3e487e05d783e8fb423e52",
+      "bytes": 11989
+    },
+    {
+      "name": "flyway-commandline-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/13.10.0/flyway-commandline-13.10.0.jar",
+      "sha1": "abdbaa1ebb48f10f1d7cc011220ad968561370c4",
+      "bytes": 91482
+    },
+    {
+      "name": "flyway-core-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-core/13.10.0/flyway-core-13.10.0.jar",
+      "sha1": "4f94241984f040655f24a56cccba586650091a00",
+      "bytes": 814546
+    },
+    {
+      "name": "flyway-core-utilities-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-core-utilities/13.10.0/flyway-core-utilities-13.10.0.jar",
+      "sha1": "19d8d83deeada3df4bf2ea57893211ddd3202a39",
+      "bytes": 30480
+    },
+    {
+      "name": "flyway-database-cockroachdb-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-database-cockroachdb/13.10.0/flyway-database-cockroachdb-13.10.0.jar",
+      "sha1": "ac1690dc10c17e8d954b1184ce9ecc60afda9277",
+      "bytes": 22807
+    },
+    {
+      "name": "flyway-database-postgresql-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-database-postgresql/13.10.0/flyway-database-postgresql-13.10.0.jar",
+      "sha1": "f71a5123dbd3647fdfaf1c0bed7a402725df17da",
+      "bytes": 32672
+    },
+    {
+      "name": "flyway-nc-callbacks-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-nc-callbacks/13.10.0/flyway-nc-callbacks-13.10.0.jar",
+      "sha1": "98cb98783e6dcb5de8339f1244eaa50e26a5dbf8",
+      "bytes": 7778
+    },
+    {
+      "name": "flyway-nc-core-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-nc-core/13.10.0/flyway-nc-core-13.10.0.jar",
+      "sha1": "43f4805d07a4ca093ae6c889e1220f5dd28169c8",
+      "bytes": 76478
+    },
+    {
+      "name": "flyway-nc-scanners-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-nc-scanners/13.10.0/flyway-nc-scanners-13.10.0.jar",
+      "sha1": "1b3c3a4ca8825e1b5e3c8ee8bfd1436a35fe00a0",
+      "bytes": 17176
+    },
+    {
+      "name": "flyway-reports-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-reports/13.10.0/flyway-reports-13.10.0.jar",
+      "sha1": "86ff75831b27622374e9e098f347a6e159c79961",
+      "bytes": 210408
+    },
+    {
+      "name": "flyway-verb-baseline-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-verb-baseline/13.10.0/flyway-verb-baseline-13.10.0.jar",
+      "sha1": "3a85c300c47bcd0bc7730acaf001460561ac4e1b",
+      "bytes": 7323
+    },
+    {
+      "name": "flyway-verb-clean-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-verb-clean/13.10.0/flyway-verb-clean-13.10.0.jar",
+      "sha1": "518b12171849ae4fd46a276cbb1b199ee86b0762",
+      "bytes": 5632
+    },
+    {
+      "name": "flyway-verb-info-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-verb-info/13.10.0/flyway-verb-info-13.10.0.jar",
+      "sha1": "4ffba2bdef60d7975b510e2abc632e0215ee801b",
+      "bytes": 5045
+    },
+    {
+      "name": "flyway-verb-migrate-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-verb-migrate/13.10.0/flyway-verb-migrate-13.10.0.jar",
+      "sha1": "ac2c3844492dea06c2597a78598fad36e9382073",
+      "bytes": 37785
+    },
+    {
+      "name": "flyway-verb-repair-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-verb-repair/13.10.0/flyway-verb-repair-13.10.0.jar",
+      "sha1": "f866660b0b7fd154d72fb77c42f58eb75465b09f",
+      "bytes": 8638
+    },
+    {
+      "name": "flyway-verb-schemas-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-verb-schemas/13.10.0/flyway-verb-schemas-13.10.0.jar",
+      "sha1": "a62be13ff50a3189abc4b30b4905d3d10cd7555d",
+      "bytes": 5133
+    },
+    {
+      "name": "flyway-verb-validate-13.10.0.jar",
+      "url": "https://repo1.maven.org/maven2/org/flywaydb/flyway-verb-validate/13.10.0/flyway-verb-validate-13.10.0.jar",
+      "sha1": "11f70c5ad454cad31175843622139323dd2fbab3",
+      "bytes": 11744
+    },
+    {
+      "name": "jackson-annotations-2.22.jar",
+      "url": "https://repo1.maven.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.22/jackson-annotations-2.22.jar",
+      "sha1": "15c67f9498d6934cff9510fc70c5a12e52290457",
+      "bytes": 84211
+    },
+    {
+      "name": "jackson-core-3.1.7.jar",
+      "url": "https://repo1.maven.org/maven2/tools/jackson/core/jackson-core/3.1.7/jackson-core-3.1.7.jar",
+      "sha1": "a2b54921d5528a9df7f014222d2d519a14858801",
+      "bytes": 602666
+    },
+    {
+      "name": "jackson-databind-3.1.7.jar",
+      "url": "https://repo1.maven.org/maven2/tools/jackson/core/jackson-databind/3.1.7/jackson-databind-3.1.7.jar",
+      "sha1": "1f45f7dd68639c962435fae38ca100a70ccc0971",
+      "bytes": 1951590
+    },
+    {
+      "name": "jackson-dataformat-toml-3.1.7.jar",
+      "url": "https://repo1.maven.org/maven2/tools/jackson/dataformat/jackson-dataformat-toml/3.1.7/jackson-dataformat-toml-3.1.7.jar",
+      "sha1": "56b1350c18af31a4f31f488af7262805b146f326",
+      "bytes": 61516
+    },
+    {
+      "name": "jackson-dataformat-xml-3.1.7.jar",
+      "url": "https://repo1.maven.org/maven2/tools/jackson/dataformat/jackson-dataformat-xml/3.1.7/jackson-dataformat-xml-3.1.7.jar",
+      "sha1": "61a3d6594b6888fe2642ab2f256e8a40390bd326",
+      "bytes": 136211
+    },
+    {
+      "name": "jansi-4.3.1.jar",
+      "url": "https://repo1.maven.org/maven2/org/jline/jansi/4.3.1/jansi-4.3.1.jar",
+      "sha1": "7b9975fc38f0c4cde38692268cd8de8c2c326f56",
+      "bytes": 672963
+    },
+    {
+      "name": "lombok-1.18.46.jar",
+      "url": "https://repo1.maven.org/maven2/org/projectlombok/lombok/1.18.46/lombok-1.18.46.jar",
+      "sha1": "a5cfe99fdf320e84955ef653f2ce1bf789d11385",
+      "bytes": 2045364
+    },
+    {
+      "name": "postgresql-42.7.12.jar",
+      "url": "https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.12/postgresql-42.7.12.jar",
+      "sha1": "9d30cb5aaf509e58b05da3b8ef98b6f9cc93d7af",
+      "bytes": 1142967
+    },
+    {
+      "name": "slf4j-api-1.7.30.jar",
+      "url": "https://repo1.maven.org/maven2/org/slf4j/slf4j-api/1.7.30/slf4j-api-1.7.30.jar",
+      "sha1": "b5a4b6d16ab13e34a88fae84c35cd5d68cac922c",
+      "bytes": 41472
+    },
+    {
+      "name": "slf4j-nop-1.7.30.jar",
+      "url": "https://repo1.maven.org/maven2/org/slf4j/slf4j-nop/1.7.30/slf4j-nop-1.7.30.jar",
+      "sha1": "55d4c73dd343efebd236abfeb367c9ef41d55063",
+      "bytes": 4020
+    },
+    {
+      "name": "stax2-api-4.2.2.jar",
+      "url": "https://repo1.maven.org/maven2/org/codehaus/woodstox/stax2-api/4.2.2/stax2-api-4.2.2.jar",
+      "sha1": "b0d746cadea928e5264f2ea294ea9a1bf815bbde",
+      "bytes": 195922
+    },
+    {
+      "name": "woodstox-core-7.1.1.jar",
+      "url": "https://repo1.maven.org/maven2/com/fasterxml/woodstox/woodstox-core/7.1.1/woodstox-core-7.1.1.jar",
+      "sha1": "76baad1b94513ea896e0a17388890a4c81edd0e0",
+      "bytes": 1612256
+    }
+  ]
+}
