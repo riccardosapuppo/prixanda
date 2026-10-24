@@ -152,3 +152,15 @@ async def scheduled(world: World, content, who=MARKETING, signer=FINANCE, schedu
     response = await world.call("ScheduleChange", changes_pb2.ScheduleChangeRequest(change_id=change.id), scheduler or who)
     assert response.WhichOneof("outcome") == "change", response
     return response.change
+
+
+async def add_students(world: World, count: int) -> None:
+    """Verified students in Italy who never paid, beyond the seeded one."""
+    for n in range(count):
+        subscriber = 1_000 + n
+        await world.owner.execute("insert into subscriber (id, market, joined_on) values ($1, 'IT', '2026-01-10')", subscriber)
+        await world.owner.execute(
+            "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, billing_day) "
+            "values ($1, $1, 'IT', 'EUR', 'free', false, 0, '2026-01-10', 10)", subscriber)
+        await world.owner.execute("insert into student_verification (subscriber_id, verified_on, valid_until, provider) "
+                                  "values ($1, '2026-09-01', '2027-09-01', 'simulated')", subscriber)

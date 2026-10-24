@@ -50,6 +50,13 @@ SUBSCRIBERS = {
     301: ("GB", [("free", 0, JOINED, date(2026, 3, 1)), ("individual", 949, date(2026, 3, 1), None)], []),
     401: ("FR", [("free", 0, JOINED, None)], []),
 }
+# The demo's listeners among them, as the site's entrance offers them.
+DEMO_LISTENERS = [
+    (101, 1, "Student in Italy, verified", "Simulated listener. A verified student in Italy who has never paid.", True),
+    (102, 2, "Student in Italy, not verified yet", "Simulated listener. A student in Italy who has not verified yet.", True),
+    (104, 3, "Student in Italy who paid before", "Simulated listener. A verified student in Italy who paid before.", True),
+    (401, 4, "Free listener in France", "Simulated listener. On Free in France and not a student.", False),
+]
 DOPPELFENSTER = 4
 # subscriber: (first day, days, seconds a day) of Doppelfenster
 LISTENING = {
@@ -83,6 +90,8 @@ async def seed(conn: asyncpg.Connection) -> None:
         for verified, until in checks:
             await conn.execute("insert into student_verification (subscriber_id, verified_on, valid_until, provider) "
                                "values ($1, $2, $3, 'simulated')", subscriber, verified, until)
+    await conn.copy_records_to_table("demo_listener", records=DEMO_LISTENERS,
+                                     columns=["subscriber_id", "position", "title", "label", "student"])
     for subscriber, (first, days, seconds) in LISTENING.items():
         for n in range(days):
             await conn.execute("insert into listening_day (subscriber_id, artist_id, day, seconds) values ($1, $2, $3, $4)",

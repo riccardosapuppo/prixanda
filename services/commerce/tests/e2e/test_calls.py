@@ -11,7 +11,7 @@ import grpc
 
 from commerce.engine.engine import METHODS
 from commerce.v1 import (
-    audit_pb2, catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, simulation_pb2,
+    audit_pb2, catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2,
 )
 from engine_support import (
     AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, approved, create, fingerprint, scheduled, student_autumn, submitted,
@@ -199,6 +199,45 @@ async def test_overview_calls(wire):
     assert stranger.code is CODE.PERMISSION_DENIED
 
 
+async def test_subscriber_calls(wire):
+    listeners = await wire.call("ListDemoListeners", subscriptions_pb2.ListDemoListenersRequest(), PUBLIC)
+    assert listeners.code is OK and [l.subscriber_id for l in listeners.response.listeners] == [101, 102, 104, 401]
+    no_token = await wire.call("ListDemoListeners", subscriptions_pb2.ListDemoListenersRequest(), PUBLIC, token=None)
+    assert no_token.code is CODE.UNAUTHENTICATED
+
+    verify = subscriptions_pb2.VerifyStudentRequest
+    verified = await wire.call("VerifyStudent", verify(subscriber_id=102), PUBLIC, request_id="site-verify-0102")
+    assert verified.code is OK and verified.response.verification.valid
+    [event] = await wire.world.events("student.verified")
+    assert (event["request_id"], event["actor"]) == ("site-verify-0102", "subscriber-102")
+    assert refused(await wire.call("VerifyStudent", verify(subscriber_id=401), PUBLIC), REFUSAL.REFUSAL_CODE_NOT_ELIGIBLE)
+    assert (await wire.call("VerifyStudent", verify(subscriber_id=9_999), PUBLIC)).code is CODE.NOT_FOUND
+    assert (await wire.call("VerifyStudent", verify(subscriber_id=102), PUBLIC, key=None)).code is CODE.INVALID_ARGUMENT
+
+    quote = (await wire.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="individual", market="FR", subscriber_id=401),
+                             PUBLIC)).response.quote
+    confirm = subscriptions_pb2.ConfirmQuoteRequest
+    done = await wire.call("ConfirmQuote", confirm(quote_id=quote.quote_id, subscriber_id=401), PUBLIC,
+                           request_id="site-confirm-0401")
+    assert done.code is OK and done.response.confirmation.receipt.demonstration
+    assert done.response.confirmation.subscription.price.amount_minor == 1_099
+    [event] = await wire.world.events("subscription.confirmed")
+    assert (event["request_id"], event["actor"], event["actor_role"]) == ("site-confirm-0401", "subscriber-401", "subscriber")
+    other = (await wire.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="duo", market="FR", subscriber_id=401),
+                             PUBLIC)).response.quote
+    again = await wire.call("ConfirmQuote", confirm(quote_id=other.quote_id, subscriber_id=401), PUBLIC)
+    assert refused(again, REFUSAL.REFUSAL_CODE_ALREADY_SUBSCRIBED)
+    unknown = await wire.call("ConfirmQuote", confirm(quote_id="q_" + "f" * 32, subscriber_id=401), PUBLIC)
+    assert unknown.code is CODE.NOT_FOUND
+    malformed = await wire.call("ConfirmQuote", confirm(quote_id="nonsense", subscriber_id=401), PUBLIC)
+    assert malformed.code is CODE.INVALID_ARGUMENT
+
+    account = await wire.call("GetAccount", subscriptions_pb2.GetAccountRequest(subscriber_id=401), PUBLIC)
+    assert account.code is OK and account.response.account.subscription == done.response.confirmation.subscription
+    nobody = await wire.call("GetAccount", subscriptions_pb2.GetAccountRequest(subscriber_id=9_999), PUBLIC)
+    assert nobody.code is CODE.NOT_FOUND
+
+
 def test_every_call_of_the_contract_was_seen_answering_refusing_and_failing():
     """Runs last in this module: what the client saw over the wire, method by method."""
     gaps = []
@@ -211,5 +250,5 @@ def test_every_call_of_the_contract_was_seen_answering_refusing_and_failing():
             gaps.append(f"{method.name}: never seen {', '.join(sorted(missing))}")
         if not seen - {"answer", "refusal"}:
             gaps.append(f"{method.name}: never seen failing with a status code")
-    assert len(METHODS) == 23
+    assert len(METHODS) == 27
     assert not gaps, gaps

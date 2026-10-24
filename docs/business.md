@@ -319,6 +319,13 @@ Finance must sign when any of these is true:
 5. a price migration asks existing subscribers to accept a higher price
    (§8).
 
+Condition 4 also counts as met when, in a market, the simulated takers
+round to zero (an audience too small for the assumptions: 1 eligible person
+at 12% take-up is 0 takers). The simulation then shows no effect either way,
+not even a loss, and an effect that cannot be shown is finance's to sign;
+the author writes why, as for a negative contribution. This is a prudent
+choice of this book, not a rule from elsewhere.
+
 Otherwise the commercial lead or finance may approve.
 
 §7.4 **Separation of duties.** The author of a version cannot approve it,

@@ -1,17 +1,19 @@
 """§14.1, the complete flow, through the engine's entrance: marketing creates
 the Student Autumn Pass, finance approves it, it activates at 09:00 Italian
-time the day after the clocks go back, it appears in the live catalog, and a
-verified student who never paid gets a quote at the right price."""
+time the day after the clocks go back, it appears in the live catalog, a
+verified student who never paid gets a quote at the right price, subscribes
+at it, sees from when the full price applies, and the audit log holds it all
+with the request ids the calls came with."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from commerce.v1 import catalog_pb2, changes_pb2, quotes_pb2
+from commerce.v1 import catalog_pb2, changes_pb2, quotes_pb2, subscriptions_pb2
 from engine_support import FINANCE, MARKETING, PUBLIC, fingerprint, student_autumn
 
 
-async def test_from_draft_to_a_quote(world):
+async def test_from_draft_to_a_subscription(world):
     created = await world.call("CreateChange", changes_pb2.CreateChangeRequest(offer=student_autumn()), MARKETING)
     change = created.change
     assert change.state == changes_pb2.CHANGE_STATE_DRAFT and change.current_version == 1
@@ -21,9 +23,9 @@ async def test_from_draft_to_a_quote(world):
     assert change.state == changes_pb2.CHANGE_STATE_VALIDATED
     assert change.sentence == "Italy, Student: from €5.79 to €2.99 for 3 months, new subscribers only; 1 eligible; conflicts: none."
     assert change.validation.eligible == 1
-    # One eligible person: T = round(1 × 12%) = 0 takers, so the simulated contribution is zero and
-    # only condition 2 (the price under the floor) calls finance.
-    assert [(s.role, list(s.conditions), s.signed) for s in change.required_signatures] == [(3, [2], False)]
+    # One eligible person: T = round(1 × 12%) = 0 takers. The simulation shows no effect, so
+    # condition 4 counts as met (§7.3), next to condition 2, the price under the floor.
+    assert [(s.role, list(s.conditions), s.signed) for s in change.required_signatures] == [(3, [2, 4], False)]
 
     submitted = await world.call("SubmitChange", changes_pb2.SubmitChangeRequest(
         change_id=change.id, version=1, author_reason="We are buying students for the autumn."), MARKETING)
@@ -59,6 +61,16 @@ async def test_from_draft_to_a_quote(world):
     assert (q.price.amount_minor, q.months_at_price, q.then_price.amount_minor, q.list_price.amount_minor) == (299, 3, 579, 579)
     assert q.breakdown.top_up.amount_minor == 153 and q.breakdown.artists.amount_minor == 300
 
-    actions = [e["action"] for e in await world.events()]
-    assert actions == ["change.created", "change.validated", "change.submitted", "change.approved", "change.scheduled",
-                       "change.activated", "catalog.published"]
+    confirmed = await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(quote_id=q.quote_id, subscriber_id=101),
+                                 PUBLIC, request_id_="site-0101-confirm")
+    s = confirmed.confirmation.subscription
+    assert (s.price.amount_minor, s.offer_months, s.started_on) == (299, 3, "2026-10-26")
+    assert (s.full_price_from, s.full_price.amount_minor) == ("2027-01-26", 579)
+    account = await world.call("GetAccount", subscriptions_pb2.GetAccountRequest(subscriber_id=101), PUBLIC)
+    assert account.account.subscription == s
+
+    events = await world.events()
+    assert [e["action"] for e in events] == [
+        "change.created", "change.validated", "change.submitted", "change.approved", "change.scheduled",
+        "change.activated", "catalog.published", "subscription.confirmed"]
+    assert (events[-1]["actor"], events[-1]["request_id"]) == ("subscriber-101", "site-0101-confirm")

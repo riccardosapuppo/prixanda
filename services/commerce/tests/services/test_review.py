@@ -15,7 +15,8 @@ from commerce.engine.errors import NotFound, Refused
 from commerce.engine.records import ChangeRow
 from commerce.v1 import changes_pb2, common_pb2
 from engine_support import (
-    AUDITOR, FINANCE, FINANCE_2, LEAD, MARKETING, MARKETING_2, create, family_rise, fingerprint, student_autumn, submitted,
+    AUDITOR, FINANCE, FINANCE_2, LEAD, MARKETING, MARKETING_2, add_students, create, family_rise, fingerprint, student_autumn,
+    submitted,
     validated,
 )
 
@@ -23,18 +24,6 @@ REFUSAL = common_pb2.RefusalCode
 STATE = changes_pb2
 LEAD_AND_FINANCE = ("lead-and-finance-1", "commercial_lead")
 LEAD_AND_FINANCE_AS_FINANCE = ("lead-and-finance-1", "finance")
-
-
-async def add_students(world, count: int) -> None:
-    """Verified students in Italy who never paid, beyond the seeded one."""
-    for n in range(count):
-        subscriber = 1_000 + n
-        await world.owner.execute("insert into subscriber (id, market, joined_on) values ($1, 'IT', '2026-01-10')", subscriber)
-        await world.owner.execute(
-            "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, billing_day) "
-            "values ($1, $1, 'IT', 'EUR', 'free', false, 0, '2026-01-10', 10)", subscriber)
-        await world.owner.execute("insert into student_verification (subscriber_id, verified_on, valid_until, provider) "
-                                  "values ($1, '2026-09-01', '2027-09-01', 'simulated')", subscriber)
 
 
 async def validate(world, change, who=MARKETING, version: int | None = None):
@@ -187,6 +176,7 @@ async def test_only_the_roles_the_version_needs_sign(world):
 
 
 async def test_an_offer_above_the_floor_may_be_signed_by_the_commercial_lead(world):
+    await add_students(world, 100)  # an audience the simulation can show: 12% of 103 is 12 takers
     content = student_autumn(plan="individual", audience=changes_pb2.Audience(segment=changes_pb2.SEGMENT_NEVER_PAID),
                              prices=[changes_pb2.OfferPrice(market="IT", fixed=common_pb2.Money(amount_minor=899, currency="EUR"))])
     change = await submitted(world, content)

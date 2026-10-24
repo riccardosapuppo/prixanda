@@ -299,8 +299,9 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
             currency = ctx.markets[code].currency
             cost += rate.to_base(Money(result.discount_cost + result.top_up_cost, currency))
             contribution += rate.to_base(Money(result.contribution, currency))
+    no_takers = [ctx.markets[code].name for code, result in simulations.items() if result.takers == 0]
     conditions = finance_conditions(book, sets_list_price=False, below_floor=below_floor, discount_and_top_up=cost,
-                                    contribution=contribution, horizon_months=book.horizon_months)
+                                    contribution=contribution, horizon_months=book.horizon_months, no_takers=no_takers)
     signatures = signatures_needed(conditions)
     _signature_finding(found, signatures)
     sentence = " ".join(clauses) if clauses else f"{offer.title}: not priced in any market yet."
