@@ -227,6 +227,7 @@ export declare type SimulationResult = Message<"commerce.v1.SimulationResult"> &
 
   /**
    * The lowest retention, in basis points, at which the contribution is not negative.
+   * -1 means none: even if every taker stayed, the contribution would stay negative.
    *
    * @generated from field: int32 break_even_retention_bp = 11;
    */
