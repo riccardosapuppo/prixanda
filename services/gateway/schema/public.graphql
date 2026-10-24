@@ -2,12 +2,16 @@
 The site's API: the public schema of the gateway (business book §2, §4, §6,
 §10, §14.1, §14.5).
 
-It shows what is for sale, quotes prices and, for the demo's listeners,
-verifies a student and turns a quote into a subscription. It holds nothing
-internal: no floors or artists' economics, no changes, versions or approvals,
-no people of the team, no audit. Its whole surface is listed in the gateway's
-contract test. The price is always the engine's (§4.5): nothing here accepts
-a price, and a subscription confirms a quote by its id.
+It shows what is for sale and where its price goes, quotes prices and, for
+the demo's listeners, verifies a student and turns a quote into a
+subscription. Where a price goes is public, because it is the promise of
+§1.2: the VAT, the artists' share and their guaranteed minimum, what the
+music service adds to reach it, what collecting the money costs and what the
+service keeps. Nothing else of the economics is: no floors, thresholds or
+simulations; and no changes, versions or approvals, no people of the team, no
+audit. Its whole surface is listed in the gateway's contract test. The price
+is always the engine's (§4.5): nothing here accepts a price, and a
+subscription confirms a quote by its id.
 
 Signing in is a DEMONSTRATION MODE, not authentication: signInAsListener
 picks one of the demo's listeners, and the gateway keeps which one in a
@@ -90,6 +94,26 @@ type Market {
   name: String!
   currency: String!
   timeZone: String!
+  "The standard VAT rate in force, in basis points: 2200 is 22% (§3.1). Prices include it."
+  vatBasisPoints: Int!
+  "What every paying subscription pays into the artists' pool at least, every month, whatever the discount (§1.2, §5.3)."
+  artistsMinimum: Money!
+}
+
+"Where a price goes, per subscription per month (§3.5, §5)."
+type PriceBreakdown {
+  price: Money!
+  vat: Money!
+  "The price without VAT."
+  net: Money!
+  "What the artists' pool receives: its share of the net amount, never less than the market's minimum (§5.3)."
+  artists: Money!
+  "The part of artists that the music service adds from its own margin to reach the minimum; zero when the share covers it."
+  topUp: Money!
+  "What collecting the money costs (§5.6)."
+  paymentCosts: Money!
+  "What the music service keeps; below zero when a price costs it more than it brings."
+  companyKeeps: Money!
 }
 
 enum AudioQuality {
@@ -113,6 +137,8 @@ type Plan {
   entitlements: Entitlements!
   "Null for the free plan. Prices include VAT (§3.2)."
   listPrice: Money
+  "Where the list price goes; null for the free plan."
+  breakdown: PriceBreakdown
 }
 
 type ListPrice {
@@ -145,6 +171,8 @@ type Offer {
   "Who may take it, in words for the page."
   audience: String!
   needsStudentCheck: Boolean!
+  "Where the offer price goes in each of its months (§5); null when the engine does not give it."
+  breakdown: PriceBreakdown
 }
 
 type Quote {

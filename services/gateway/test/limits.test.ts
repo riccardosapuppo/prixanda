@@ -212,10 +212,13 @@ describe("limits through HTTP", () => {
     assert.equal(harness.engine.count("ListChanges"), 0);
   });
 
-  test("the site's whole catalog passes, and its offers asked twenty times do not", async () => {
+  test("the site's whole catalog passes, where each price goes included, and its offers asked twenty times do not", async () => {
     const site = harness.site();
-    const catalog = await site.graphql(`{ markets { code name currency timeZone } plans(market: "IT") { code name paid listPrice entitlements { skipsPerHour audio offline seats needsStudentCheck } }
-      prices(market: "IT") { plan market amount validFrom validUntil } offers(market: "IT") { id market plan title text terms price listPrice monthsAtOfferPrice takeableUntil { local utc } audience needsStudentCheck } }`);
+    const breakdown = "breakdown { price vat net artists topUp paymentCosts companyKeeps }";
+    const catalog = await site.graphql(`{ markets { code name currency timeZone vatBasisPoints artistsMinimum }
+      plans(market: "IT") { code name paid listPrice entitlements { skipsPerHour audio offline seats needsStudentCheck } ${breakdown} }
+      prices(market: "IT") { plan market amount validFrom validUntil }
+      offers(market: "IT") { id market plan title text terms price listPrice monthsAtOfferPrice takeableUntil { local utc } audience needsStudentCheck ${breakdown} } }`);
     assert.equal(catalog.body.errors, undefined, catalog.text);
     harness.engine.clearCalls();
     const greedy = await site.graphql(SITE_ALIASES(20));

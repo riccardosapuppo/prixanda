@@ -113,24 +113,37 @@ generated files differ from a fresh generation.
 
 ## What the site's schema shows
 
-Plans and their entitlements, list prices, offers on sale, quotes; and, since
-stage 5, the subscriber's side: the demo's listeners (`demoListeners`), the
-session's listener and their account (`me { account }`: plan, price, the
-offer's months left, the day the list price applies from, the next charge,
-the first month's payment, the student verification and its end),
-`verifyStudent`, and `confirmSubscription(quoteId)`, which subscribes at
-exactly the quoted price. Nothing about floors, the artists' pool, top-ups or
-margins, no changes, versions or approvals, no people, no audit log, no ids
-of subscriptions, payments or the verifier's records, and none of the
-payment provider's own words. Three tests check it, each from another angle
-(`test/public-contract.test.ts`):
+Plans and their entitlements, list prices, offers on sale, quotes, and where
+each price goes; and, since stage 5, the subscriber's side: the demo's
+listeners (`demoListeners`), the session's listener and their account
+(`me { account }`: plan, price, the offer's months left, the day the list
+price applies from, the next charge, the first month's payment, the student
+verification and its end), `verifyStudent`, and
+`confirmSubscription(quoteId)`, which subscribes at exactly the quoted price.
+
+Where a price goes is public by the coordinator's decision of 24 October,
+because it is the promise of §1.2: each market's VAT rate and the artists'
+guaranteed minimum (`Market.vatBasisPoints`, `Market.artistsMinimum`), and
+the breakdown of a plan's list price and of an offer's price (`breakdown`:
+price, VAT, net, the artists' share, the top-up the music service adds to
+reach the minimum, payment costs, what the service keeps). For the Student
+Autumn Pass in Italy that reads: of the artists' €3.00, €1.47 comes from the
+subscriber and €1.53 from the service (§14.1). The engine of stage 5 sends no
+breakdown with its offers, and the site gets `null` there.
+
+Nothing else of the economics: no floors, thresholds or simulations, no
+breakdown of a quote, no top-ups of the price list; no changes, versions or
+approvals, no people, no audit log, no ids of subscriptions, payments or the
+verifier's records, and none of the payment provider's own words. Three tests
+check it, each from another angle (`test/public-contract.test.ts`):
 
 1. the whole surface of the schema (types, fields, arguments, enum values,
-   union members) equals a list written in the test, in both directions;
+   union members) equals a list written in the test, in both directions, with
+   the reason for each field made public by decision;
 2. no name in it belongs to the internal vocabulary (with exceptions, each
    named in the test where it stands, with its reason: a visitor may be told
    `NOT_ELIGIBLE`, signs in and out as a listener, sends back their session's
-   `csrfToken`, and reads their payment's `state`);
+   `csrfToken`, reads their payment's `state`, and reads where a price goes);
 3. an engine that plants marked values in every internal field of its
    messages, the subscriber's included, answers every public field, signed in
    as a listener who verifies, subscribes and pays, and none of the marks
@@ -247,8 +260,9 @@ queries that a cycle added later would allow. The cost counts each field
 once and multiplies a list by its size: the `first` argument of a page (the
 largest page when `first` is a variable), ten for other lists. Aliases count
 one by one. The console's largest page of changes with their details costs
-about 22,400; the site's whole catalog of a market about 330. The limits
-leave room for these and none for the same fields asked again and again.
+about 22,400; the site's whole catalog of a market, with where each price
+goes, about 510. The limits leave room for these and none for the same
+fields asked again and again.
 Batched requests and persisted queries are off.
 
 No field lowers the cost of the others. A page counts from one row to the

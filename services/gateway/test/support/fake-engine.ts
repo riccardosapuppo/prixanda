@@ -248,6 +248,27 @@ function addMonths(day: string, months: number): string {
   return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(Math.min(date, last)).padStart(2, "0")}`;
 }
 
+/** a / b rounded half up, for amounts that are not negative (the business book's round_half_up). */
+const halfUp = (a: bigint, b: bigint): bigint => (2n * a + b) / (2n * b);
+
+/**
+ * Where a price goes, by the business book's formulas (§3.5, §5): the net
+ * amount without VAT, the artists' pool at 60% of it but never less than the
+ * market's minimum (the difference is the top-up), payment costs at 1.8% of
+ * the price, and what is left.
+ */
+function breakdownOf(price: bigint, market: (typeof MARKETS)[number]) {
+  const net = halfUp(price * 10_000n, 10_000n + BigInt(market.vatBp));
+  const pool = halfUp(net * 60n, 100n);
+  const artists = pool > market.minimum ? pool : market.minimum;
+  const paymentCosts = halfUp(price * 18n, 1_000n);
+  const amount = (value: bigint) => money(value, market.currency);
+  return create(PriceBreakdownSchema, {
+    price: amount(price), vat: amount(price - net), net: amount(net), artists: amount(artists), topUp: amount(artists - pool),
+    paymentCosts: amount(paymentCosts), encoreKeeps: amount(net - artists - paymentCosts),
+  });
+}
+
 /** The day after, or before, in the calendar. */
 function addDays(day: string, days: number): string {
   const [year = 0, month = 1, date = 1] = day.split("-").map(Number);
@@ -357,6 +378,8 @@ export class FakeEngine {
       takeableUntil: { market: "IT", local: "2026-11-30T23:59", utc: "2026-11-30T22:59:00Z" },
       audience: "Verified students who have never paid",
       needsStudentCheck: true,
+      // §14.1: €1.47 of the artists' €3.00 comes from the subscriber, and the music service adds €1.53.
+      breakdown: breakdownOf(299n, MARKETS[0]),
     }));
     for (let index = 0; index < (options.offers ?? 0); index += 1) {
       this.seedOffer(`Seeded offer ${index + 1}`, "marketing-1", ChangeState.DRAFT);
@@ -500,20 +523,19 @@ export class FakeEngine {
     return market;
   }
 
-  #breakdown(price: bigint, currency: string) {
-    const planted = this.#options.sentinels;
-    const amount = (value: bigint) => money(planted ? SENTINEL.amount : value, currency);
-    return create(PriceBreakdownSchema, {
-      price: money(price, currency), vat: amount(price / 6n), net: amount(price - price / 6n), artists: amount(300n),
-      topUp: amount(0n), paymentCosts: amount(price / 50n), encoreKeeps: amount(price / 4n),
-    });
+  /** A quote's breakdown, which the site never shows: with sentinels, every amount is the mark. */
+  #quoteBreakdown(price: bigint, market: (typeof MARKETS)[number]) {
+    if (!this.#options.sentinels) return breakdownOf(price, market);
+    const mark = money(SENTINEL.amount, market.currency);
+    return create(PriceBreakdownSchema, { price: mark, vat: mark, net: mark, artists: mark, topUp: mark, paymentCosts: mark, encoreKeeps: mark });
   }
 
+  // The artists' minimum and the VAT rate are public (§1.2); the floor is the console's alone, and carries the mark.
   #marketMessage(market: (typeof MARKETS)[number]): Market {
     const planted = this.#options.sentinels;
     return create(MarketSchema, {
       code: market.code, name: market.name, currency: market.currency, minorUnits: 2, timeZone: market.timeZone, vatBp: market.vatBp,
-      artistsMinimum: money(planted ? SENTINEL.amount : market.minimum, market.currency),
+      artistsMinimum: money(market.minimum, market.currency),
       floor: money(planted ? SENTINEL.amount : market.floor, market.currency),
     });
   }
@@ -525,7 +547,7 @@ export class FakeEngine {
       return create(PlanSchema, {
         id: plan.id, name: plan.name, paid: plan.paid,
         entitlements: { skipsPerHour: plan.skips, audio: plan.audio, offline: plan.offline, seats: plan.seats, needsStudentCheck: plan.student },
-        ...(price === undefined ? {} : { listPrice: money(price, market.currency), breakdown: this.#breakdown(price, market.currency) }),
+        ...(price === undefined ? {} : { listPrice: money(price, market.currency), breakdown: breakdownOf(price, market) }),
       });
     });
   }
@@ -851,7 +873,7 @@ export class FakeEngine {
             value: create(QuoteSchema, {
               quoteId, plan: request.plan, market: market.code, price: money(price, market.currency),
               listPrice: money(list, market.currency), monthsAtPrice: months, thenPrice: money(list, market.currency), expiresAt: expires,
-              offerId: request.offerId, breakdown: this.#breakdown(this.#options.sentinels ? SENTINEL.amount : price, market.currency),
+              offerId: request.offerId, breakdown: this.#quoteBreakdown(price, market),
             }),
           },
         };

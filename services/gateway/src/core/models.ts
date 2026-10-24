@@ -63,6 +63,7 @@ export type ChainVerificationModel = VerifyChainResponse;
 // The site's schema: the same messages, read through fewer fields.
 export type PublicMarketModel = Market;
 export type PublicEntitlementsModel = Entitlements;
+export type PublicPriceBreakdownModel = PriceBreakdown;
 export type PublicPlanModel = Plan;
 export type PublicListPriceModel = PriceListEntry;
 export type PublicMarketTimeModel = LocalTime;

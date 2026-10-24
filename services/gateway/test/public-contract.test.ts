@@ -45,6 +45,25 @@ const ALLOWED = [
   "Market.name: String!",
   "Market.currency: String!",
   "Market.timeZone: String!",
+  // Public by the coordinator's decision of 24 October: where a price goes is
+  // the promise of §1.2 and §5, which the site shows its visitors. The floor,
+  // the thresholds and the simulations stay the console's.
+  // The VAT rate the prices include (§3.1), which the breakdown's VAT follows from.
+  "Market.vatBasisPoints: Int!",
+  // The guaranteed minimum every paying subscription brings the artists (§1.2, §5.3).
+  "Market.artistsMinimum: Money!",
+  // Where a price goes, per subscription per month (§3.5, §5): each part, the top-up and what the service keeps included.
+  "PriceBreakdown.price: Money!",
+  "PriceBreakdown.vat: Money!",
+  "PriceBreakdown.net: Money!",
+  "PriceBreakdown.artists: Money!",
+  "PriceBreakdown.topUp: Money!",
+  "PriceBreakdown.paymentCosts: Money!",
+  "PriceBreakdown.companyKeeps: Money!",
+  // Of a plan's list price, as ListPlans gives it.
+  "Plan.breakdown: PriceBreakdown",
+  // Of an offer's price (PublishedOffer.breakdown, stage 6; null from the engine of stage 5).
+  "Offer.breakdown: PriceBreakdown",
   "Entitlements.skipsPerHour: Int",
   "Entitlements.audio: AudioQuality!",
   "Entitlements.offline: Boolean!",
@@ -137,9 +156,29 @@ const ALLOWED = [
 ];
 
 /**
+ * Names of the internal vocabulary that the site shows by the coordinator's
+ * decision of 24 October, each with its reason: where a price goes is the
+ * promise of §1.2 and §5. The floor, the thresholds and the simulations are
+ * not among them.
+ */
+const PUBLIC_BY_DECISION: Record<string, string> = {
+  "Market.vatBasisPoints": "the VAT rate the prices include (§3.1)",
+  "Market.artistsMinimum": "the minimum every paying subscription brings the artists, whatever the discount (§1.2, §5.3)",
+  PriceBreakdown: "where a price goes, per subscription per month (§3.5, §5)",
+  "Plan.breakdown": "where a plan's list price goes",
+  "Offer.breakdown": "where an offer's price goes, in each of its months",
+  "PriceBreakdown.vat": "the VAT in the price (§3.5)",
+  "PriceBreakdown.net": "the price without VAT, which the artists' share is counted on (§5.1)",
+  "PriceBreakdown.artists": "what the artists' pool receives (§5.2, §5.3)",
+  "PriceBreakdown.topUp": "what the music service adds to reach the artists' minimum (§5.3)",
+  "PriceBreakdown.paymentCosts": "what collecting the money costs (§5.6)",
+  "PriceBreakdown.companyKeeps": "what the music service keeps, below zero when an offer costs it (§5.7)",
+};
+
+/**
  * The internal vocabulary: economics, workflow, people and the log. None of it
- * may name anything public. A listener's own payment is theirs; what the
- * payment provider costs the company is the console's.
+ * may name anything public, but for the names above. A listener's own payment
+ * is theirs; what the payment provider costs the company is in the vocabulary.
  */
 const INTERNAL_WORDS = /floor|artist|minimum|top.?up|breakdown|keeps|margin|payment.?cost|vat|net\b|approv|author|version|fingerprint|hash|sign|audit|eligib|simulat|person|people|role|session|csrf|change|draft|state|below|internal|cost|contribution|revenue|actor|request.?id|engine/i;
 
@@ -212,9 +251,12 @@ describe("the site's schema, as written", () => {
     // change's state of the workflow.
     const exceptions = [
       "RefusalCode.NOT_ELIGIBLE", "Mutation.signInAsListener", "Mutation.signOutListener", "Me.csrfToken", "PaymentState", "Payment.state",
+      ...Object.keys(PUBLIC_BY_DECISION),
     ];
     assert.deepEqual(all.filter(({ name, where }) => INTERNAL_WORDS.test(name) && !exceptions.includes(where)).map(({ where }) => where), []);
     assert.deepEqual(exceptions.filter((where) => !all.some((entry) => entry.where === where)), [], "an exception for a name the schema no longer has");
+    // Each name made public by decision is one the vocabulary would refuse: the decision is what lets it through.
+    assert.deepEqual(Object.keys(PUBLIC_BY_DECISION).filter((where) => !INTERNAL_WORDS.test(where.split(".").at(-1) ?? "")), []);
   });
 
   test("the vocabulary check finds the internal schema's names, so it is not blind", () => {
@@ -254,24 +296,28 @@ describe("the site's API, answered by an engine that plants marked values in eve
     const schema = buildPublicSchema();
     const query = schema.getQueryType();
     assert.ok(query);
-    const fields = Object.values(query.getFields());
-    const selection = fields.map((field) => {
-      const args = field.args.map((arg) => `${arg.name}: ${arg.name === "market" ? '"IT"' : '"student"'}`).join(", ");
-      return `${field.name}${args ? `(${args})` : ""} ${everything(getNamedType(field.type))}`;
-    }).join(" ");
     const all = (name: string) => everything(schema.getType(name) as GraphQLNamedType);
     const site = harness.site();
     // A listener of the demo, so that me, its account, the verification and the subscription answer too.
     await site.signInAsListener(LISTENERS.verified);
-    const answers = [
-      await site.graphql(`{ ${selection} }`),
-      await site.graphql(`mutation { requestQuote(plan: "student", market: "IT", offerId: "9001") ${all("QuoteResult")} }`),
+    // Every root field of the queries, one request each: all of them in one would pass the site's cost limit.
+    const answers = [];
+    const catalog: Record<string, any> = {};
+    for (const field of Object.values(query.getFields())) {
+      const args = field.args.map((arg) => `${arg.name}: ${arg.name === "market" ? '"IT"' : '"student"'}`).join(", ");
+      const answer = await site.graphql(`{ ${field.name}${args ? `(${args})` : ""} ${everything(getNamedType(field.type))} }`);
+      answers.push(answer);
+      Object.assign(catalog, answer.body.data);
+    }
+    const quoted = await site.graphql(`mutation { requestQuote(plan: "student", market: "IT", offerId: "9001") ${all("QuoteResult")} }`);
+    answers.push(
+      quoted,
       await site.graphql(`mutation { requestQuote(plan: "family", market: "IT") ${all("QuoteResult")} }`),
       await site.graphql(`mutation { requestQuote(plan: "student", market: "IT", offerId: "424") ${all("QuoteResult")} }`),
       await site.graphql(`mutation { verifyStudent ${all("VerificationResult")} }`),
-    ];
-    const quoteId: unknown = answers[1]?.body?.data?.requestQuote?.id;
-    assert.equal(typeof quoteId, "string", answers[1]?.text);
+    );
+    const quoteId: unknown = quoted.body?.data?.requestQuote?.id;
+    assert.equal(typeof quoteId, "string", quoted.text);
     answers.push(await site.graphql(`mutation ($q: ID!) { confirmSubscription(quoteId: $q) ${all("SubscriptionResult")} }`, { variables: { q: quoteId } }));
     answers.push(await site.graphql(`{ me ${all("Me")} }`));
     // The provider's event: the payment succeeds, and the account has its receipt.
@@ -279,15 +325,26 @@ describe("the site's API, answered by an engine that plants marked values in eve
     answers.push(await site.graphql(`{ me ${all("Me")} }`));
     for (const answer of answers) assert.equal(answer.body.errors, undefined, answer.text);
     // The answers are full: the check below is not passing on empty data.
-    const [catalog, quote, plain, ended, verified, confirmed, pending, settled] = answers.map((answer) => answer.body.data);
-    assert.equal(catalog.markets.length, 4);
-    assert.equal(catalog.plans.length, 5);
-    assert.ok(catalog.prices.length >= 1);
-    assert.deepEqual(catalog.offers[0].price, { amountMinor: "299", currency: "EUR" });
-    assert.equal(catalog.demoListeners.length, 4);
-    assert.equal(catalog.me.id, LISTENERS.verified);
-    assert.equal(catalog.me.account.subscription.plan, "free");
-    assert.equal(catalog.me.account.studentVerification.valid, true);
+    const [quote, plain, ended, verified, confirmed, pending, settled] = answers.slice(-7).map((answer) => answer.body.data);
+    assert.equal(catalog["markets"].length, 4);
+    assert.deepEqual({ vat: catalog["markets"][0].vatBasisPoints, minimum: catalog["markets"][0].artistsMinimum }, { vat: 2200, minimum: { amountMinor: "300", currency: "EUR" } });
+    assert.equal(catalog["plans"].length, 5);
+    const student = catalog["plans"].find((plan: { code: string }) => plan.code === "student");
+    // §5.5: the Student price in Italy, €5.79, is €4.75 net; its pool of €2.85 gets €0.15 more to reach the €3.00.
+    assert.deepEqual({ net: student.breakdown.net, artists: student.breakdown.artists, topUp: student.breakdown.topUp },
+      { net: { amountMinor: "475", currency: "EUR" }, artists: { amountMinor: "300", currency: "EUR" }, topUp: { amountMinor: "15", currency: "EUR" } });
+    assert.ok(catalog["prices"].length >= 1);
+    assert.deepEqual(catalog["offers"][0].price, { amountMinor: "299", currency: "EUR" });
+    // §14.1: of the artists' €3.00, €1.47 comes from the subscriber and €1.53 from the music service.
+    assert.deepEqual(catalog["offers"][0].breakdown, {
+      price: { amountMinor: "299", currency: "EUR" }, vat: { amountMinor: "54", currency: "EUR" }, net: { amountMinor: "245", currency: "EUR" },
+      artists: { amountMinor: "300", currency: "EUR" }, topUp: { amountMinor: "153", currency: "EUR" }, paymentCosts: { amountMinor: "5", currency: "EUR" },
+      companyKeeps: { amountMinor: "-60", currency: "EUR" },
+    });
+    assert.equal(catalog["demoListeners"].length, 4);
+    assert.equal(catalog["me"].id, LISTENERS.verified);
+    assert.equal(catalog["me"].account.subscription.plan, "free");
+    assert.equal(catalog["me"].account.studentVerification.valid, true);
     assert.deepEqual(quote.requestQuote.price, { amountMinor: "299", currency: "EUR" });
     assert.equal(plain.requestQuote.__typename, "Quote");
     assert.deepEqual(ended.requestQuote, { __typename: "Refusal", code: "OFFER_ENDED", reason: "This offer is no longer on sale." });
@@ -298,13 +355,13 @@ describe("the site's API, answered by an engine that plants marked values in eve
     assert.equal(pending.me.account.payment.state, "PENDING");
     assert.equal(settled.me.account.payment.state, "SUCCEEDED");
     assert.deepEqual(settled.me.account.payment.receipt.amount, { amountMinor: "299", currency: "EUR" });
-    // The engine's messages carried the marks in floors, minimums, breakdowns,
-    // price-list change ids, below-floor flags, top-ups and offer versions,
+    // The engine's messages carried the marks in floors, quotes' breakdowns,
+    // price-list change ids, below-floor flags and top-ups, offer versions,
     // and in the subscriber's ids of subscriptions, accounts and payments, the
     // provider's reasons and the verifier's references.
     assert.ok(harness.engine.calls.length >= 9);
     for (const answer of answers) {
-      for (const mark of [String(SENTINEL.amount), SENTINEL.changeId, "987654", SENTINEL.text, "belowFloor", "breakdown", "floor"]) {
+      for (const mark of [String(SENTINEL.amount), SENTINEL.changeId, "987654", SENTINEL.text, "belowFloor", "floor"]) {
         assert.ok(!answer.text.includes(mark), `the public answer carries ${mark}: ${answer.text.slice(0, 400)}`);
       }
     }

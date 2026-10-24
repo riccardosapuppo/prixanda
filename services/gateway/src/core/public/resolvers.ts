@@ -1,9 +1,11 @@
 // The site's resolvers: every field of public.graphql. They read the engine's
 // public methods, and the subscriber's methods for the listener of the site's
 // session, and pass on no field the schema does not name: the engine's
-// messages carry floors, breakdowns, ids of changes and of subscriptions, and
-// none of it reaches a public field (test/public-contract.test.ts plants such
-// values and looks for them in every answer).
+// messages carry floors, the price list's top-ups and changes, a quote's
+// breakdown, ids of changes, subscriptions and payments, and none of it
+// reaches a public field (test/public-contract.test.ts plants such values and
+// looks for them in every answer). Where a list price or an offer price goes
+// is public by decision (§1.2): its breakdown is a field of the site's own.
 //
 // Who the listener is comes from the session alone: no argument names a
 // subscriber, and the engine's binding writes the session's subscriber id
@@ -155,6 +157,18 @@ export const publicResolvers: Resolvers = {
     name: (market) => market.name,
     currency: (market) => market.currency,
     timeZone: (market) => market.timeZone,
+    vatBasisPoints: (market) => market.vatBp,
+    artistsMinimum: (market) => money(market.artistsMinimum, `market ${market.code}'s artists' minimum`),
+  },
+  // Where a price goes: public by decision, the promise of §1.2. The floor, which the console reads beside it, is not.
+  PriceBreakdown: {
+    price: (breakdown) => money(breakdown.price, "breakdown price"),
+    vat: (breakdown) => money(breakdown.vat, "breakdown VAT"),
+    net: (breakdown) => money(breakdown.net, "breakdown net"),
+    artists: (breakdown) => money(breakdown.artists, "breakdown artists"),
+    topUp: (breakdown) => money(breakdown.topUp, "breakdown top-up"),
+    paymentCosts: (breakdown) => money(breakdown.paymentCosts, "breakdown payment costs"),
+    companyKeeps: (breakdown) => money(breakdown.encoreKeeps, "breakdown margin"),
   },
   Entitlements: {
     skipsPerHour: (entitlements) => (entitlements.skipsPerHour === 0 ? null : entitlements.skipsPerHour),
@@ -169,6 +183,7 @@ export const publicResolvers: Resolvers = {
     paid: (plan) => plan.paid,
     entitlements: (plan) => plan.entitlements ?? breach(`plan ${plan.id} has no entitlements`),
     listPrice: (plan) => optionalMoney(plan.listPrice),
+    breakdown: (plan) => plan.breakdown ?? null,
   },
   ListPrice: {
     plan: (entry) => entry.plan,
@@ -194,6 +209,8 @@ export const publicResolvers: Resolvers = {
     takeableUntil: (offer) => offer.takeableUntil ?? null,
     audience: (offer) => offer.audience,
     needsStudentCheck: (offer) => offer.needsStudentCheck,
+    // The engine of stage 5 sends none; stage 6 adds it at the offer price.
+    breakdown: (offer) => offer.breakdown ?? null,
   },
   Quote: {
     id: (quote) => quote.quoteId,

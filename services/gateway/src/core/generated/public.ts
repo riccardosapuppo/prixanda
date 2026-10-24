@@ -7,7 +7,7 @@ import type { DateValue } from '../scalars.ts';
 import type { MarketCodeValue } from '../scalars.ts';
 import type { PlanCodeValue } from '../scalars.ts';
 import type { GraphQLResolveInfo, GraphQLScalarType, GraphQLScalarTypeConfig } from 'graphql';
-import type { PublicMarketModel, PublicEntitlementsModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicPaymentModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel } from '../models.ts';
+import type { PublicMarketModel, PublicEntitlementsModel, PublicPriceBreakdownModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicPaymentModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel } from '../models.ts';
 import type { PublicContext } from '../context.ts';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
@@ -115,6 +115,27 @@ export type Market = {
   readonly name: Scalars['String']['output'];
   readonly currency: Scalars['String']['output'];
   readonly timeZone: Scalars['String']['output'];
+  /** The standard VAT rate in force, in basis points: 2200 is 22% (§3.1). Prices include it. */
+  readonly vatBasisPoints: Scalars['Int']['output'];
+  /** What every paying subscription pays into the artists' pool at least, every month, whatever the discount (§1.2, §5.3). */
+  readonly artistsMinimum: Scalars['Money']['output'];
+};
+
+/** Where a price goes, per subscription per month (§3.5, §5). */
+export type PriceBreakdown = {
+  readonly __typename?: 'PriceBreakdown';
+  readonly price: Scalars['Money']['output'];
+  readonly vat: Scalars['Money']['output'];
+  /** The price without VAT. */
+  readonly net: Scalars['Money']['output'];
+  /** What the artists' pool receives: its share of the net amount, never less than the market's minimum (§5.3). */
+  readonly artists: Scalars['Money']['output'];
+  /** The part of artists that the music service adds from its own margin to reach the minimum; zero when the share covers it. */
+  readonly topUp: Scalars['Money']['output'];
+  /** What collecting the money costs (§5.6). */
+  readonly paymentCosts: Scalars['Money']['output'];
+  /** What the music service keeps; below zero when a price costs it more than it brings. */
+  readonly companyKeeps: Scalars['Money']['output'];
 };
 
 export type AudioQuality =
@@ -139,6 +160,8 @@ export type Plan = {
   readonly entitlements: Entitlements;
   /** Null for the free plan. Prices include VAT (§3.2). */
   readonly listPrice?: Maybe<Scalars['Money']['output']>;
+  /** Where the list price goes; null for the free plan. */
+  readonly breakdown?: Maybe<PriceBreakdown>;
 };
 
 export type ListPrice = {
@@ -174,6 +197,8 @@ export type Offer = {
   /** Who may take it, in words for the page. */
   readonly audience: Scalars['String']['output'];
   readonly needsStudentCheck: Scalars['Boolean']['output'];
+  /** Where the offer price goes in each of its months (§5); null when the engine does not give it. */
+  readonly breakdown?: Maybe<PriceBreakdown>;
 };
 
 export type Quote = {
@@ -439,9 +464,10 @@ export type ResolversTypes = {
   Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
   Market: ResolverTypeWrapper<PublicMarketModel>;
   String: ResolverTypeWrapper<Scalars['String']['output']>;
+  Int: ResolverTypeWrapper<Scalars['Int']['output']>;
+  PriceBreakdown: ResolverTypeWrapper<PublicPriceBreakdownModel>;
   AudioQuality: AudioQuality;
   Entitlements: ResolverTypeWrapper<PublicEntitlementsModel>;
-  Int: ResolverTypeWrapper<Scalars['Int']['output']>;
   Plan: ResolverTypeWrapper<PublicPlanModel>;
   ListPrice: ResolverTypeWrapper<PublicListPriceModel>;
   MarketTime: ResolverTypeWrapper<PublicMarketTimeModel>;
@@ -477,8 +503,9 @@ export type ResolversParentTypes = {
   Boolean: Scalars['Boolean']['output'];
   Market: PublicMarketModel;
   String: Scalars['String']['output'];
-  Entitlements: PublicEntitlementsModel;
   Int: Scalars['Int']['output'];
+  PriceBreakdown: PublicPriceBreakdownModel;
+  Entitlements: PublicEntitlementsModel;
   Plan: PublicPlanModel;
   ListPrice: PublicListPriceModel;
   MarketTime: PublicMarketTimeModel;
@@ -544,6 +571,18 @@ export type MarketResolvers<ContextType = PublicContext, ParentType extends Reso
   name: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   currency: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   timeZone: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  vatBasisPoints: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  artistsMinimum: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+};
+
+export type PriceBreakdownResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['PriceBreakdown'] = ResolversParentTypes['PriceBreakdown']> = {
+  price: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  vat: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  net: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  artists: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  topUp: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  paymentCosts: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  companyKeeps: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
 };
 
 export type EntitlementsResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Entitlements'] = ResolversParentTypes['Entitlements']> = {
@@ -560,6 +599,7 @@ export type PlanResolvers<ContextType = PublicContext, ParentType extends Resolv
   paid: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   entitlements: Resolver<ResolversTypes['Entitlements'], ParentType, ContextType>;
   listPrice: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
+  breakdown: Resolver<Maybe<ResolversTypes['PriceBreakdown']>, ParentType, ContextType>;
 };
 
 export type ListPriceResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['ListPrice'] = ResolversParentTypes['ListPrice']> = {
@@ -588,6 +628,7 @@ export type OfferResolvers<ContextType = PublicContext, ParentType extends Resol
   takeableUntil: Resolver<Maybe<ResolversTypes['MarketTime']>, ParentType, ContextType>;
   audience: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   needsStudentCheck: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  breakdown: Resolver<Maybe<ResolversTypes['PriceBreakdown']>, ParentType, ContextType>;
 };
 
 export type QuoteResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Quote'] = ResolversParentTypes['Quote']> = {
@@ -705,6 +746,7 @@ export type Resolvers<ContextType = PublicContext> = {
   Query: QueryResolvers<ContextType>;
   Mutation: MutationResolvers<ContextType>;
   Market: MarketResolvers<ContextType>;
+  PriceBreakdown: PriceBreakdownResolvers<ContextType>;
   Entitlements: EntitlementsResolvers<ContextType>;
   Plan: PlanResolvers<ContextType>;
   ListPrice: ListPriceResolvers<ContextType>;

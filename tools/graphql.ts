@@ -41,7 +41,7 @@ const SCHEMAS = {
   },
   public: {
     objects: [
-      "Market", "Entitlements", "Plan", "ListPrice", "MarketTime", "Offer", "Quote", "DemoListener", "Me", "Account", "Subscription",
+      "Market", "Entitlements", "PriceBreakdown", "Plan", "ListPrice", "MarketTime", "Offer", "Quote", "DemoListener", "Me", "Account", "Subscription",
       "StudentVerification", "Payment", "Receipt", "Confirmation", "Refusal",
     ],
     scalars: ["Money", "LocalDateTime", "DateTime", "Date", "MarketCode", "PlanCode"],
