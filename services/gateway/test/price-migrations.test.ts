@@ -253,6 +253,28 @@ describe("the simulation of a price migration (§8.7)", () => {
     assert.deepEqual([sent.version, sent.overrides.map((override) => [override.name, override.value])], [1, [["acceptance", 9048n]]]);
   });
 
+  test("counts the prepaid passes of the plan in the market, which it never touches: paid for and not used yet, or running (§9.1)", async () => {
+    const finance = await person(harness, "finance-1");
+    const untouched = async () => {
+      const answer = await finance.graphql(`query ($id: ID!) { simulateMigration(changeId: $id) { ... on MigrationSimulation { prepaidPassesUntouched } } }`, {
+        variables: { id: changeId },
+      });
+      assert.equal(answer.body.errors, undefined, answer.text);
+      return answer.body.data.simulateMigration.prepaidPassesUntouched;
+    };
+    assert.equal(await untouched(), 0);
+    const pass = harness.engine.seedPrepaidPass(ChangeState.ACTIVE, {
+      title: "Family gift pass", plan: "family", prices: [{ market: "DE", amountMinor: 5499n }], periods: [{ market: "DE", startsLocal: "2026-10-01T00:00" }],
+    });
+    const family = harness.site();
+    await family.signInAsListener(LISTENERS.familyInGermany);
+    const bought = await family.graphql("mutation ($p: ID!) { buyPrepaidPass(passId: $p) { __typename } }", { variables: { p: pass.id } });
+    assert.equal(bought.body.data.buyPrepaidPass.__typename, "PrepaidPurchase", bought.text);
+    assert.equal(await untouched(), 0, "a code whose payment is pending is not sold yet");
+    harness.engine.settlePayments();
+    assert.equal(await untouched(), 1);
+  });
+
   test("an offer is no migration: refused, with the change it is about", async () => {
     const offer = harness.engine.seedOffer("Student Winter Pass", "marketing-1", ChangeState.DRAFT);
     const marketing = await person(harness, "marketing-1");

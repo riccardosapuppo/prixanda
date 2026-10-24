@@ -22,6 +22,11 @@ const MIGRATION = {
   title: "Family price in Germany", plan: "family", market: "DE", amount: { amountMinor: "2099", currency: "EUR" },
   noticesLocal: "2026-11-02T09:00", startsLocal: "2026-12-01T00:00",
 };
+const PASS = {
+  title: "Three-month gift pass", plan: "individual", months: 3, prices: [{ market: "IT", amount: { amountMinor: "2999", currency: "EUR" } }],
+  periods: [{ market: "IT", startsLocal: "2026-12-01T00:00" }], codeValidMonths: 12,
+  pages: [{ market: "IT", title: "Three-month gift pass", text: "Three months of Individual.", terms: "A single-use code." }],
+};
 
 /** One call of each root field that needs a session, with what it needs; `id` is replaced by a change of the right state. */
 const OPERATIONS: Record<string, { query: string; variables?: Record<string, unknown>; method: string | null }> = {
@@ -50,6 +55,9 @@ const OPERATIONS: Record<string, { query: string; variables?: Record<string, unk
   createPriceMigration: { query: "mutation ($m: PriceMigrationInput!) { createPriceMigration(migration: $m) { __typename ... on Refusal { code } } }", variables: { m: MIGRATION }, method: "CreateChange" },
   savePriceMigrationVersion: { query: 'mutation ($m: PriceMigrationInput!) { savePriceMigrationVersion(changeId: "ID", baseVersion: 1, migration: $m) { __typename ... on Refusal { code } } }', variables: { m: MIGRATION }, method: "SaveVersion" },
   simulateMigration: { query: '{ simulateMigration(changeId: "ID") { __typename ... on Refusal { code } } }', method: "SimulateMigration" },
+  // Stage 7: on these, "ID" is a prepaid pass's.
+  createPrepaidPass: { query: "mutation ($p: PrepaidPassInput!) { createPrepaidPass(pass: $p) { __typename ... on Refusal { code } } }", variables: { p: PASS }, method: "CreateChange" },
+  savePrepaidPassVersion: { query: 'mutation ($p: PrepaidPassInput!) { savePrepaidPassVersion(changeId: "ID", baseVersion: 1, pass: $p) { __typename ... on Refusal { code } } }', variables: { p: PASS }, method: "SaveVersion" },
   // Stage 6: "LAUNCH" is replaced by a failed launch of the fake engine's.
   launches: { query: "{ launches { nodes { id } } }", method: "ListLaunches" },
   launch: { query: '{ launch(id: "LAUNCH") { id } }', method: "GetLaunch" },
@@ -83,6 +91,8 @@ const MAY: Record<string, string[]> = {
   createPriceMigration: ["commercial_lead"],
   savePriceMigrationVersion: ["commercial_lead"],
   simulateMigration: ["marketing", "commercial_lead", "finance"],
+  createPrepaidPass: ["commercial_lead"],
+  savePrepaidPassVersion: ["commercial_lead"],
   launches: ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"],
   launch: ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"],
   retryLaunch: ["on_call"],
@@ -147,9 +157,12 @@ describe("each role against each operation", () => {
           submitChange: ChangeState.VALIDATED, approveChange: ChangeState.IN_APPROVAL, rejectChange: ChangeState.IN_APPROVAL,
           scheduleChange: ChangeState.APPROVED, cancelChange: ChangeState.SCHEDULED, suspendChange: ChangeState.ACTIVE,
         };
+        const state = states[name] ?? ChangeState.DRAFT;
         const id = name.includes("Migration")
-          ? harness.engine.seedMigration(states[name] ?? ChangeState.DRAFT).id
-          : harness.engine.seedOffer(`${role} ${name}`, "marketing-2", states[name] ?? ChangeState.DRAFT).id;
+          ? harness.engine.seedMigration(state).id
+          : name.includes("PrepaidPass")
+            ? harness.engine.seedPrepaidPass(state).id
+            : harness.engine.seedOffer(`${role} ${name}`, "marketing-2", state).id;
         const launch = operation.query.includes('"LAUNCH"') ? harness.engine.seedLaunch("failed").id : "1";
         harness.engine.clearCalls();
         const answer = await client.graphql(withId(operation, id, launch), operation.variables ? { variables: operation.variables } : {});
@@ -197,6 +210,28 @@ describe("fields narrower than their operation", () => {
         ["overview.monthlyRevenue", "overview.monthlyRevenueEur", "overview.monthlyTopUps"]);
       assert.equal(answer.body.data.overview.monthlyRevenueEur, null);
       assert.equal(answer.body.data.overview.exchangeRateNote, "1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026)");
+    }
+  });
+
+  // §9.2, §12.2: "unearned pass value by finance".
+  const UNEARNED = "{ overview { exchangeRateNote prepaid { market sold activated expired unearned unearnedEur } prepaidUnearnedEur } }";
+
+  test("finance alone reads the value of prepaid passes not yet earned; the commercial lead, who reads revenue, gets FORBIDDEN there", async () => {
+    const finance = harness.console();
+    await finance.signIn("finance-1");
+    const read = await finance.graphql(UNEARNED);
+    assert.equal(read.body.errors, undefined, read.text);
+    assert.ok(Array.isArray(read.body.data.overview.prepaid));
+    assert.equal(read.body.data.overview.prepaidUnearnedEur.currency, "EUR");
+    for (const person of ["commercial-lead-1", "marketing-1", "catalog-manager-1", "on-call-1", "auditor-1"]) {
+      const client = harness.console();
+      await client.signIn(person);
+      harness.engine.clearCalls();
+      const answer = await client.graphql(UNEARNED);
+      assert.deepEqual(answer.body.errors.map((error: { path: string[] }) => error.path.join(".")).sort(), ["overview.prepaid", "overview.prepaidUnearnedEur"], person);
+      assert.deepEqual(codes(answer), ["FORBIDDEN", "FORBIDDEN"], person);
+      assert.deepEqual([answer.body.data.overview.prepaid, answer.body.data.overview.prepaidUnearnedEur], [null, null], person);
+      assert.equal(answer.body.data.overview.exchangeRateNote, "1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026)", person);
     }
   });
 });

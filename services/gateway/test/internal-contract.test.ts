@@ -37,9 +37,12 @@ const OPERATIONS = [
   "Mutation.createOffer(offer: OfferInput!): ChangeResult!",
   "Mutation.createListPrice(listPrice: ListPriceInput!): ChangeResult!",
   "Mutation.createPriceMigration(migration: PriceMigrationInput!): ChangeResult!",
+  // Stage 7: the prepaid passes (§9, §14.4).
+  "Mutation.createPrepaidPass(pass: PrepaidPassInput!): ChangeResult!",
   "Mutation.saveOfferVersion(changeId: ID!, baseVersion: Int!, offer: OfferInput!): ChangeResult!",
   "Mutation.saveListPriceVersion(changeId: ID!, baseVersion: Int!, listPrice: ListPriceInput!): ChangeResult!",
   "Mutation.savePriceMigrationVersion(changeId: ID!, baseVersion: Int!, migration: PriceMigrationInput!): ChangeResult!",
+  "Mutation.savePrepaidPassVersion(changeId: ID!, baseVersion: Int!, pass: PrepaidPassInput!): ChangeResult!",
   "Mutation.validateChange(changeId: ID!, version: Int!): ChangeResult!",
   "Mutation.submitChange(changeId: ID!, version: Int!, authorReason: String): ChangeResult!",
   "Mutation.approveChange(changeId: ID!, version: Int!, fingerprint: Sha256!): ChangeResult!",
@@ -66,8 +69,8 @@ describe("the console's schema", () => {
 
   test("answers every mutation that reaches the engine with a union that holds a typed Refusal", () => {
     const mutations = Object.values(schema.getMutationType()?.getFields() ?? {}).filter((field) => !["signIn", "signOut"].includes(field.name));
-    // Create (3), save (3), validate, submit, approve, reject, schedule, cancel, suspend, export; retry and cancel a launch.
-    assert.equal(mutations.length, 16);
+    // Create (4), save (4), validate, submit, approve, reject, schedule, cancel, suspend, export; retry and cancel a launch.
+    assert.equal(mutations.length, 18);
     for (const field of mutations) {
       const result = getNamedType(field.type);
       assert.ok(isUnionType(result) && result.getTypes().some((member) => member.name === "Refusal"), field.name);

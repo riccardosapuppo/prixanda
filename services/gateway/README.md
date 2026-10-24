@@ -11,8 +11,8 @@ the console's schema at all:
 
 | | Schema | Port | For |
 |---|---|---|---|
-| Console's API | `schema/internal.graphql` | 4621 | changes, approvals, simulations, price migrations, launches, the audit log, the home's numbers |
-| Site's API | `schema/public.graphql` | 4622 | markets, plans, list prices, offers on sale, quotes; the demo's listeners, a student verification, a subscription, the account, its price changes and the answer to them |
+| Console's API | `schema/internal.graphql` | 4621 | changes, approvals, simulations, price migrations, prepaid passes, launches, the audit log, the home's numbers |
+| Site's API | `schema/public.graphql` | 4622 | markets, plans, list prices, offers and prepaid passes on sale, quotes; the demo's listeners, a student verification, a subscription, the account, its price changes and the answer to them, a prepaid pass bought and its code activated |
 
 Both answer at `/graphql`, with `/health` next to it.
 
@@ -152,12 +152,29 @@ Autumn Pass in Italy that reads: of the artists' €3.00, €1.47 comes from the
 subscriber and €1.53 from the service (§14.1). The engine of stage 5 sends no
 breakdown with its offers, and the site gets `null` there.
 
+Since stage 7, the prepaid passes (§9, §14.4): months of a plan paid once,
+sold as a single-use code to keep or to give. `prepaidPasses(market)` lists
+those on sale now, for anyone. `buyPrepaidPass(passId)` buys one for the
+session's listener, a demonstration with the simulated provider: the site
+names the pass, never its price, which the engine takes from the pass on
+sale in the listener's market. The answer is a `PrepaidPurchase` whose
+`prepaidCode` is `PENDING` with its payment, and `READY` once the provider
+settled it (`me { account { prepaidCodes } }`, the latest first).
+`activatePrepaidPass(code)` activates a code for the session's listener,
+who may have bought it or been given it: the pass's plan from that day for
+its months, at a price of zero, with no next charge and `endsOn` at the end
+of its months, then the free plan; `Subscription.prepaidCode` and
+`prepaidPrice` say which pass it is. The same code activated again by the
+same listener comes back the same. The buyer reads the day a code was
+activated, never who activated it.
+
 Nothing else of the economics: no floors, thresholds or simulations, no
 breakdown of a quote, no top-ups of the price list; no changes, versions or
 approvals, no price migration, its progress or the market's policy as the
-console reads it, no people, no audit log, no ids of subscriptions, payments,
-migrations or the verifier's records, and none of the payment provider's own
-words. Three tests
+console reads it, no value of prepaid passes not yet earned, no people, no
+audit log, no ids of subscriptions, payments, migrations, the listener who
+activated a code or the verifier's records, and none of the payment
+provider's own words. Three tests
 check it, each from another angle (`test/public-contract.test.ts`):
 
 1. the whole surface of the schema (types, fields, arguments, enum values,
@@ -166,12 +183,14 @@ check it, each from another angle (`test/public-contract.test.ts`):
 2. no name in it belongs to the internal vocabulary (with exceptions, each
    named in the test where it stands, with its reason: a visitor may be told
    `NOT_ELIGIBLE`, signs in and out as a listener, sends back their session's
-   `csrfToken`, reads their payment's `state`, reads where a price goes, and
-   answers a price change of their own, with its `state`);
+   `csrfToken`, reads their payment's `state`, reads where a price goes,
+   answers a price change of their own, with its `state`, and activates a
+   prepaid code, which holds the letters of VAT without being any);
 3. an engine that plants marked values in every internal field of its
    messages, the subscriber's included, answers every public field, signed in
-   as a listener who verifies, subscribes and pays, and as one asked to
-   accept a higher price who says yes, and none of the marks comes out.
+   as a listener who verifies, subscribes and pays, as one asked to accept
+   a higher price who says yes, and as one who buys a prepaid pass and gives
+   its code to another, who activates it; none of the marks comes out.
 
 The payment is asynchronous, as the engine of stage 6 makes it: the
 subscription starts at the confirmation, and its first month's `payment`
@@ -192,7 +211,11 @@ A refusal on the site is `Refusal { code reason }`, with the site's codes:
 `QUOTE_EXPIRED`, `NOT_ELIGIBLE`, `ALREADY_SUBSCRIBED`, `NOT_COMBINABLE`,
 `CAP_REACHED`, `PAYMENT_DECLINED` (a charge declined at the confirmation, by
 an engine that still charges there), `ANSWER_CLOSED` (a price change answered
-already, or whose window ended), and `NOT_AVAILABLE` for any other.
+already, or whose window ended), `CODE_NOT_USABLE` (a prepaid code whose
+payment has not gone through, that was used, or that expired), and
+`NOT_AVAILABLE` for any other. A pass not sold in the buyer's market, or a
+code of another market, is `NOT_ELIGIBLE`; a listener already paying who
+activates a code, `ALREADY_SUBSCRIBED`.
 Every reason is a sentence of the gateway's, never the engine's: the engine
 writes for the console, naming listeners and offers by their numbers
 ("Subscriber #5003 is not among..."), and groups and caps the site does not
@@ -231,8 +254,10 @@ When the gateway itself refuses a role (it applies the matrix before calling
 the engine), it answers the way the engine would: a `ROLE_NOT_ALLOWED`
 refusal on operations that have an outcome, `FORBIDDEN` on reads. The revenue
 fields of the home (`monthlyRevenue`, `monthlyRevenueEur`, `monthlyTopUps`)
-are for finance and the commercial lead only; the other roles get
-`FORBIDDEN` on those fields and the rest of the home.
+are for finance and the commercial lead only, and the value of prepaid passes
+sold and not yet earned (`prepaid`, `prepaidUnearnedEur`) for finance alone
+(§9.2, §12.2); the other roles get `FORBIDDEN` on those fields and the rest
+of the home.
 
 ## Launches
 
@@ -292,6 +317,21 @@ their market. The schema has:
   a consent market), paying the new price, and gone to the free plan or
   ended.
 
+## Prepaid passes
+
+Since stage 7 the console writes a fourth kind of change, the prepaid pass
+(§9, §14.4): `createPrepaidPass(pass)` and `savePrepaidPassVersion(changeId,
+baseVersion, pass)`, with its plan and months, a fixed price in each market
+(the input cannot write a percentage), its periods on sale, how many months
+a code sold can be activated, and its pages. It goes as a list price does:
+the commercial lead writes it and schedules it, finance signs it for
+condition 1 of §7.3, and its launch puts it on sale. The home gives finance
+alone, by market, the codes paid for, activated and expired unused, and the
+value not yet earned (`Overview.prepaid`, and `prepaidUnearnedEur` in all):
+a pass's net amount is earned in equal monthly parts from its activation,
+the last taking the remainder, so an Italian pass, net €24.58, is earned as
+€8.19, €8.19 and €8.20; a code not used stays unearned until it expires.
+
 Every role reads the launches. The home's incidents carry their launch
 (`launchId`, null for a late start the engine has not begun to launch), their
 kind (`LATE`, `FAILED`, `REFUSED`), when they opened and closed, and how
@@ -321,9 +361,9 @@ on its own) or `RESOLVED` (a person retried or cancelled it).
   sessions. Any other `Origin` is refused with 403 before anything else
   happens.
 - On the site, what acts for a listener (`verifyStudent`,
-  `confirmSubscription`, `answerPriceChange`, `me { account }`) needs the
-  site's session; without one it is `UNAUTHENTICATED`, before the engine
-  hears anything
+  `confirmSubscription`, `answerPriceChange`, `buyPrepaidPass`,
+  `activatePrepaidPass`, `me { account }`) needs the site's session; without
+  one it is `UNAUTHENTICATED`, before the engine hears anything
   (`PUBLIC_ACCESS` in `src/core/policy.ts`, a rule for every root field).
 
 ## Idempotency and request ids
@@ -345,7 +385,7 @@ The engine writes it into the audit log (§11.1).
 
 | | Console | Site |
 |---|---|---|
-| Depth | 8 fields | 5 fields |
+| Depth | 8 fields | 6 fields |
 | Cost | 25,000 | 600 |
 | Tokens in the document | 5,000 | 1,500 |
 | Body | 64 KiB | 64 KiB |
@@ -436,8 +476,9 @@ npm run check -- --only gw-types,gw-codegen,gw-schemas,gw-tests,dataloader
 resolvers, roles, both APIs' sessions, CSRF, CORS, idempotency, request ids,
 limits, scalars, errors, configuration, the start of `npm run gateway`
 itself, the subscriber's side (`test/site-sessions.test.ts`,
-`test/subscriptions.test.ts`), and the price migrations of stage 7 from both
-sides (`test/price-migrations.test.ts`, `test/price-changes.test.ts`). They
+`test/subscriptions.test.ts`), and stage 7 from both sides: the price
+migrations (`test/price-migrations.test.ts`, `test/price-changes.test.ts`)
+and the prepaid passes (`test/prepaid-passes.test.ts`). They
 run the real gateway over HTTP against a fake engine
 (`test/support/fake-engine.ts`): every service of the contract, in memory,
 served over real gRPC on 127.0.0.1:4613, with the engine's

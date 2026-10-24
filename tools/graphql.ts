@@ -38,13 +38,15 @@ const SCHEMAS = {
       "Assumption", "Totals", "FinanceCondition", "Simulation", "AuditEvent", "AuditPage", "ChainHead", "ChainVerification",
       "LaunchPage", "LaunchRun", "LaunchStep", "LaunchIncident",
       "PriceChangePolicy", "PriceChangeLaw", "PriceChangeChoice", "MigrationProgress", "PriceMigrationContent", "PriceStep", "MigrationSimulation",
+      "PrepaidPassContent", "PrepaidPassPrice", "PrepaidValue",
     ],
     scalars: ["Money", "LocalDateTime", "DateTime", "MarketCode", "PlanCode", "Sha256"],
   },
   public: {
     objects: [
       "Market", "Entitlements", "PriceBreakdown", "Plan", "ListPrice", "MarketTime", "Offer", "Quote", "DemoListener", "Me", "Account", "Subscription",
-      "StudentVerification", "Payment", "Receipt", "Confirmation", "Refusal", "PriceChange",
+      "StudentVerification", "Payment", "Receipt", "Confirmation", "Refusal", "PriceChange", "PrepaidPass", "PrepaidCode",
+      "PrepaidPurchase",
     ],
     scalars: ["Money", "LocalDateTime", "DateTime", "Date", "MarketCode", "PlanCode"],
   },

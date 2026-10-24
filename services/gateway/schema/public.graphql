@@ -60,6 +60,8 @@ type Query {
   prices(market: MarketCode!, plan: PlanCode): [ListPrice!]!
   "The offers on sale now in a market: shown if and only if their prices are in force (§7.5)."
   offers(market: MarketCode!): [Offer!]!
+  "The prepaid passes on sale now in a market (§9): months of a plan paid once, sold as a code to keep or to give."
+  prepaidPasses(market: MarketCode!): [PrepaidPass!]!
   "The demo's listeners, for the site's entrance: invented people with simulated data. Needs no session."
   demoListeners: [DemoListener!]!
   "The listener signed in on this browser, with their account; null when nobody is."
@@ -94,6 +96,21 @@ type Mutation {
   the same; another answer, or one after the window, is refused.
   """
   answerPriceChange(priceChangeId: ID!, accept: Boolean!): PriceChangeResult!
+  """
+  Buys a prepaid pass for the session's listener, to keep or to give (§9):
+  a demonstration, with the simulated payment provider. The price is the
+  engine's, as the pass is on sale in the listener's market. The code comes
+  back PENDING with its payment, and is READY once the payment succeeded:
+  read me { account { prepaidCodes } } again until it is not PENDING.
+  """
+  buyPrepaidPass(passId: ID!): PrepaidPurchaseResult!
+  """
+  Activates a prepaid pass's code for the session's listener, who may have
+  bought it or been given it: the pass's plan from today for its months,
+  never charged and never renewed, then the free plan. The same code again
+  comes back the same.
+  """
+  activatePrepaidPass(code: String!): PrepaidActivationResult!
 }
 
 type Market {
@@ -232,6 +249,54 @@ type Account {
   studentVerification: StudentVerification
   "The price changes of the running subscription, the latest first (§8)."
   priceChanges: [PriceChange!]!
+  "The prepaid passes this listener bought, the latest first, each with its code and its payment (§9)."
+  prepaidCodes: [PrepaidCode!]!
+}
+
+"A prepaid pass on sale (§9.1): its price is paid once, VAT included, for its months of the plan."
+type PrepaidPass {
+  id: ID!
+  market: MarketCode!
+  title: String!
+  plan: PlanCode!
+  months: Int!
+  price: Money!
+  "How long a code bought today can be activated, in months."
+  codeValidMonths: Int!
+  text: String!
+  terms: String!
+}
+
+enum PrepaidCodeState {
+  "Its payment is not settled yet."
+  PENDING
+  "It can be activated."
+  READY
+  ACTIVATED
+  "Not activated by its last day."
+  EXPIRED
+  "The payment provider declined its payment."
+  FAILED
+}
+
+"A prepaid pass's single-use code, as its buyer sees it (§9.1)."
+type PrepaidCode {
+  "The code to activate, or to give."
+  code: String!
+  passId: ID!
+  title: String!
+  plan: PlanCode!
+  market: MarketCode!
+  months: Int!
+  "What it cost, VAT included."
+  price: Money!
+  boughtAt: DateTime!
+  "The last day it can be activated, in the market's calendar."
+  validUntil: Date!
+  state: PrepaidCodeState!
+  payment: Payment!
+  "The day it was activated; null before. Who activated it is not shown: a code can be a gift."
+  activatedOn: Date
 }
 
 "Whether a price change asks for consent or tells in advance: the law of the listener's market (§8)."
@@ -309,8 +374,11 @@ type Subscription {
   "The next charge and its amount; null on the free plan, and when the subscription ends before it."
   nextBillingOn: Date
   nextCharge: Money
-  "The day the paid subscription ends if the listener does nothing more: after a no to a price change, or without the yes it needs (§8); from then on, the free plan. Null when it does not end."
+  "The day the paid subscription ends if the listener does nothing more: after a no to a price change, or without the yes it needs (§8), or when a prepaid pass's months run out (§9); from then on, the free plan. Null when it does not end."
   endsOn: Date
+  "A prepaid pass's subscription (§9): the code it was activated with, and what the pass cost; never charged (its price is zero, with no next charge) and never renewed. Null otherwise."
+  prepaidCode: String
+  prepaidPrice: Money
 }
 
 "A student verification (§10.2): valid from verifiedOn, until validUntil excluded."
@@ -380,6 +448,8 @@ enum RefusalCode {
   PAYMENT_DECLINED
   "A price change takes no other answer: it was answered already, or its window has ended."
   ANSWER_CLOSED
+  "A prepaid pass's code cannot be activated: its payment has not gone through, it has been used, or its time to be activated has ended."
+  CODE_NOT_USABLE
   "This cannot be done here now."
   NOT_AVAILABLE
 }
@@ -397,3 +467,16 @@ union VerificationResult = StudentVerification | Refusal
 union SubscriptionResult = Confirmation | Refusal
 
 union PriceChangeResult = PriceChange | Refusal
+
+"""
+A prepaid pass bought: its code, PENDING until the payment provider settles
+its payment. The code sits one level down so that a client asks for it next
+to a refusal's code without an alias.
+"""
+type PrepaidPurchase {
+  prepaidCode: PrepaidCode!
+}
+
+union PrepaidPurchaseResult = PrepaidPurchase | Refusal
+
+union PrepaidActivationResult = Subscription | Refusal

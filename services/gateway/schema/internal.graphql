@@ -83,10 +83,13 @@ type Mutation {
   createListPrice(listPrice: ListPriceInput!): ChangeResult!
   "A price migration (§8, §14.3): the commercial lead's alone (§12); finance always signs it (§7.3, conditions 1 and 5)."
   createPriceMigration(migration: PriceMigrationInput!): ChangeResult!
+  "A prepaid pass (§9, §14.4): the commercial lead's alone (§12); finance signs it, as a price (§7.3, condition 1)."
+  createPrepaidPass(pass: PrepaidPassInput!): ChangeResult!
   "A new version from the one the author started from; refused as STALE_VERSION when someone saved a newer one (§6.3)."
   saveOfferVersion(changeId: ID!, baseVersion: Int!, offer: OfferInput!): ChangeResult!
   saveListPriceVersion(changeId: ID!, baseVersion: Int!, listPrice: ListPriceInput!): ChangeResult!
   savePriceMigrationVersion(changeId: ID!, baseVersion: Int!, migration: PriceMigrationInput!): ChangeResult!
+  savePrepaidPassVersion(changeId: ID!, baseVersion: Int!, pass: PrepaidPassInput!): ChangeResult!
   validateChange(changeId: ID!, version: Int!): ChangeResult!
   "authorReason is required when the simulated contribution is negative (§7.3, condition 4)."
   submitChange(changeId: ID!, version: Int!, authorReason: String): ChangeResult!
@@ -375,7 +378,7 @@ type ChangeVersion {
   content: ChangeContent!
 }
 
-union ChangeContent = OfferContent | ListPriceContent | PriceMigrationContent
+union ChangeContent = OfferContent | ListPriceContent | PriceMigrationContent | PrepaidPassContent
 
 enum Segment {
   "People who have never paid."
@@ -467,6 +470,32 @@ type PriceMigrationContent {
   startsLocal: LocalDateTime!
 }
 
+"""
+A prepaid pass (§9, §14.4): months of a plan paid once, in advance, sold as
+a single-use code that can be given as a gift. It never renews, and price
+changes made after it was sold do not touch it. It goes on sale when the
+first of its periods starts, through its launch, as a list price does.
+"""
+type PrepaidPassContent {
+  title: String!
+  "The plan it gives, for its months."
+  plan: PlanCode!
+  months: Int!
+  "Its price in each market where it is sold, VAT included."
+  prices: [PrepaidPassPrice!]!
+  "When it is on sale in each market; no end: open."
+  periods: [OfferPeriod!]!
+  "How long a code sold can be activated: months from the day it was sold."
+  codeValidMonths: Int!
+  pages: [OfferPage!]!
+}
+
+"A prepaid pass's price in one market: a fixed price, VAT included."
+type PrepaidPassPrice {
+  market: MarketCode!
+  amount: Money!
+}
+
 input ListeningRuleInput {
   artistId: Int!
   minSeconds: Int!
@@ -532,6 +561,23 @@ input PriceMigrationInput {
   noticesLocal: LocalDateTime!
   "When new subscribers start paying it: not before noticesLocal."
   startsLocal: LocalDateTime!
+}
+
+input PrepaidPassInput {
+  title: String!
+  plan: PlanCode!
+  months: Int!
+  "A fixed price, VAT included, in each market where it is sold."
+  prices: [PrepaidPassPriceInput!]!
+  periods: [OfferPeriodInput!]!
+  "How long a code sold can be activated, in months from the day it was sold."
+  codeValidMonths: Int!
+  pages: [OfferPageInput!]!
+}
+
+input PrepaidPassPriceInput {
+  market: MarketCode!
+  amount: Money!
 }
 
 type Approval {
@@ -645,6 +691,28 @@ type Overview {
   monthlyTopUps: Money
   "1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026)."
   exchangeRateNote: String!
+  "The prepaid passes of each market, and their value sold and not yet earned on the day (§9.2). Finance only (§12.2)."
+  prepaid: [PrepaidValue!]
+  "That value in all, in euros at the declared rate. Finance only."
+  prepaidUnearnedEur: Money
+}
+
+"""
+The prepaid passes of a market and their value not yet earned (§9.2): a
+pass's net amount is earned in equal monthly parts from its activation, the
+last taking the remainder; a code not activated stays unearned until it
+expires.
+"""
+type PrepaidValue {
+  market: MarketCode!
+  "Codes paid for, of which activated, and expired unused."
+  sold: Int!
+  activated: Int!
+  expired: Int!
+  "Without VAT, in the market's currency."
+  unearned: Money!
+  "In euros at the declared rate (§3.6)."
+  unearnedEur: Money!
 }
 
 type MarketTime {

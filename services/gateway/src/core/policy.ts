@@ -64,6 +64,8 @@ export const INTERNAL_ACCESS: { readonly Query: Record<string, Access>; readonly
     saveOfferVersion: method("SaveVersion", "offer"),
     saveListPriceVersion: method("SaveVersion", "listPrice"),
     savePriceMigrationVersion: method("SaveVersion", "priceMigration"),
+    createPrepaidPass: method("CreateChange", "prepaid"),
+    savePrepaidPassVersion: method("SaveVersion", "prepaid"),
     validateChange: method("ValidateChange"),
     submitChange: method("SubmitChange"),
     approveChange: method("ApproveChange"),
@@ -90,7 +92,7 @@ export function actorFor(context: InternalContext, allowed: Allowed): Actor {
   return { id: viewer.personId, role };
 }
 
-const KIND_OF: Record<number, Kind | undefined> = { 1: "offer", 2: "listPrice", 4: "priceMigration" };
+const KIND_OF: Record<number, Kind | undefined> = { 1: "offer", 2: "listPrice", 4: "priceMigration", 5: "prepaid" };
 
 /**
  * The actor for a method whose roles depend on the change's kind. When the
@@ -182,6 +184,7 @@ export const PUBLIC_ACCESS: { readonly Query: Record<string, PublicAccess>; read
     plans: "anyone",
     prices: "anyone",
     offers: "anyone",
+    prepaidPasses: "anyone",
     demoListeners: "anyone",
     // Null without a session: asking who is signed in needs no session.
     me: "anyone",
@@ -193,6 +196,8 @@ export const PUBLIC_ACCESS: { readonly Query: Record<string, PublicAccess>; read
     signOutListener: "anyone",
     verifyStudent: "listener",
     answerPriceChange: "listener",
+    buyPrepaidPass: "listener",
+    activatePrepaidPass: "listener",
     confirmSubscription: "listener",
   },
 };

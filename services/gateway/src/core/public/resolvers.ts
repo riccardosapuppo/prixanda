@@ -15,7 +15,9 @@ import { type Refusal, RefusalCode } from "contracts/commerce/v1/common";
 import { type Confirmation, type Payment, PaymentSchema, PaymentState, PaymentStateSchema } from "contracts/commerce/v1/subscriptions";
 import { enumName, idOrNull, money, optionalMoney, orNull } from "../convert.ts";
 import { breach, gatewayError } from "../errors.ts";
-import type { AudioQuality, PaymentState as PublicPaymentState, PriceChangeKind, PriceChangeState, Resolvers } from "../generated/public.ts";
+import type {
+  AudioQuality, PaymentState as PublicPaymentState, PrepaidCodeState, PriceChangeKind, PriceChangeState, Resolvers,
+} from "../generated/public.ts";
 import { positiveId } from "../ids.ts";
 import type { PublicRefusalCode, PublicRefusalModel } from "../models.ts";
 import { listenerOf } from "../policy.ts";
@@ -25,6 +27,8 @@ const AUDIO = new Map<string, AudioQuality>([["standard", "STANDARD"], ["lossles
 
 /** A quote's id is the engine's and opaque; the gateway refuses only what cannot be one. */
 const QUOTE_ID = /^[A-Za-z0-9_-]{1,100}$/;
+/** So is a prepaid pass's code. */
+const PREPAID_CODE = /^[A-Za-z0-9_-]{1,100}$/;
 
 /**
  * What the site says for a refusal of the engine: its own code, and a
@@ -78,6 +82,24 @@ const ANSWER_REFUSALS = new Map<RefusalCode, Said>([
   [RefusalCode.WRONG_STATE, said("ANSWER_CLOSED", "This price change takes no other answer now: you answered it already, or the time to answer has ended.")],
 ]);
 
+/** Buying a prepaid pass (§9): the engine takes its price from the pass on sale in the buyer's market. */
+const PURCHASE_REFUSALS = new Map<RefusalCode, Said>([
+  [RefusalCode.NOT_ELIGIBLE, said("NOT_ELIGIBLE", "This pass is not sold in your market.")],
+]);
+
+/** Activating a code: the engine's WRONG_STATE is a code whose payment is pending or declined, or that was used, or that expired. */
+const ACTIVATION_REFUSALS = new Map<RefusalCode, Said>([
+  [RefusalCode.NOT_ELIGIBLE, said("NOT_ELIGIBLE", "This code is for a pass of another market.")],
+  [RefusalCode.ALREADY_SUBSCRIBED, said("ALREADY_SUBSCRIBED",
+    "A paid subscription of yours is already running: a prepaid pass can be activated once it has ended.")],
+  [RefusalCode.WRONG_STATE, said("CODE_NOT_USABLE",
+    "This code cannot be activated: its payment has not gone through, it has been used, or its time to be activated has ended.")],
+]);
+
+const PREPAID_CODE_STATES: Readonly<Record<string, PrepaidCodeState>> = {
+  pending: "PENDING", ready: "READY", activated: "ACTIVATED", expired: "EXPIRED", failed: "FAILED",
+};
+
 const PRICE_CHANGE_KINDS: Readonly<Record<string, PriceChangeKind>> = { consent: "CONSENT", notice: "NOTICE" };
 const PRICE_CHANGE_STATES: Readonly<Record<string, PriceChangeState>> = {
   waiting: "WAITING", accepted: "ACCEPTED", declined: "DECLINED", lapsed: "LAPSED", new_price: "NEW_PRICE",
@@ -129,6 +151,7 @@ export const publicResolvers: Resolvers = {
     prices: async (_root, { market, plan }, context) =>
       (await context.engine.catalog.getPriceList({ market, plan: plan ?? "" })).entries,
     offers: async (_root, { market }, context) => (await context.engine.catalog.listOffers({ market, at: "" })).offers,
+    prepaidPasses: async (_root, { market }, context) => (await context.engine.catalog.listPrepaidPasses({ market })).passes,
     // Without the site's sessions (in production) nobody can be chosen, so the entrance offers nobody.
     demoListeners: async (_root, _args, context) =>
       context.sessions === null ? [] : (await context.engine.subscribers.listDemoListeners({})).listeners,
@@ -188,6 +211,24 @@ export const publicResolvers: Resolvers = {
       if (answer.outcome.case === "priceChange") return answer.outcome.value;
       if (answer.outcome.case === "refusal") return refusal(ANSWER_REFUSALS, "This answer cannot be given here right now.", answer.outcome.value);
       return breach("AnswerPriceChange answered with neither a price change nor a refusal");
+    },
+    // The site names the pass and never its price: the engine takes it from
+    // the pass on sale in the listener's market (§4.5, §9).
+    buyPrepaidPass: async (_root, { passId }, context) => {
+      const id = positiveId(passId);
+      if (id === null) throw gatewayError("BAD_USER_INPUT", "passId is not the id of a prepaid pass");
+      const answer = await context.engine.subscribers.buyPrepaidPass({ passId: id });
+      if (answer.outcome.case === "code") return answer.outcome.value;
+      if (answer.outcome.case === "refusal") return refusal(PURCHASE_REFUSALS, "This pass cannot be bought here right now.", answer.outcome.value);
+      return breach("BuyPrepaidPass answered with neither a code nor a refusal");
+    },
+    // Whoever holds the code may activate it: it can be a gift. The listener is the session's.
+    activatePrepaidPass: async (_root, { code }, context) => {
+      if (!PREPAID_CODE.test(code)) throw gatewayError("BAD_USER_INPUT", "code is not the code of a prepaid pass");
+      const answer = await context.engine.subscribers.activatePrepaidPass({ code });
+      if (answer.outcome.case === "subscription") return answer.outcome.value;
+      if (answer.outcome.case === "refusal") return refusal(ACTIVATION_REFUSALS, "This code cannot be activated here right now.", answer.outcome.value);
+      return breach("ActivatePrepaidPass answered with neither a subscription nor a refusal");
     },
   },
 
@@ -286,6 +327,42 @@ export const publicResolvers: Resolvers = {
     payment: (account) => account.payment ?? null,
     studentVerification: (account) => account.studentVerification ?? null,
     priceChanges: (account) => account.priceChanges,
+    prepaidCodes: (account) => account.prepaidCodes,
+  },
+  PrepaidPass: {
+    id: (pass) => pass.passId,
+    market: (pass) => pass.market,
+    title: (pass) => pass.title,
+    plan: (pass) => pass.plan,
+    months: (pass) => pass.months,
+    price: (pass) => money(pass.price, `prepaid pass ${pass.passId}'s price`),
+    codeValidMonths: (pass) => pass.codeValidMonths,
+    text: (pass) => pass.text,
+    terms: (pass) => pass.terms,
+  },
+  // Who activated a code is not shown: the engine names a listener there, and a code can be a gift.
+  PrepaidCode: {
+    code: (code) => code.code,
+    passId: (code) => code.passId,
+    title: (code) => code.title,
+    plan: (code) => code.plan,
+    market: (code) => code.market,
+    months: (code) => code.months,
+    price: (code) => money(code.price, "a prepaid code's price"),
+    boughtAt: (code) => code.soldAt,
+    validUntil: (code) => code.validUntil,
+    state: (code) => lookup(PREPAID_CODE_STATES, code.state, "prepaid code state"),
+    payment: (code) => code.payment ?? breach("a prepaid code came without its payment"),
+    activatedOn: (code) => orNull(code.activatedOn),
+  },
+  PrepaidPurchase: {
+    prepaidCode: (code) => code,
+  },
+  PrepaidPurchaseResult: {
+    __resolveType: (result) => (result.$typeName === "gateway.PublicRefusal" ? "Refusal" : "PrepaidPurchase"),
+  },
+  PrepaidActivationResult: {
+    __resolveType: (result) => (result.$typeName === "gateway.PublicRefusal" ? "Refusal" : "Subscription"),
   },
   // Every date here is the engine's, worked out on the listener's own billing days: the site writes them as they are.
   PriceChange: {
@@ -323,6 +400,8 @@ export const publicResolvers: Resolvers = {
     nextBillingOn: (subscription) => orNull(subscription.nextBillingOn),
     nextCharge: (subscription) => optionalMoney(subscription.nextCharge),
     endsOn: (subscription) => orNull(subscription.endsOn),
+    prepaidCode: (subscription) => orNull(subscription.prepaidCode),
+    prepaidPrice: (subscription) => optionalMoney(subscription.prepaidPrice),
   },
   StudentVerification: {
     verifiedOn: (verification) => verification.verifiedOn,

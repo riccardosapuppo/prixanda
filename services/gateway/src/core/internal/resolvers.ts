@@ -5,7 +5,8 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import {
   ChangeKindSchema, ChangeStateSchema, type ListPriceContent, type ListPriceContentSchema, type OfferContent, type OfferContentSchema,
-  type PriceMigrationContent, type PriceMigrationContentSchema, SegmentSchema, SeveritySchema,
+  type PrepaidPassContent, type PrepaidPassContentSchema, type PriceMigrationContent, type PriceMigrationContentSchema, SegmentSchema,
+  SeveritySchema,
 } from "contracts/commerce/v1/changes";
 import { RefusalCodeSchema, RoleSchema } from "contracts/commerce/v1/common";
 import { LaunchStateSchema, LaunchStepStateSchema } from "contracts/commerce/v1/launches";
@@ -16,8 +17,8 @@ import {
 } from "../convert.ts";
 import { breach, contractBroken, gatewayError } from "../errors.ts";
 import type {
-  ActorRole, AfterWindow, AssumptionName, AudioQuality, IncidentKind, IncidentState, ListPriceInput, OfferInput, PriceChangeRequirement,
-  PriceMigrationInput, Resolvers, Role,
+  ActorRole, AfterWindow, AssumptionName, AudioQuality, IncidentKind, IncidentState, ListPriceInput, OfferInput, PrepaidPassInput,
+  PriceChangeRequirement, PriceMigrationInput, Resolvers, Role,
 } from "../generated/internal.ts";
 import { positiveId } from "../ids.ts";
 import type { ChangeModel, LaunchRunModel, RefusalModel } from "../models.ts";
@@ -113,6 +114,27 @@ function priceMigrationContent(input: PriceMigrationInput): MessageInitShape<typ
     amount: { amountMinor: input.amount.amountMinor, currency: input.amount.currency },
     noticesLocal: input.noticesLocal,
     startsLocal: input.startsLocal,
+  };
+}
+
+/**
+ * A prepaid pass as the console types it (§9, §14.4): a fixed price in each
+ * market, VAT included, which the input cannot write any other way; its
+ * periods and pages as an offer's.
+ */
+function prepaidPassContent(input: PrepaidPassInput): MessageInitShape<typeof PrepaidPassContentSchema> {
+  return {
+    title: input.title,
+    plan: input.plan,
+    months: input.months,
+    prices: input.prices.map((price) => ({
+      market: price.market, price: { case: "fixed" as const, value: { amountMinor: price.amount.amountMinor, currency: price.amount.currency } },
+    })),
+    periods: input.periods.map((period) => ({ market: period.market, startsLocal: period.startsLocal, endsLocal: period.endsLocal ?? "" })),
+    codeValidMonths: input.codeValidMonths,
+    pages: input.pages.map((page) => ({
+      market: page.market, title: page.title, text: page.text, terms: page.terms, treatment: page.treatment ?? "standard",
+    })),
   };
 }
 
@@ -297,6 +319,19 @@ export const internalResolvers: Resolvers = {
       const engine = context.engine(actorFor(context, METHOD_ROLES.SaveVersion.priceMigration));
       const saved = await engine.changes.saveVersion({
         changeId: about, baseVersion: version(baseVersion, "baseVersion"), content: { case: "priceMigration", value: priceMigrationContent(migration) },
+      });
+      return answer(saved.outcome, about, context);
+    },
+    createPrepaidPass: async (_root, { pass }, context) => {
+      const engine = context.engine(actorFor(context, METHOD_ROLES.CreateChange.prepaid));
+      const created = await engine.changes.createChange({ content: { case: "prepaid", value: prepaidPassContent(pass) } });
+      return answer(created.outcome, null, context);
+    },
+    savePrepaidPassVersion: async (_root, { changeId: id, baseVersion, pass }, context) => {
+      const about = changeId(id);
+      const engine = context.engine(actorFor(context, METHOD_ROLES.SaveVersion.prepaid));
+      const saved = await engine.changes.saveVersion({
+        changeId: about, baseVersion: version(baseVersion, "baseVersion"), content: { case: "prepaid", value: prepaidPassContent(pass) },
       });
       return answer(saved.outcome, about, context);
     },
@@ -498,13 +533,17 @@ export const internalResolvers: Resolvers = {
     fingerprint: (changeVersion) => hex(changeVersion.contentHash),
     content: (changeVersion) => {
       const content = changeVersion.content;
-      if (content.case === "offer" || content.case === "listPrice" || content.case === "priceMigration") return content.value;
+      if (content.case === "offer" || content.case === "listPrice" || content.case === "priceMigration" || content.case === "prepaid") {
+        return content.value;
+      }
       return breach(`version ${changeVersion.version} has no content the console's schema shows (${content.case ?? "none"})`);
     },
   },
   ChangeContent: {
-    __resolveType: (content: OfferContent | ListPriceContent | PriceMigrationContent) =>
-      ({ "commerce.v1.OfferContent": "OfferContent", "commerce.v1.ListPriceContent": "ListPriceContent", "commerce.v1.PriceMigrationContent": "PriceMigrationContent" } as const)[content.$typeName],
+    __resolveType: (content: OfferContent | ListPriceContent | PriceMigrationContent | PrepaidPassContent) => ({
+      "commerce.v1.OfferContent": "OfferContent", "commerce.v1.ListPriceContent": "ListPriceContent",
+      "commerce.v1.PriceMigrationContent": "PriceMigrationContent", "commerce.v1.PrepaidPassContent": "PrepaidPassContent",
+    } as const)[content.$typeName],
   },
   OfferContent: {
     title: (offer) => offer.title,
@@ -531,6 +570,21 @@ export const internalResolvers: Resolvers = {
     amount: (content) => money(content.amount, "a price migration"),
     noticesLocal: (content) => content.noticesLocal,
     startsLocal: (content) => content.startsLocal,
+  },
+  PrepaidPassContent: {
+    title: (pass) => pass.title,
+    plan: (pass) => pass.plan,
+    months: (pass) => pass.months,
+    prices: (pass) => pass.prices,
+    periods: (pass) => pass.periods,
+    codeValidMonths: (pass) => pass.codeValidMonths,
+    pages: (pass) => pass.pages,
+  },
+  // A pass's price is fixed (§9.1): a percentage would break the contract.
+  PrepaidPassPrice: {
+    market: (price) => price.market,
+    amount: (price) => (price.price.case === "fixed" ? money(price.price.value, `a prepaid pass's price in ${price.market}`)
+      : breach(`a prepaid pass's price in ${price.market} is not a fixed price`)),
   },
   MigrationProgress: {
     requirement: (progress) => lookup(REQUIREMENT, progress.requirement, "migration requirement"),
@@ -620,6 +674,16 @@ export const internalResolvers: Resolvers = {
     monthlyRevenueEur: (overview) => optionalMoney(overview.monthlyRevenueEur),
     monthlyTopUps: (overview) => optionalMoney(overview.monthlyTopUps),
     exchangeRateNote: (overview) => overview.exchangeRateNote,
+    prepaid: (overview) => overview.prepaid,
+    prepaidUnearnedEur: (overview) => optionalMoney(overview.prepaidUnearnedEur),
+  },
+  PrepaidValue: {
+    market: (row) => row.market,
+    sold: (row) => count(row.sold, `prepaid codes sold in ${row.market}`),
+    activated: (row) => count(row.activated, `prepaid codes activated in ${row.market}`),
+    expired: (row) => count(row.expired, `prepaid codes expired in ${row.market}`),
+    unearned: (row) => money(row.unearned, `prepaid value not yet earned in ${row.market}`),
+    unearnedEur: (row) => money(row.unearnedEur, `prepaid value not yet earned in ${row.market}, in euros`),
   },
   MarketTime: {
     market: (time) => time.market,

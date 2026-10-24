@@ -7,7 +7,7 @@ import type { DateValue } from '../scalars.ts';
 import type { MarketCodeValue } from '../scalars.ts';
 import type { PlanCodeValue } from '../scalars.ts';
 import type { GraphQLResolveInfo, GraphQLScalarType, GraphQLScalarTypeConfig } from 'graphql';
-import type { PublicMarketModel, PublicEntitlementsModel, PublicPriceBreakdownModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicPaymentModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel, PublicPriceChangeModel } from '../models.ts';
+import type { PublicMarketModel, PublicEntitlementsModel, PublicPriceBreakdownModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicPaymentModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel, PublicPriceChangeModel, PublicPrepaidPassModel, PublicPrepaidCodeModel, PublicPrepaidPurchaseModel } from '../models.ts';
 import type { PublicContext } from '../context.ts';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
@@ -46,6 +46,8 @@ export type Query = {
   readonly prices: ReadonlyArray<ListPrice>;
   /** The offers on sale now in a market: shown if and only if their prices are in force (§7.5). */
   readonly offers: ReadonlyArray<Offer>;
+  /** The prepaid passes on sale now in a market (§9): months of a plan paid once, sold as a code to keep or to give. */
+  readonly prepaidPasses: ReadonlyArray<PrepaidPass>;
   /** The demo's listeners, for the site's entrance: invented people with simulated data. Needs no session. */
   readonly demoListeners: ReadonlyArray<DemoListener>;
   /** The listener signed in on this browser, with their account; null when nobody is. */
@@ -65,6 +67,11 @@ export type QueryPricesArgs = {
 
 
 export type QueryOffersArgs = {
+  market: Scalars['MarketCode']['input'];
+};
+
+
+export type QueryPrepaidPassesArgs = {
   market: Scalars['MarketCode']['input'];
 };
 
@@ -97,6 +104,21 @@ export type Mutation = {
    * the same; another answer, or one after the window, is refused.
    */
   readonly answerPriceChange: PriceChangeResult;
+  /**
+   * Buys a prepaid pass for the session's listener, to keep or to give (§9):
+   * a demonstration, with the simulated payment provider. The price is the
+   * engine's, as the pass is on sale in the listener's market. The code comes
+   * back PENDING with its payment, and is READY once the payment succeeded:
+   * read me { account { prepaidCodes } } again until it is not PENDING.
+   */
+  readonly buyPrepaidPass: PrepaidPurchaseResult;
+  /**
+   * Activates a prepaid pass's code for the session's listener, who may have
+   * bought it or been given it: the pass's plan from today for its months,
+   * never charged and never renewed, then the free plan. The same code again
+   * comes back the same.
+   */
+  readonly activatePrepaidPass: PrepaidActivationResult;
 };
 
 
@@ -120,6 +142,16 @@ export type MutationConfirmSubscriptionArgs = {
 export type MutationAnswerPriceChangeArgs = {
   priceChangeId: Scalars['ID']['input'];
   accept: Scalars['Boolean']['input'];
+};
+
+
+export type MutationBuyPrepaidPassArgs = {
+  passId: Scalars['ID']['input'];
+};
+
+
+export type MutationActivatePrepaidPassArgs = {
+  code: Scalars['String']['input'];
 };
 
 export type Market = {
@@ -268,6 +300,55 @@ export type Account = {
   readonly studentVerification?: Maybe<StudentVerification>;
   /** The price changes of the running subscription, the latest first (§8). */
   readonly priceChanges: ReadonlyArray<PriceChange>;
+  /** The prepaid passes this listener bought, the latest first, each with its code and its payment (§9). */
+  readonly prepaidCodes: ReadonlyArray<PrepaidCode>;
+};
+
+/** A prepaid pass on sale (§9.1): its price is paid once, VAT included, for its months of the plan. */
+export type PrepaidPass = {
+  readonly __typename?: 'PrepaidPass';
+  readonly id: Scalars['ID']['output'];
+  readonly market: Scalars['MarketCode']['output'];
+  readonly title: Scalars['String']['output'];
+  readonly plan: Scalars['PlanCode']['output'];
+  readonly months: Scalars['Int']['output'];
+  readonly price: Scalars['Money']['output'];
+  /** How long a code bought today can be activated, in months. */
+  readonly codeValidMonths: Scalars['Int']['output'];
+  readonly text: Scalars['String']['output'];
+  readonly terms: Scalars['String']['output'];
+};
+
+export type PrepaidCodeState =
+  /** Its payment is not settled yet. */
+  | 'PENDING'
+  /** It can be activated. */
+  | 'READY'
+  | 'ACTIVATED'
+  /** Not activated by its last day. */
+  | 'EXPIRED'
+  /** The payment provider declined its payment. */
+  | 'FAILED';
+
+/** A prepaid pass's single-use code, as its buyer sees it (§9.1). */
+export type PrepaidCode = {
+  readonly __typename?: 'PrepaidCode';
+  /** The code to activate, or to give. */
+  readonly code: Scalars['String']['output'];
+  readonly passId: Scalars['ID']['output'];
+  readonly title: Scalars['String']['output'];
+  readonly plan: Scalars['PlanCode']['output'];
+  readonly market: Scalars['MarketCode']['output'];
+  readonly months: Scalars['Int']['output'];
+  /** What it cost, VAT included. */
+  readonly price: Scalars['Money']['output'];
+  readonly boughtAt: Scalars['DateTime']['output'];
+  /** The last day it can be activated, in the market's calendar. */
+  readonly validUntil: Scalars['Date']['output'];
+  readonly state: PrepaidCodeState;
+  readonly payment: Payment;
+  /** The day it was activated; null before. Who activated it is not shown: a code can be a gift. */
+  readonly activatedOn?: Maybe<Scalars['Date']['output']>;
 };
 
 /** Whether a price change asks for consent or tells in advance: the law of the listener's market (§8). */
@@ -345,8 +426,11 @@ export type Subscription = {
   /** The next charge and its amount; null on the free plan, and when the subscription ends before it. */
   readonly nextBillingOn?: Maybe<Scalars['Date']['output']>;
   readonly nextCharge?: Maybe<Scalars['Money']['output']>;
-  /** The day the paid subscription ends if the listener does nothing more: after a no to a price change, or without the yes it needs (§8); from then on, the free plan. Null when it does not end. */
+  /** The day the paid subscription ends if the listener does nothing more: after a no to a price change, or without the yes it needs (§8), or when a prepaid pass's months run out (§9); from then on, the free plan. Null when it does not end. */
   readonly endsOn?: Maybe<Scalars['Date']['output']>;
+  /** A prepaid pass's subscription (§9): the code it was activated with, and what the pass cost; never charged (its price is zero, with no next charge) and never renewed. Null otherwise. */
+  readonly prepaidCode?: Maybe<Scalars['String']['output']>;
+  readonly prepaidPrice?: Maybe<Scalars['Money']['output']>;
 };
 
 /** A student verification (§10.2): valid from verifiedOn, until validUntil excluded. */
@@ -419,6 +503,8 @@ export type RefusalCode =
   | 'PAYMENT_DECLINED'
   /** A price change takes no other answer: it was answered already, or its window has ended. */
   | 'ANSWER_CLOSED'
+  /** A prepaid pass's code cannot be activated: its payment has not gone through, it has been used, or its time to be activated has ended. */
+  | 'CODE_NOT_USABLE'
   /** This cannot be done here now. */
   | 'NOT_AVAILABLE';
 
@@ -436,6 +522,20 @@ export type VerificationResult = StudentVerification | Refusal;
 export type SubscriptionResult = Confirmation | Refusal;
 
 export type PriceChangeResult = PriceChange | Refusal;
+
+/**
+ * A prepaid pass bought: its code, PENDING until the payment provider settles
+ * its payment. The code sits one level down so that a client asks for it next
+ * to a refusal's code without an alias.
+ */
+export type PrepaidPurchase = {
+  readonly __typename?: 'PrepaidPurchase';
+  readonly prepaidCode: PrepaidCode;
+};
+
+export type PrepaidPurchaseResult = PrepaidPurchase | Refusal;
+
+export type PrepaidActivationResult = Subscription | Refusal;
 
 
 
@@ -524,6 +624,14 @@ export type ResolversUnionTypes<_RefType extends Record<string, unknown>> = {
     | ( PublicPriceChangeModel )
     | ( PublicRefusalModel )
   ;
+  PrepaidPurchaseResult:
+    | ( PublicPrepaidPurchaseModel )
+    | ( PublicRefusalModel )
+  ;
+  PrepaidActivationResult:
+    | ( PublicSubscriptionModel )
+    | ( PublicRefusalModel )
+  ;
 };
 
 
@@ -539,8 +647,8 @@ export type ResolversTypes = {
   Mutation: ResolverTypeWrapper<Record<PropertyKey, never>>;
   ID: ResolverTypeWrapper<Scalars['ID']['output']>;
   Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
-  Market: ResolverTypeWrapper<PublicMarketModel>;
   String: ResolverTypeWrapper<Scalars['String']['output']>;
+  Market: ResolverTypeWrapper<PublicMarketModel>;
   Int: ResolverTypeWrapper<Scalars['Int']['output']>;
   PriceBreakdown: ResolverTypeWrapper<PublicPriceBreakdownModel>;
   AudioQuality: AudioQuality;
@@ -553,6 +661,9 @@ export type ResolversTypes = {
   DemoListener: ResolverTypeWrapper<PublicDemoListenerModel>;
   Me: ResolverTypeWrapper<PublicMeModel>;
   Account: ResolverTypeWrapper<PublicAccountModel>;
+  PrepaidPass: ResolverTypeWrapper<PublicPrepaidPassModel>;
+  PrepaidCodeState: PrepaidCodeState;
+  PrepaidCode: ResolverTypeWrapper<PublicPrepaidCodeModel>;
   PriceChangeKind: PriceChangeKind;
   PriceChangeState: PriceChangeState;
   PriceChange: ResolverTypeWrapper<PublicPriceChangeModel>;
@@ -568,6 +679,9 @@ export type ResolversTypes = {
   VerificationResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['VerificationResult']>;
   SubscriptionResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['SubscriptionResult']>;
   PriceChangeResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['PriceChangeResult']>;
+  PrepaidPurchase: ResolverTypeWrapper<PublicPrepaidPurchaseModel>;
+  PrepaidPurchaseResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['PrepaidPurchaseResult']>;
+  PrepaidActivationResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['PrepaidActivationResult']>;
 };
 
 /** Mapping between all available schema types and the resolvers parents */
@@ -582,8 +696,8 @@ export type ResolversParentTypes = {
   Mutation: Record<PropertyKey, never>;
   ID: Scalars['ID']['output'];
   Boolean: Scalars['Boolean']['output'];
-  Market: PublicMarketModel;
   String: Scalars['String']['output'];
+  Market: PublicMarketModel;
   Int: Scalars['Int']['output'];
   PriceBreakdown: PublicPriceBreakdownModel;
   Entitlements: PublicEntitlementsModel;
@@ -595,6 +709,8 @@ export type ResolversParentTypes = {
   DemoListener: PublicDemoListenerModel;
   Me: PublicMeModel;
   Account: PublicAccountModel;
+  PrepaidPass: PublicPrepaidPassModel;
+  PrepaidCode: PublicPrepaidCodeModel;
   PriceChange: PublicPriceChangeModel;
   Subscription: PublicSubscriptionModel;
   StudentVerification: PublicStudentVerificationModel;
@@ -606,6 +722,9 @@ export type ResolversParentTypes = {
   VerificationResult: ResolversUnionTypes<ResolversParentTypes>['VerificationResult'];
   SubscriptionResult: ResolversUnionTypes<ResolversParentTypes>['SubscriptionResult'];
   PriceChangeResult: ResolversUnionTypes<ResolversParentTypes>['PriceChangeResult'];
+  PrepaidPurchase: PublicPrepaidPurchaseModel;
+  PrepaidPurchaseResult: ResolversUnionTypes<ResolversParentTypes>['PrepaidPurchaseResult'];
+  PrepaidActivationResult: ResolversUnionTypes<ResolversParentTypes>['PrepaidActivationResult'];
 };
 
 export interface MoneyScalarConfig extends GraphQLScalarTypeConfig<ResolversTypes['Money'], any> {
@@ -637,6 +756,7 @@ export type QueryResolvers<ContextType = PublicContext, ParentType extends Resol
   plans: Resolver<ReadonlyArray<ResolversTypes['Plan']>, ParentType, ContextType, RequireFields<QueryPlansArgs, 'market'>>;
   prices: Resolver<ReadonlyArray<ResolversTypes['ListPrice']>, ParentType, ContextType, RequireFields<QueryPricesArgs, 'market'>>;
   offers: Resolver<ReadonlyArray<ResolversTypes['Offer']>, ParentType, ContextType, RequireFields<QueryOffersArgs, 'market'>>;
+  prepaidPasses: Resolver<ReadonlyArray<ResolversTypes['PrepaidPass']>, ParentType, ContextType, RequireFields<QueryPrepaidPassesArgs, 'market'>>;
   demoListeners: Resolver<ReadonlyArray<ResolversTypes['DemoListener']>, ParentType, ContextType>;
   me: Resolver<Maybe<ResolversTypes['Me']>, ParentType, ContextType>;
 };
@@ -648,6 +768,8 @@ export type MutationResolvers<ContextType = PublicContext, ParentType extends Re
   verifyStudent: Resolver<ResolversTypes['VerificationResult'], ParentType, ContextType>;
   confirmSubscription: Resolver<ResolversTypes['SubscriptionResult'], ParentType, ContextType, RequireFields<MutationConfirmSubscriptionArgs, 'quoteId'>>;
   answerPriceChange: Resolver<ResolversTypes['PriceChangeResult'], ParentType, ContextType, RequireFields<MutationAnswerPriceChangeArgs, 'priceChangeId' | 'accept'>>;
+  buyPrepaidPass: Resolver<ResolversTypes['PrepaidPurchaseResult'], ParentType, ContextType, RequireFields<MutationBuyPrepaidPassArgs, 'passId'>>;
+  activatePrepaidPass: Resolver<ResolversTypes['PrepaidActivationResult'], ParentType, ContextType, RequireFields<MutationActivatePrepaidPassArgs, 'code'>>;
 };
 
 export type MarketResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Market'] = ResolversParentTypes['Market']> = {
@@ -752,6 +874,34 @@ export type AccountResolvers<ContextType = PublicContext, ParentType extends Res
   payment: Resolver<Maybe<ResolversTypes['Payment']>, ParentType, ContextType>;
   studentVerification: Resolver<Maybe<ResolversTypes['StudentVerification']>, ParentType, ContextType>;
   priceChanges: Resolver<ReadonlyArray<ResolversTypes['PriceChange']>, ParentType, ContextType>;
+  prepaidCodes: Resolver<ReadonlyArray<ResolversTypes['PrepaidCode']>, ParentType, ContextType>;
+};
+
+export type PrepaidPassResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['PrepaidPass'] = ResolversParentTypes['PrepaidPass']> = {
+  id: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  market: Resolver<ResolversTypes['MarketCode'], ParentType, ContextType>;
+  title: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  plan: Resolver<ResolversTypes['PlanCode'], ParentType, ContextType>;
+  months: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  price: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  codeValidMonths: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  text: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  terms: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+};
+
+export type PrepaidCodeResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['PrepaidCode'] = ResolversParentTypes['PrepaidCode']> = {
+  code: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  passId: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  title: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  plan: Resolver<ResolversTypes['PlanCode'], ParentType, ContextType>;
+  market: Resolver<ResolversTypes['MarketCode'], ParentType, ContextType>;
+  months: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  price: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  boughtAt: Resolver<ResolversTypes['DateTime'], ParentType, ContextType>;
+  validUntil: Resolver<ResolversTypes['Date'], ParentType, ContextType>;
+  state: Resolver<ResolversTypes['PrepaidCodeState'], ParentType, ContextType>;
+  payment: Resolver<ResolversTypes['Payment'], ParentType, ContextType>;
+  activatedOn: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
 };
 
 export type PriceChangeResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['PriceChange'] = ResolversParentTypes['PriceChange']> = {
@@ -788,6 +938,9 @@ export type SubscriptionResolvers<ContextType = PublicContext, ParentType extend
   nextBillingOn: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
   nextCharge: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
   endsOn: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
+  prepaidCode: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  prepaidPrice: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
+  __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
 };
 
 export type StudentVerificationResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['StudentVerification'] = ResolversParentTypes['StudentVerification']> = {
@@ -845,6 +998,19 @@ export type PriceChangeResultResolvers<ContextType = PublicContext, ParentType e
   __resolveType: TypeResolveFn<'PriceChange' | 'Refusal', ParentType, ContextType>;
 };
 
+export type PrepaidPurchaseResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['PrepaidPurchase'] = ResolversParentTypes['PrepaidPurchase']> = {
+  prepaidCode: Resolver<ResolversTypes['PrepaidCode'], ParentType, ContextType>;
+  __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
+};
+
+export type PrepaidPurchaseResultResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['PrepaidPurchaseResult'] = ResolversParentTypes['PrepaidPurchaseResult']> = {
+  __resolveType: TypeResolveFn<'PrepaidPurchase' | 'Refusal', ParentType, ContextType>;
+};
+
+export type PrepaidActivationResultResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['PrepaidActivationResult'] = ResolversParentTypes['PrepaidActivationResult']> = {
+  __resolveType: TypeResolveFn<'Subscription' | 'Refusal', ParentType, ContextType>;
+};
+
 export type Resolvers<ContextType = PublicContext> = {
   Money: GraphQLScalarType;
   LocalDateTime: GraphQLScalarType;
@@ -865,6 +1031,8 @@ export type Resolvers<ContextType = PublicContext> = {
   DemoListener: DemoListenerResolvers<ContextType>;
   Me: MeResolvers<ContextType>;
   Account: AccountResolvers<ContextType>;
+  PrepaidPass: PrepaidPassResolvers<ContextType>;
+  PrepaidCode: PrepaidCodeResolvers<ContextType>;
   PriceChange: PriceChangeResolvers<ContextType>;
   Subscription: SubscriptionResolvers<ContextType>;
   StudentVerification: StudentVerificationResolvers<ContextType>;
@@ -876,5 +1044,8 @@ export type Resolvers<ContextType = PublicContext> = {
   VerificationResult: VerificationResultResolvers<ContextType>;
   SubscriptionResult: SubscriptionResultResolvers<ContextType>;
   PriceChangeResult: PriceChangeResultResolvers<ContextType>;
+  PrepaidPurchase: PrepaidPurchaseResolvers<ContextType>;
+  PrepaidPurchaseResult: PrepaidPurchaseResultResolvers<ContextType>;
+  PrepaidActivationResult: PrepaidActivationResultResolvers<ContextType>;
 };
 

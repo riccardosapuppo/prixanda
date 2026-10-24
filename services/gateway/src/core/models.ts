@@ -3,18 +3,20 @@
 // messages, as the contract defines them; a few small shapes of the gateway's
 // where a type has no message of its own.
 import type { AuditEvent, ChainHead, VerifyChainResponse } from "contracts/commerce/v1/audit";
-import type { Entitlements, Market, Plan, PriceBreakdown, PriceChangePolicy, PriceListEntry, PublishedOffer } from "contracts/commerce/v1/catalog";
+import type {
+  Entitlements, Market, Plan, PrepaidPassOnSale, PriceBreakdown, PriceChangePolicy, PriceListEntry, PublishedOffer,
+} from "contracts/commerce/v1/catalog";
 import type {
   Approval, Audience, Change, ChangeSummary, ChangeVersion, ListeningRule, ListPriceContent, MigrationProgress, OfferContent, OfferPage,
-  OfferPeriod, OfferPrice, PriceMigrationContent, RequiredSignature, ValidationFinding, ValidationReport,
+  OfferPeriod, OfferPrice, PrepaidPassContent, PriceMigrationContent, RequiredSignature, ValidationFinding, ValidationReport,
 } from "contracts/commerce/v1/changes";
 import type { LocalTime, Refusal } from "contracts/commerce/v1/common";
 import type { LaunchIncident, LaunchRun, LaunchStep } from "contracts/commerce/v1/launches";
-import type { GetOverviewResponse, Incident, Launch, MarketRevenue, Person, SubscriberCount } from "contracts/commerce/v1/overview";
+import type { GetOverviewResponse, Incident, Launch, MarketRevenue, Person, PrepaidValue, SubscriberCount } from "contracts/commerce/v1/overview";
 import type { Quote } from "contracts/commerce/v1/quotes";
 import type { Assumption, FinanceCondition, MigrationSimulation, PriceStep, SimulationResult, Totals } from "contracts/commerce/v1/simulation";
 import type {
-  Account, Confirmation, DemoListener, Payment, PriceChange, Receipt, StudentVerification, Subscription,
+  Account, Confirmation, DemoListener, Payment, PrepaidCode, PriceChange, Receipt, StudentVerification, Subscription,
 } from "contracts/commerce/v1/subscriptions";
 import type { Listener, SessionInfo } from "./context.ts";
 
@@ -78,6 +80,10 @@ export type MigrationProgressModel = MigrationProgress;
 export type PriceMigrationContentModel = PriceMigrationContent;
 export type PriceStepModel = PriceStep;
 export type MigrationSimulationModel = MigrationSimulation;
+export type PrepaidPassContentModel = PrepaidPassContent;
+/** A prepaid pass's price in one market: the contract's OfferPrice, always fixed for a pass. */
+export type PrepaidPassPriceModel = OfferPrice;
+export type PrepaidValueModel = PrepaidValue;
 
 // The site's schema: the same messages, read through fewer fields.
 export type PublicMarketModel = Market;
@@ -99,6 +105,10 @@ export type PublicReceiptModel = Receipt;
 /** The engine's confirmation: its payment, or, from an engine that charged at the confirmation, only its receipt. */
 export type PublicConfirmationModel = Confirmation;
 export type PublicPriceChangeModel = PriceChange;
+export type PublicPrepaidPassModel = PrepaidPassOnSale;
+export type PublicPrepaidCodeModel = PrepaidCode;
+/** A purchase is the code the engine answered with, one level down (PrepaidPurchase.prepaidCode). */
+export type PublicPrepaidPurchaseModel = PrepaidCode;
 /** A refusal as the site may say it: a public code, and a sentence written for a visitor. */
 export type PublicRefusalModel = {
   readonly $typeName: "gateway.PublicRefusal";
@@ -107,4 +117,4 @@ export type PublicRefusalModel = {
 };
 export type PublicRefusalCode =
   | "OFFER_ENDED" | "QUOTE_EXPIRED" | "NOT_ELIGIBLE" | "ALREADY_SUBSCRIBED" | "NOT_COMBINABLE" | "CAP_REACHED" | "PAYMENT_DECLINED" | "ANSWER_CLOSED"
-  | "NOT_AVAILABLE";
+  | "CODE_NOT_USABLE" | "NOT_AVAILABLE";
