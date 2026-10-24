@@ -11,7 +11,7 @@ the console's schema at all:
 
 | | Schema | Port | For |
 |---|---|---|---|
-| Console's API | `schema/internal.graphql` | 4621 | changes, approvals, simulations, the audit log, the home's numbers |
+| Console's API | `schema/internal.graphql` | 4621 | changes, approvals, simulations, launches, the audit log, the home's numbers |
 | Site's API | `schema/public.graphql` | 4622 | markets, plans, list prices, offers on sale, quotes; the demo's listeners, a student verification, a subscription, the account |
 
 Both answer at `/graphql`, with `/health` next to it.
@@ -208,6 +208,32 @@ refusal on operations that have an outcome, `FORBIDDEN` on reads. The revenue
 fields of the home (`monthlyRevenue`, `monthlyRevenueEur`, `monthlyTopUps`)
 are for finance and the commercial lead only; the other roles get
 `FORBIDDEN` on those fields and the rest of the home.
+
+## Launches
+
+Since stage 6 the engine activates a scheduled change through a launch: a
+job of five steps (check, prepare, publish, notify, verify), each in a
+transaction of its own, begun a minute before the start and resumed where it
+stopped after a fault. The console's schema reads them and acts on them:
+
+- `launches(filter: { state, changeId }, first, after)`: newest first, by
+  keyset on the launch's id (the cursor is the engine's, opaque here);
+- `launch(id)`: one launch with its steps (state, attempts, times, error,
+  facts), its cause, the live catalog snapshot before and after it
+  published, its resolution, the sequence numbers of the audit events it
+  wrote (`auditEventSeqs`, which `auditEvents` finds) and its incidents. A
+  page of launches carries no steps and no audit events;
+- `retryLaunch(launchId, reason)` and `cancelLaunch(launchId, reason)`: the
+  on-call engineer's alone (§12: "retry or cancel a launch that stopped"),
+  with an Idempotency-Key; cancelling needs a reason, and a launch that has
+  not published (its change is cancelled with it). Every other role gets a
+  `ROLE_NOT_ALLOWED` refusal before the engine hears anything.
+
+Every role reads the launches. The home's incidents carry their launch
+(`launchId`, null for a late start the engine has not begun to launch), their
+kind (`LATE`, `FAILED`, `REFUSED`), when they opened and closed, and how
+(`resolution`); an incident is `OPEN`, `RECOVERED` (its launch went through
+on its own) or `RESOLVED` (a person retried or cancelled it).
 
 ## Sessions, CSRF and CORS
 

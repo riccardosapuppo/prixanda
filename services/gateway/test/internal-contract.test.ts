@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { ChangeKindSchema, ChangeStateSchema, SegmentSchema, SeveritySchema } from "contracts/commerce/v1/changes";
 import { RefusalCodeSchema, RoleSchema } from "contracts/commerce/v1/common";
+import { LaunchStateSchema, LaunchStepStateSchema } from "contracts/commerce/v1/launches";
 import { buildSchema, getNamedType, isEnumType, isUnionType } from "graphql";
 import { bindResolvers } from "../src/core/bind.ts";
 import { internalSdl } from "../src/core/generated/sdl.ts";
@@ -26,6 +27,9 @@ const OPERATIONS = [
   "Query.simulateOffer(changeId: ID!, version: Int!, market: MarketCode!, overrides: [AssumptionInput!]): SimulationOutcome!",
   "Query.auditEvents(filter: AuditFilter, first: Int!, after: String): AuditPage!",
   "Query.verifyAuditChain(anchor: ChainHeadInput): ChainVerification!",
+  // Stage 6: the launches, for the console's history of them.
+  "Query.launches(filter: LaunchFilter, first: Int!, after: String): LaunchPage!",
+  "Query.launch(id: ID!): LaunchRun",
   "Mutation.signIn(personId: ID!): Session!",
   "Mutation.signOut: Boolean!",
   "Mutation.createOffer(offer: OfferInput!): ChangeResult!",
@@ -40,6 +44,8 @@ const OPERATIONS = [
   "Mutation.cancelChange(changeId: ID!, reason: String!): ChangeResult!",
   "Mutation.suspendChange(changeId: ID!, reason: String!): ChangeResult!",
   "Mutation.exportAuditHead: ExportHeadResult!",
+  "Mutation.retryLaunch(launchId: ID!, reason: String): LaunchResult!",
+  "Mutation.cancelLaunch(launchId: ID!, reason: String!): LaunchResult!",
 ];
 
 describe("the console's schema", () => {
@@ -56,8 +62,8 @@ describe("the console's schema", () => {
 
   test("answers every mutation that reaches the engine with a union that holds a typed Refusal", () => {
     const mutations = Object.values(schema.getMutationType()?.getFields() ?? {}).filter((field) => !["signIn", "signOut"].includes(field.name));
-    // Create (2), save (2), validate, submit, approve, reject, schedule, cancel, suspend, export.
-    assert.equal(mutations.length, 12);
+    // Create (2), save (2), validate, submit, approve, reject, schedule, cancel, suspend, export; retry and cancel a launch.
+    assert.equal(mutations.length, 14);
     for (const field of mutations) {
       const result = getNamedType(field.type);
       assert.ok(isUnionType(result) && result.getTypes().some((member) => member.name === "Refusal"), field.name);
@@ -67,7 +73,8 @@ describe("the console's schema", () => {
   test("has the engine's enums, value for value", () => {
     const pairs = [
       ["Role", RoleSchema], ["ChangeKind", ChangeKindSchema], ["ChangeState", ChangeStateSchema], ["Segment", SegmentSchema],
-      ["Severity", SeveritySchema], ["RefusalCode", RefusalCodeSchema],
+      ["Severity", SeveritySchema], ["RefusalCode", RefusalCodeSchema], ["LaunchState", LaunchStateSchema],
+      ["LaunchStepState", LaunchStepStateSchema],
     ] as const;
     for (const [name, desc] of pairs) {
       const type = schema.getType(name);

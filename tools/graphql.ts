@@ -36,6 +36,7 @@ const SCHEMAS = {
       "OfferPrice", "OfferPeriod", "OfferPage", "Approval", "RequiredSignature", "Fact", "ValidationFinding",
       "ValidationReport", "Refusal", "Overview", "MarketTime", "Launch", "Incident", "SubscriberCount", "MarketRevenue",
       "Assumption", "Totals", "FinanceCondition", "Simulation", "AuditEvent", "AuditPage", "ChainHead", "ChainVerification",
+      "LaunchPage", "LaunchRun", "LaunchStep", "LaunchIncident",
     ],
     scalars: ["Money", "LocalDateTime", "DateTime", "MarketCode", "PlanCode", "Sha256"],
   },

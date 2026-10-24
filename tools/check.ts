@@ -315,7 +315,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 46, coreFiles: 19, generated: 3, schemaTests: 21, tests: 185, dataloaderOffers: 25, integrationTests: 8, integrationAuditEvents: 7,
+  files: 47, coreFiles: 19, generated: 3, schemaTests: 21, tests: 193, dataloaderOffers: 25, integrationTests: 8, integrationAuditEvents: 7,
 };
 
 /**

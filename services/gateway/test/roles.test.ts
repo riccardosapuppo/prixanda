@@ -71,6 +71,11 @@ const TABLE: Record<string, string[] | { offer: string[]; listPrice: string[] }>
   ListEvents: ALL,
   VerifyChain: ["auditor", "on_call"],
   ExportHead: ["auditor"],
+  // Stage 6 (launches.proto): every role reads the launches, only on_call retries or cancels one.
+  ListLaunches: ALL,
+  GetLaunch: ALL,
+  RetryLaunch: ["on_call"],
+  CancelLaunch: ["on_call"],
 };
 
 const sorted = (roles: readonly string[]) => [...roles].sort();
@@ -115,10 +120,15 @@ describe("the role matrix", () => {
       assert.ok(!may(method, "on_call"), `the on-call engineer cannot ${method}`);
     }
     const auditorMay = Object.keys(matrix).filter((method) => may(method, "auditor")).sort();
-    assert.deepEqual(auditorMay, ["BatchGetChanges", "ExportHead", "GetChange", "GetOverview", "ListChanges", "ListEvents", "VerifyChain"],
-      "the auditor reads and exports, and changes nothing");
+    assert.deepEqual(auditorMay, [
+      "BatchGetChanges", "ExportHead", "GetChange", "GetLaunch", "GetOverview", "ListChanges", "ListEvents", "ListLaunches", "VerifyChain",
+    ], "the auditor reads and exports, and changes nothing");
     assert.ok(may("ApproveChange", "finance") && may("ApproveChange", "commercial_lead"));
     assert.ok(!may("ScheduleChange", "finance"), "finance approves but does not schedule");
+    // "Retry or cancel a launch that stopped": the on-call engineer's, and nobody else's.
+    for (const method of ["RetryLaunch", "CancelLaunch"]) {
+      assert.deepEqual(ALL.filter((role) => may(method, role)), ["on_call"], method);
+    }
   });
 
   test("lets finance and the commercial lead, and nobody else, read revenue", () => {
@@ -151,10 +161,13 @@ describe("the role matrix", () => {
   });
 
   test("covers every method of the contract: public, the subscriber's, or in the matrix, exactly one of them", () => {
-    const contract = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService, SubscriberService]
-      .flatMap((service) => service.methods.map((method) => method.name));
-    // Catalog 4, Change 12, Quote 1, Simulation 1, Audit 3, Overview 1, People 1, Subscriber 4.
-    assert.equal(contract.length, 27, "the contract's methods were all read");
+    const services = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService, SubscriberService, LaunchService];
+    const contract = services.flatMap((service) => service.methods.map((method) => method.name));
+    // Catalog 4, Change 12, Quote 1, Simulation 1, Audit 3, Overview 1, People 1, Subscriber 4, Launch 4.
+    assert.equal(contract.length, 31, "the contract's methods were all read");
+    // The gateway binds a client to every service of the contract, and engineCalls() refuses a method no list names.
+    assert.deepEqual((Object.values(SERVICES) as unknown[]).length, services.length);
+    for (const service of services) assert.ok((Object.values(SERVICES) as unknown[]).includes(service), service.typeName);
     assert.deepEqual([...PUBLIC_METHODS].sort(), ["GetPriceList", "GetQuote", "ListDemoListeners", "ListMarkets", "ListOffers", "ListPeople", "ListPlans"]);
     // The brief of stage 5: these act for the listener of the site's session, with no x-actor.
     assert.deepEqual([...SUBSCRIBER_METHODS].sort(), ["ConfirmQuote", "GetAccount", "VerifyStudent"]);
@@ -166,16 +179,6 @@ describe("the role matrix", () => {
     assert.deepEqual(listed.filter((method) => !contract.includes(method)), [], "the lists name no method the contract lacks");
   });
 
-  test("leaves the launch service of stage 6 to a later round: in the contract, not served, and in none of the lists", () => {
-    // The console's schema exposes ListLaunches, GetLaunch, RetryLaunch and
-    // CancelLaunch later; until then the gateway binds no client to them, and
-    // adding one without its roles stops engineCalls() (src/core/engine.ts).
-    const launches = LaunchService.methods.map((method) => method.name);
-    assert.deepEqual(launches.sort(), ["CancelLaunch", "GetLaunch", "ListLaunches", "RetryLaunch"]);
-    assert.ok(!(Object.values(SERVICES) as unknown[]).includes(LaunchService));
-    const listed: string[] = [...PUBLIC_METHODS, ...SUBSCRIBER_METHODS, ...Object.keys(matrix)];
-    assert.deepEqual(launches.filter((method) => listed.includes(method)), []);
-  });
 });
 
 describe("a person holding two roles acts in the one the operation needs", () => {

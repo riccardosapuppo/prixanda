@@ -13,6 +13,7 @@ import { type CallOptions, type Client, Code, ConnectError, createClient, type T
 import { AuditService } from "contracts/commerce/v1/audit";
 import { CatalogService } from "contracts/commerce/v1/catalog";
 import { ChangeService } from "contracts/commerce/v1/changes";
+import { LaunchService } from "contracts/commerce/v1/launches";
 import { OverviewService, PeopleService } from "contracts/commerce/v1/overview";
 import { QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
@@ -29,6 +30,7 @@ export const SERVICES = {
   overview: OverviewService,
   people: PeopleService,
   subscribers: SubscriberService,
+  launches: LaunchService,
 } as const;
 
 type Services = typeof SERVICES;
@@ -45,6 +47,7 @@ export function createEngineClient(transport: Transport): EngineClient {
     overview: createClient(OverviewService, transport),
     people: createClient(PeopleService, transport),
     subscribers: createClient(SubscriberService, transport),
+    launches: createClient(LaunchService, transport),
   };
 }
 
@@ -52,11 +55,13 @@ export function createEngineClient(transport: Transport): EngineClient {
  * The methods that change something carry an idempotency key, and the engine
  * refuses them without one (the engine's behaviour 2): ChangeService's
  * writes, GetQuote, which saves a quote, ExportHead, which writes
- * audit.exported, and the subscriber's VerifyStudent and ConfirmQuote.
+ * audit.exported, the subscriber's VerifyStudent and ConfirmQuote, and the
+ * on-call engineer's RetryLaunch and CancelLaunch.
  */
 export const IDEMPOTENT_METHODS = [
   "CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange",
   "ScheduleChange", "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent", "ConfirmQuote",
+  "RetryLaunch", "CancelLaunch",
 ] as const;
 
 export type Actor = { readonly id: string; readonly role: RoleName };
