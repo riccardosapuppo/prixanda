@@ -1,6 +1,7 @@
 // The engine and the gateway together, on the Student Autumn Pass of the
 // business book's §14.1, from a draft to the subscription of a student on the
-// site.
+// site; then, on the same engine a week later, the Family price in Germany of
+// §14.3 and a prepaid pass of §14.4.
 //
 // Run by tools/check.ts (suite integration), which hands it a database cloned
 // from the migrated template and filled with the small generated data (seed
@@ -52,6 +53,23 @@ const CHANGE = `__typename ... on Change { id state currentVersion sentence crea
   ... on Refusal { code reason facts { name value } }`;
 
 const SUBSCRIPTION = "plan market paid price startedOn billingDay offerTitle offerMonths offerMonthsLeft fullPriceFrom fullPrice nextBillingOn nextCharge";
+
+/** §14.3: the Family plan in Germany from €18.99 to €20.99, asked on 2 November at 09:00 in Berlin, for new subscribers from 1 December. */
+const MIGRATION = {
+  title: "Family price in Germany", plan: "family", market: "DE", amount: { amountMinor: "2099", currency: "EUR" },
+  noticesLocal: "2026-11-02T09:00", startsLocal: "2026-12-01T00:00",
+};
+/** 09:00 in Berlin on 2 November is 08:00 UTC. */
+const PAST_THE_NOTICES = "2026-11-02T08:00:05Z";
+/** §9.1, §14.4: three months of Individual in Italy, €29.99, on sale from 3 November at 09:00 in Rome. */
+const PASS = {
+  title: "Three-month gift pass", plan: "individual", months: 3, prices: [{ market: "IT", amount: { amountMinor: "2999", currency: "EUR" } }],
+  periods: [{ market: "IT", startsLocal: "2026-11-03T09:00" }], codeValidMonths: 12,
+  pages: [{ market: "IT", title: "Three-month gift pass", text: "Three months of Individual, paid once: a code to keep, or to give.", terms: "A single-use code. It never renews." }],
+};
+const PAST_THE_SALE = "2026-11-03T08:00:05Z";
+const STEP = "price net artists paymentCosts contribution";
+const PREPAID_VALUE = "{ overview { prepaid { market sold activated expired unearned unearnedEur } prepaidUnearnedEur } }";
 const PAYMENT = "state amount provider requestedAt settledAt receipt { amount provider providerReference demonstration note }";
 const EUR = (amountMinor: string) => ({ amountMinor, currency: "EUR" });
 
@@ -64,6 +82,17 @@ type Engine = {
   at(instant: string): Promise<void>;
   stop(): Promise<number | null>;
 };
+
+/** Asks until `done` holds, every 100 ms, for 20 s at most. */
+async function eventually<T>(ask: () => Promise<T>, done: (value: T) => boolean, what: string): Promise<T> {
+  const asked = performance.now();
+  for (;;) {
+    const value = await ask();
+    if (done(value)) return value;
+    if (performance.now() - asked > 20_000) throw new Error(`${what}: not in 20 s; last ${JSON.stringify(value)}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
 
 async function startEngine(token: string): Promise<Engine> {
   const env: NodeJS.ProcessEnv = {};
@@ -180,6 +209,14 @@ const state = {
   auditEvents: 0,
   /** What the student of step h pays, as the engine confirmed it and the log has it. */
   subscription: null as null | { price: string; months: number; fullPrice: string; fullPriceFrom: string; payment: string; logged: boolean },
+  /** §14.3: the migration's change, and the subscribers its start asked for consent (step k). */
+  migrationId: "",
+  migration: null as null | { asked: number; waiting: number; answered: string },
+  /** §14.4: the pass's change, its code, and finance's value not yet earned in Italy before and after its activation (steps l, m). */
+  passId: "",
+  code: "",
+  buyerId: "",
+  prepaid: null as null | { unearnedBefore: string; unearnedAfter: string; activated: boolean },
 };
 
 function client(endpoint: "internal" | "public"): Client {
@@ -195,7 +232,7 @@ function requestId(step: string): string {
   return id;
 }
 
-describe("the Student Autumn Pass through the engine and the gateway (§14.1)", () => {
+describe("the Student Autumn Pass (§14.1), then the Family price in Germany (§14.3) and a prepaid pass (§14.4), through the engine and the gateway", () => {
   before(async () => {
     assert.ok(DATABASE_URL.startsWith("postgresql://"), "INTEGRATION_DATABASE_URL names the database tools/check.ts prepared");
     await assertPortsFree([PORTS.engineCheck, PORTS.gatewayCheckInternal, PORTS.gatewayCheckPublic]);
@@ -522,5 +559,232 @@ describe("the Student Autumn Pass through the engine and the gateway (§14.1)", 
     assert.equal(activated?.requestId, launch.run);
     assert.ok(launch.auditEventSeqs.includes(activated?.seq), `${JSON.stringify(launch.auditEventSeqs)} names the activation, event ${activated?.seq}`);
     state.launchSteps = launch.steps.length;
+  });
+
+  test("j. the commercial lead writes the Family price in Germany; its simulation has the book's numbers; finance approves it and the commercial lead schedules it", async () => {
+    const created = await people.lead.graphql(`mutation ($m: PriceMigrationInput!) { createPriceMigration(migration: $m) { ${CHANGE} ... on Change { kind } } }`, {
+      variables: { m: MIGRATION }, headers: { "x-request-id": requestId("migration-create") },
+    });
+    const change = created.body.data.createPriceMigration;
+    assert.equal(change.__typename, "Change", created.text);
+    assert.deepEqual({ kind: change.kind, state: change.state, author: change.createdBy.id }, { kind: "PRICE_MIGRATION", state: "DRAFT", author: "commercial-lead-1" });
+    state.migrationId = change.id;
+    const validated = await people.lead.graphql(`mutation ($id: ID!) { validateChange(changeId: $id, version: 1) { ${CHANGE} } }`, { variables: { id: state.migrationId } });
+    const valid = validated.body.data.validateChange;
+    assert.equal(valid.state, "VALIDATED", validated.text);
+    assert.ok(valid.validation.eligible >= 1, `the Family subscribers in Germany, counted in the data: ${valid.validation.eligible}`);
+    // §7.3: finance signs a price migration, for conditions 1 and 5.
+    const [signature, ...others] = valid.requiredSignatures as Array<{ role: string; conditions: number[]; signed: boolean }>;
+    assert.deepEqual([others, signature?.role, signature?.signed], [[], "FINANCE", false]);
+    assert.deepEqual([...(signature?.conditions ?? [])].sort(), [1, 5]);
+
+    // §8.7 with the book's assumptions typed: 8,412 subscribers, 93% acceptance.
+    const simulated = await people.finance.graphql(`query ($id: ID!) { simulateMigration(changeId: $id, overrides: [{ name: EXISTING, value: 8412 }, { name: ACCEPTANCE, value: 9300 }]) {
+      __typename ... on MigrationSimulation { before { ${STEP} } after { ${STEP} } newSubscribersFrom { local utc } noticesFrom { local utc } windowEnds { local utc }
+        existing accepting notAccepting movingToFree monthlyRevenueChange monthlyContributionChange revenueAtRiskMonthly
+        breakEvenAcceptanceRevenueBasisPoints breakEvenAcceptanceContributionBasisPoints prepaidPassesUntouched assumptions { name value source }
+        financeConditions { number met } }
+      ... on Refusal { code reason } } }`, { variables: { id: state.migrationId } });
+    const simulation = simulated.body.data.simulateMigration;
+    assert.equal(simulation.__typename, "MigrationSimulation", simulated.text);
+    assert.deepEqual({ before: simulation.before, after: simulation.after }, {
+      before: { price: EUR("1899"), net: EUR("1596"), artists: EUR("958"), paymentCosts: EUR("34"), contribution: EUR("604") },
+      after: { price: EUR("2099"), net: EUR("1764"), artists: EUR("1058"), paymentCosts: EUR("38"), contribution: EUR("668") },
+    });
+    assert.deepEqual({
+      existing: simulation.existing, accepting: simulation.accepting, notAccepting: simulation.notAccepting, movingToFree: simulation.movingToFree,
+      revenue: simulation.monthlyRevenueChange, contribution: simulation.monthlyContributionChange, atRisk: simulation.revenueAtRiskMonthly,
+      breakEven: [simulation.breakEvenAcceptanceRevenueBasisPoints, simulation.breakEvenAcceptanceContributionBasisPoints],
+    }, {
+      existing: 8412, accepting: 7823, notAccepting: 589, movingToFree: 589, revenue: EUR("374220"), contribution: EUR("144916"), atRisk: EUR("940044"),
+      breakEven: [9048, 9042],
+    });
+    assert.deepEqual({ notices: simulation.noticesFrom, window: simulation.windowEnds, newSubscribers: simulation.newSubscribersFrom }, {
+      notices: { local: "2026-11-02T09:00", utc: "2026-11-02T08:00:00Z" }, window: { local: "2026-12-17T23:59", utc: "2026-12-17T22:59:00Z" },
+      newSubscribers: { local: "2026-12-01T00:00", utc: "2026-11-30T23:00:00Z" },
+    });
+    assert.deepEqual(simulation.assumptions.map((assumption: { name: string; value: number; source: string }) => [assumption.name, assumption.value, /^typed by finance at /.test(assumption.source)]),
+      [["EXISTING", 8412, true], ["ACCEPTANCE", 9300, true]]);
+    assert.deepEqual(simulation.financeConditions.filter((condition: { met: boolean }) => condition.met).map((condition: { number: number }) => condition.number), [1, 5]);
+
+    const submitted = await people.lead.graphql(`mutation ($id: ID!) { submitChange(changeId: $id, version: 1) { ${CHANGE} } }`, { variables: { id: state.migrationId } });
+    assert.equal(submitted.body.data?.submitChange?.state, "IN_APPROVAL", submitted.text);
+    const approved = await people.finance.graphql(`mutation ($id: ID!, $fp: Sha256!) { approveChange(changeId: $id, version: 1, fingerprint: $fp) { ${CHANGE} } }`, {
+      variables: { id: state.migrationId, fp: change.current.fingerprint },
+    });
+    assert.equal(approved.body.data?.approveChange?.state, "APPROVED", approved.text);
+    // Marketing schedules campaigns, not migrations: the engine refuses it by the change's kind (§12).
+    const byMarketing = await people.marketing.graphql(`mutation ($id: ID!) { scheduleChange(changeId: $id) { ${CHANGE} } }`, { variables: { id: state.migrationId } });
+    assert.equal(byMarketing.body.data.scheduleChange.code, "ROLE_NOT_ALLOWED", byMarketing.text);
+    const scheduled = await people.lead.graphql(`mutation ($id: ID!) { scheduleChange(changeId: $id) { ${CHANGE} } }`, { variables: { id: state.migrationId } });
+    assert.equal(scheduled.body.data?.scheduleChange?.state, "SCHEDULED", scheduled.text);
+  });
+
+  test("k. past 09:00 in Berlin on 2 November the migration starts: the Family subscriber of the demo reads the request for consent with the engine's dates, and says yes", async () => {
+    assert.ok(engine);
+    await engine.at(PAST_THE_NOTICES);
+    const progress = "state migration { requirement windowEnds { local utc } asked waiting accepted declined lapsed newPrice left }";
+    const read = async () => (await people.auditor.graphql(`query ($id: ID!) { change(id: $id) { ${progress} } }`, { variables: { id: state.migrationId } })).body.data.change;
+    const started = await eventually(read, (change) => change.state === "ACTIVE" && (change.migration?.asked ?? 0) > 0, "the migration's start");
+    const migration = started.migration;
+    assert.deepEqual({ requirement: migration.requirement, windowEnds: migration.windowEnds }, {
+      requirement: "CONSENT", windowEnds: { local: "2026-12-17T23:59", utc: "2026-12-17T22:59:00Z" },
+    });
+    // Nobody answered yet: every subscriber asked is waiting.
+    assert.deepEqual([migration.waiting, migration.accepted, migration.declined, migration.lapsed, migration.newPrice, migration.left],
+      [migration.asked, 0, 0, 0, 0, 0]);
+
+    // On the site, the demo's Family subscriber in Germany, billed on the 15th since June 2025.
+    const site = client("public");
+    const entrance = (await site.graphql("{ demoListeners { id title market plan } }")).body.data.demoListeners as Array<{ id: string; title: string; market: string; plan: string }>;
+    const family = entrance.find((listener) => listener.title === "Family subscriber in Germany");
+    assert.ok(family, JSON.stringify(entrance));
+    assert.deepEqual([family.market, family.plan], ["DE", "family"]);
+    await site.signInAsListener(family.id);
+    const fields = `id kind state oldPrice newPrice sentAt windowEnds { local utc } newSubscribersFrom { local utc } newPriceFrom appliesFrom ifNoLeavesOn leavesOn ifNoAnswer legalBasis`;
+    const account = await site.graphql(`{ me { account { subscription { price billingDay nextBillingOn nextCharge endsOn } priceChanges { ${fields} } } } }`);
+    assert.equal(account.body.errors, undefined, account.text);
+    const [asked, ...older] = account.body.data.me.account.priceChanges;
+    assert.deepEqual(older, []);
+    assert.ok(asked.sentAt >= "2026-11-02T08:00:00Z", asked.sentAt);
+    assert.deepEqual({ ...asked, id: undefined, sentAt: undefined, ifNoAnswer: undefined, legalBasis: undefined }, {
+      id: undefined, kind: "CONSENT", state: "WAITING", oldPrice: EUR("1899"), newPrice: EUR("2099"), sentAt: undefined,
+      windowEnds: { local: "2026-12-17T23:59", utc: "2026-12-17T22:59:00Z" }, newSubscribersFrom: { local: "2026-12-01T00:00", utc: "2026-11-30T23:00:00Z" },
+      // A yes today: the first charge from tomorrow, not before new subscribers pay it. Without one: the first billing day on or
+      // after the deadline, so that the month paid for is never cut short.
+      newPriceFrom: null, appliesFrom: "2026-12-15", ifNoLeavesOn: "2027-01-15", leavesOn: null,
+      ifNoAnswer: undefined, legalBasis: undefined,
+    });
+    assert.match(asked.ifNoAnswer, /not a legal requirement/);
+    assert.match(asked.legalBasis, /Sources: /);
+    // The subscription says when it ends if nothing more is done; November is charged at the old price.
+    assert.deepEqual(account.body.data.me.account.subscription, {
+      price: EUR("1899"), billingDay: 15, nextBillingOn: "2026-11-15", nextCharge: EUR("1899"), endsOn: "2027-01-15",
+    });
+
+    const answer = `mutation ($id: ID!, $yes: Boolean!) { answerPriceChange(priceChangeId: $id, accept: $yes) { __typename
+      ... on PriceChange { state newPriceFrom appliesFrom ifNoLeavesOn leavesOn } ... on Refusal { code reason } } }`;
+    const yes = await site.graphql(answer, { variables: { id: asked.id, yes: true }, headers: { "x-request-id": requestId("consent") } });
+    assert.deepEqual(yes.body.data.answerPriceChange, {
+      __typename: "PriceChange", state: "ACCEPTED", newPriceFrom: "2026-12-15", appliesFrom: null, ifNoLeavesOn: null, leavesOn: null,
+    }, yes.text);
+    const again = await site.graphql(answer, { variables: { id: asked.id, yes: true } });
+    assert.deepEqual(again.body.data.answerPriceChange, yes.body.data.answerPriceChange, "the same answer again comes back the same");
+    const no = await site.graphql(answer, { variables: { id: asked.id, yes: false } });
+    assert.deepEqual(no.body.data.answerPriceChange, {
+      __typename: "Refusal", code: "ANSWER_CLOSED", reason: "This price change takes no other answer now: you answered it already, or the time to answer has ended.",
+    }, "the answer stays, in the site's words");
+    const after = (await site.graphql("{ me { account { subscription { nextBillingOn nextCharge endsOn } } } }")).body.data.me.account.subscription;
+    assert.deepEqual(after, { nextBillingOn: "2026-11-15", nextCharge: EUR("1899"), endsOn: null }, "it no longer ends");
+
+    // The console counts the yes, and the log has it, by the subscriber, with the site's request id.
+    const counted = await read();
+    assert.deepEqual([counted.migration.accepted, counted.migration.waiting], [1, migration.asked - 1]);
+    const logged = await people.auditor.graphql(`{ auditEvents(filter: { action: "price_change.answered" }, first: 10) { nodes { actor actorRole requestId } } }`);
+    const event = (logged.body.data.auditEvents.nodes as Array<{ actor: string; actorRole: string; requestId: string }>).find((candidate) => candidate.requestId === state.requestIds["consent"]);
+    assert.deepEqual({ actor: event?.actor, role: event?.actorRole }, { actor: `subscriber-${family.id}`, role: "SUBSCRIBER" }, logged.text);
+    state.migration = { asked: migration.asked, waiting: migration.waiting, answered: "yes" };
+  });
+
+  test("l. a prepaid pass: the commercial lead writes it, finance approves it, its launch puts it on sale; the verified student buys one, and once paid its code is ready", async () => {
+    assert.ok(engine);
+    const created = await people.lead.graphql(`mutation ($p: PrepaidPassInput!) { createPrepaidPass(pass: $p) { ${CHANGE} ... on Change { kind } } }`, {
+      variables: { p: PASS }, headers: { "x-request-id": requestId("pass-create") },
+    });
+    const change = created.body.data.createPrepaidPass;
+    assert.equal(change.__typename, "Change", created.text);
+    assert.equal(change.kind, "PREPAID");
+    state.passId = change.id;
+    const validated = await people.lead.graphql(`mutation ($id: ID!) { validateChange(changeId: $id, version: 1) { ${CHANGE} } }`, { variables: { id: state.passId } });
+    assert.equal(validated.body.data?.validateChange?.state, "VALIDATED", validated.text);
+    assert.deepEqual(validated.body.data.validateChange.requiredSignatures.map((signature: { role: string; conditions: number[] }) => [signature.role, signature.conditions]),
+      [["FINANCE", [1]]], "a pass is a price: finance signs it for condition 1");
+    const submitted = await people.lead.graphql(`mutation ($id: ID!) { submitChange(changeId: $id, version: 1) { ${CHANGE} } }`, { variables: { id: state.passId } });
+    assert.equal(submitted.body.data?.submitChange?.state, "IN_APPROVAL", submitted.text);
+    const approved = await people.finance.graphql(`mutation ($id: ID!, $fp: Sha256!) { approveChange(changeId: $id, version: 1, fingerprint: $fp) { ${CHANGE} } }`, {
+      variables: { id: state.passId, fp: change.current.fingerprint },
+    });
+    assert.equal(approved.body.data?.approveChange?.state, "APPROVED", approved.text);
+    const scheduled = await people.lead.graphql(`mutation ($id: ID!) { scheduleChange(changeId: $id) { ${CHANGE} } }`, { variables: { id: state.passId } });
+    assert.equal(scheduled.body.data?.scheduleChange?.state, "SCHEDULED", scheduled.text);
+
+    // Past 09:00 in Rome on 3 November its launch puts it on sale, and the site lists it.
+    const site = client("public");
+    await engine.at(PAST_THE_SALE);
+    const onSale = await eventually(async () => (await site.graphql('{ prepaidPasses(market: "IT") { id title plan months price codeValidMonths terms } }')).body.data.prepaidPasses as Array<{ id: string }>,
+      (passes) => passes.some((pass) => pass.id === state.passId), "the pass on sale");
+    assert.deepEqual(onSale.find((pass) => pass.id === state.passId), {
+      id: state.passId, title: "Three-month gift pass", plan: "individual", months: 3, price: EUR("2999"), codeValidMonths: 12, terms: "A single-use code. It never renews.",
+    });
+
+    const buyer = client("public");
+    const entrance = (await buyer.graphql("{ demoListeners { id title } }")).body.data.demoListeners as Array<{ id: string; title: string }>;
+    const student = entrance.find((listener) => listener.title === "Student in Italy, verified");
+    assert.ok(student);
+    state.buyerId = student.id;
+    await buyer.signInAsListener(student.id);
+    const bought = await buyer.graphql(`mutation ($p: ID!) { buyPrepaidPass(passId: $p) { __typename
+      ... on PrepaidPurchase { prepaidCode { code passId state validUntil price boughtAt payment { state amount } } } ... on Refusal { code reason } } }`, {
+      variables: { p: state.passId }, headers: { "x-request-id": requestId("pass-buy") },
+    });
+    const purchase = bought.body.data.buyPrepaidPass;
+    assert.equal(purchase.__typename, "PrepaidPurchase", bought.text);
+    const code = purchase.prepaidCode;
+    assert.match(code.code, /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/);
+    // Sold on 3 November for 12 months: it can be activated until 2 November 2027.
+    assert.deepEqual({ passId: code.passId, state: code.state, validUntil: code.validUntil, price: code.price, payment: code.payment }, {
+      passId: state.passId, state: "PENDING", validUntil: "2027-11-02", price: EUR("2999"), payment: { state: "PENDING", amount: EUR("2999") },
+    });
+    state.code = code.code;
+    // The provider's event settles its payment through the engine's outbox, as for a subscription: the code is ready.
+    const codes = await eventually(async () => (await buyer.graphql("{ me { account { prepaidCodes { code state payment { state receipt { demonstration } } } } } }")).body.data.me.account.prepaidCodes as Array<{ code: string; state: string }>,
+      (list) => list[0]?.state !== "PENDING", "the code's payment");
+    assert.deepEqual(codes, [{ code: state.code, state: "READY", payment: { state: "SUCCEEDED", receipt: { demonstration: true } } }]);
+  });
+
+  test("m. finance reads the value not yet earned; given to the student not yet verified, the code is activated, and its first month is earned that day", async () => {
+    const before = await people.finance.graphql(PREPAID_VALUE);
+    assert.equal(before.body.errors, undefined, before.text);
+    const italyBefore = before.body.data.overview.prepaid.find((row: { market: string }) => row.market === "IT");
+    // The Italian pass, net €24.58, not activated yet: all of it unearned (§9.2).
+    assert.deepEqual(italyBefore, { market: "IT", sold: 1, activated: 0, expired: 0, unearned: EUR("2458"), unearnedEur: EUR("2458") }, before.text);
+    // The commercial lead reads revenue, not this: the engine leaves it out, and the gateway says so (§12.2).
+    const lead = await people.lead.graphql(PREPAID_VALUE);
+    assert.deepEqual(codes(lead), ["FORBIDDEN", "FORBIDDEN"], lead.text);
+
+    const friend = client("public");
+    const entrance = (await friend.graphql("{ demoListeners { id title } }")).body.data.demoListeners as Array<{ id: string; title: string }>;
+    const unverified = entrance.find((listener) => listener.title === "Student in Italy, not verified yet");
+    assert.ok(unverified);
+    await friend.signInAsListener(unverified.id);
+    const activate = `mutation ($c: String!) { activatePrepaidPass(code: $c) { __typename ... on Subscription { ${SUBSCRIPTION} endsOn prepaidCode prepaidPrice } ... on Refusal { code reason } } }`;
+    const activated = await friend.graphql(activate, { variables: { c: state.code }, headers: { "x-request-id": requestId("pass-activate") } });
+    const subscription = activated.body.data.activatePrepaidPass;
+    assert.equal(subscription.__typename, "Subscription", activated.text);
+    // Individual from 3 November for three months, never charged: then the free plan, from 3 February 2027.
+    assert.deepEqual(subscription, {
+      __typename: "Subscription", plan: "individual", market: "IT", paid: true, price: EUR("0"), startedOn: "2026-11-03", billingDay: null,
+      offerTitle: null, offerMonths: 0, offerMonthsLeft: 0, fullPriceFrom: null, fullPrice: null, nextBillingOn: null, nextCharge: null,
+      endsOn: "2027-02-03", prepaidCode: state.code, prepaidPrice: EUR("2999"),
+    });
+    // Typed again, as people type it: the same answer.
+    const again = await friend.graphql(activate, { variables: { c: state.code.toLowerCase().replaceAll("-", " ") } });
+    assert.deepEqual(again.body.data.activatePrepaidPass, subscription);
+
+    const after = await people.finance.graphql(PREPAID_VALUE);
+    const italyAfter = after.body.data.overview.prepaid.find((row: { market: string }) => row.market === "IT");
+    // €24.58 is earned as €8.19, €8.19 and €8.20 from the activation: €16.39 is left.
+    assert.deepEqual(italyAfter, { market: "IT", sold: 1, activated: 1, expired: 0, unearned: EUR("1639"), unearnedEur: EUR("1639") }, after.text);
+    assert.deepEqual(after.body.data.overview.prepaidUnearnedEur, EUR("1639"));
+    // The log: sold by the student who bought it, activated by the one it was given to, each with the site's request id.
+    const logged = async (action: string) => (await people.auditor.graphql("query ($a: String!) { auditEvents(filter: { action: $a }, first: 20) { nodes { actor subject requestId } } }", {
+      variables: { a: action },
+    })).body.data.auditEvents.nodes as Array<{ actor: string; subject: string; requestId: string }>;
+    const sold = (await logged("prepaid.sold")).find((event) => event.requestId === state.requestIds["pass-buy"]);
+    const used = (await logged("prepaid.activated")).find((event) => event.requestId === state.requestIds["pass-activate"]);
+    assert.ok(sold && used, "the purchase and the activation are in the log, with the site's request ids");
+    assert.deepEqual([sold.subject === used.subject, /^prepaid:\d+$/.test(sold.subject)], [true, true]);
+    assert.deepEqual([sold.actor, used.actor], [`subscriber-${state.buyerId}`, `subscriber-${unverified.id}`], "bought by one listener, activated by another");
+    state.prepaid = { unearnedBefore: italyBefore.unearned.amountMinor, unearnedAfter: italyAfter.unearned.amountMinor, activated: true };
   });
 });

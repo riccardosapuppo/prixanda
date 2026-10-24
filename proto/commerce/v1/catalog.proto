@@ -14,6 +14,9 @@ service CatalogService {
   // The offers the published catalog holds now: the site shows an offer if and
   // only if its prices are in force (§7.5).
   rpc ListOffers(ListOffersRequest) returns (ListOffersResponse);
+  // The prepaid passes on sale in a market now (§9): those whose change is
+  // active and whose period in the market holds the instant.
+  rpc ListPrepaidPasses(ListPrepaidPassesRequest) returns (ListPrepaidPassesResponse);
 }
 
 message Market {
@@ -28,6 +31,34 @@ message Market {
   // every month (§5.3), and the lowest price that covers it without a top-up (§5.4).
   Money artists_minimum = 7;
   Money floor = 8;
+  // What happens before an existing subscriber pays more (§8).
+  PriceChangePolicy price_change_policy = 9;
+}
+
+// Two questions never mixed (§8.1): what the law of the market requires before
+// an existing subscriber pays a higher price, with its sources; and what the
+// music service chose to do, a setting of the market and never law (§8.6).
+message PriceChangePolicy {
+  string market = 1;
+  // The law. consent: the subscriber must say yes, and silence is no (§8.2);
+  // notice: the subscriber is told in advance and may leave before the new
+  // price applies (§8.3 to §8.5).
+  string legal_requirement = 2;
+  string legal_basis = 3;
+  repeated string legal_sources = 4;
+  // The choices. How long the subscriber has: to consent, or before the new
+  // price applies after the notice.
+  int32 window_days = 5;
+  // What happens at the end of the window to those who did not consent
+  // (consent markets): move_to_free, end_at_period_end or keep_old_price; to
+  // those who did not leave (notice markets): new_price.
+  string after_window = 6;
+  // The same choice in words, as the subscriber reads it.
+  string commercial_choice = 7;
+  // The other choices the market could make.
+  repeated string alternatives = 8;
+  // "Rione's choice, configurable per market. Not a legal requirement."
+  string label = 9;
 }
 
 message ListMarketsRequest {}
@@ -137,4 +168,28 @@ message ListOffersRequest {
 
 message ListOffersResponse {
   repeated PublishedOffer offers = 1;
+}
+
+message ListPrepaidPassesRequest {
+  string market = 1;
+}
+
+// A prepaid pass the site sells (§9.1): its price is paid once, VAT included,
+// for its months of the plan.
+message PrepaidPassOnSale {
+  // The change that put it on sale.
+  int64 pass_id = 1 [jstype = JS_STRING];
+  string market = 2;
+  string title = 3;
+  string plan = 4;
+  int32 months = 5;
+  Money price = 6;
+  // How long a code sold today can be activated, in months.
+  int32 code_valid_months = 7;
+  string text = 8;
+  string terms = 9;
+}
+
+message ListPrepaidPassesResponse {
+  repeated PrepaidPassOnSale passes = 1;
 }

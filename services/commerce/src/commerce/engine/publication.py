@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from commerce.domain.localtime import format_instant, format_local, parse_instant, to_instant
-from commerce.domain.offers import Offer, from_json
+from commerce.domain.offers import Offer, PrepaidPass, from_json
 from commerce.domain.sentence import audience_words
 from commerce.engine import outbox, records, reference
 from commerce.engine.call import Clock
@@ -171,7 +171,7 @@ class Publisher:
         await self.lock(tx)
         now = await self.publication_time(tx, now)
         change = await records.lock_change(tx, change_id)
-        if change.state != "active" or change.kind != "offer":
+        if change.state != "active" or change.kind not in ("offer", "prepaid"):
             return Outcome(change_id, "skipped")
         await tx.execute("update change set state = 'ended', updated_at = $2::text::timestamptz where id = $1",
                          change.id, format_instant(now))
@@ -199,12 +199,12 @@ async def _zones(db: Database, now: datetime) -> dict[str, str]:
 
 
 async def end_due(db: Database, clock: Clock, publisher: Publisher) -> list[Outcome]:
-    """Ends every active offer whose periods are all over, and publishes the catalog without it."""
+    """Ends every active offer, and every prepaid pass, whose periods are all over, and publishes the catalog."""
     now = clock.now()
     zones = await _zones(db, now)
     outcomes = []
     for change_id, content in await _changes_in(db, "active"):
-        if not isinstance(content, Offer):
+        if not isinstance(content, (Offer, PrepaidPass)):
             continue
         ends = [p.ends for p in content.periods]
         if not ends or any(e is None for e in ends):

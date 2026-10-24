@@ -263,11 +263,11 @@ live is still protected one by one: a subscriber holds at most one offer of
 a group, and confirming a quote for a second one is refused with
 NOT_COMBINABLE (§10.3).
 
-§6.5 **The difference, in business words.** Before anyone approves, Box
-Office states the change as a sentence, in this shape: "Italy, Student: from
-€5.79 to €2.99 for 3 months, new subscribers only; N eligible; conflicts:
-none." N, the number of eligible people, is counted in the data when the
-sentence is written, never typed by the author.
+§6.5 **The difference, in business words.** Before anyone approves, Plancia
+states the change as a sentence, in this shape: "Italy, Student: from €5.79
+to €2.99 for 3 months, new subscribers only; N eligible; conflicts: none."
+N, the number of eligible people, is counted in the data when the sentence
+is written, never typed by the author.
 
 §6.6 **The simulation of a campaign.** A campaign is compared with not
 running it, over a horizon of `H` months. An offer that lasts longer than
@@ -420,9 +420,11 @@ what happens if they do not consent. Silence is never taken as consent.
 What happens next is a commercial decision, configured per market, not a
 legal consequence: the court noted that, without consent, the provider is
 free to end the contract. Rione's current choice is to move the account to
-the Free plan at the consent deadline, keeping playlists and library; ending
-the paid subscription at the end of the billing period, or keeping the old
-price until a stated date, are the other options.
+the Free plan when the period already paid at the consent deadline runs out,
+keeping playlists and library; ending the paid subscription at the end of the
+billing period, or keeping the old price until a stated date, are the other
+options. A month already paid is never cut short, and the new price is never
+charged without a yes.
 
 §8.3 **Italy.** The Consumer Code (Legislative Decree 206/2005, art.
 33(2)(m) and (o)) presumes unfair, unless the trader proves otherwise, a
@@ -473,7 +475,20 @@ acceptance or notice date); the revenue at risk under an acceptance rate
 `a` declared as an assumption; who would move to the Free plan; and the
 prepaid passes that the change does not touch (§9). For the German Family
 example: €18.99 to €20.99 raises the net amount from €15.96 to €17.64, and
-the pool from €9.58 to €10.58, per accepting subscription per month.
+the pool from €9.58 to €10.58, per accepting subscription per month. Without
+a typed rate, the simulation uses 90% (§16), an illustrative default and
+shown as one.
+
+§8.8 **From when.** New subscribers pay the new price from its start date.
+An existing subscription pays it from its first charge after the yes
+(consent; a charge on the day of the yes is still at the old price) or after
+the notice ran out (notice), never before the start date and never inside
+an offer's months, which keep the price they were bought at. Until then,
+after an offer's months, it pays the price before the change. A no to a
+notice ends the paid subscription on the day the new price would first have
+been charged. In Germany, without a yes, the account moves to the Free plan
+on the first billing date on or after the consent deadline's day (and not
+before the start date), with nothing charged that day (§8.2).
 
 ## 9. Prepaid passes
 
@@ -486,8 +501,22 @@ it was sold.
 sold but not yet earned, by market. A pass's net amount is recognized in
 equal monthly parts from activation, the last part taking the remainder: an
 Italian pass, net €24.58, is recognized as €8.19, €8.19 and €8.20. Unused
-codes stay unearned until they expire. This is the only accounting Box
-Office does (§15).
+codes stay unearned until they expire. This is the only accounting Plancia
+does (§15).
+
+§9.3 **Selling and activating a code.** The commercial lead writes a pass
+(its plan, months, price and period of sale in each market, its page, and
+how many months a code can wait to be activated: 12 in the demo), and
+finance signs it, as a price (§7.3, condition 1). A listener buys a code;
+the payment goes through the simulated provider (§15), and the code works
+once it succeeded. Whoever holds the code, in the pass's market and with no
+paid plan running, activates it: the plan from that day for its months,
+never charged and never renewed, then the Free plan. A code works once; one
+not activated by its last day expires. A pass gives a plan anyone can have,
+so there is no Student pass: a gift cannot carry a student verification.
+On the console's home, a running pass counts the monthly part of its net
+amount that it earns that month; a price migration never asks or tells a
+pass's holder (§8), and counts the passes it leaves untouched (§8.7).
 
 ## 10. Student verification
 
@@ -606,7 +635,14 @@ leave behind: there must be none.
 with seat-based plans goes through the same flows. It shows that Plancia
 is not wired to music and could serve other subscription businesses. Taking
 real payments would stay with a payment provider; Plancia governs
-decisions, approvals and publication.
+decisions, approvals and publication. In the tests it is Quillbase, an
+invented maker of shared notebooks for teams: Starter, its plan without
+payment, and Team (5 seats) and Business (25 seats). What only the music
+service assumed is now a setting or a rule of the data: the artists' share
+and minimum (none for a business that pays no artists, and so no floor),
+the name of the plan without payment (whichever plan is not paid, one at
+most), plans of up to 1,000 seats, and entitlements that only music plans
+have.
 
 ## 15. What Rione does not do
 
@@ -628,6 +664,7 @@ than one company in production; machine learning; real-time collaboration.
 | Finance threshold | €20,000 of discount and top-up cost over the horizon | §7.3 |
 | Notice before a price increase (IT, FR, UK) | 30 days | §8.6 |
 | Consent window in Germany | 45 days | §8.2 |
+| Acceptance of a price increase, in the simulation (illustrative) | 90% | §8.7 |
 | Student verification validity | 12 months | §10.2 |
 | Declared exchange rate | 1 EUR = 0.83728 GBP (ECB, 23 October 2026) | §3.6 |
 | Simulation horizon | 12 months | §6.6 |

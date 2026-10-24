@@ -105,6 +105,40 @@ def offer_clause(c: OfferClause) -> str:
             f"{format_count(c.eligible)} eligible{cap}; conflicts: {conflicts}.")
 
 
+def migration_sentence(*, market_name: str, plan_name: str, current: Money | None, new: Money | None, starts: str | None,
+                       notices: str | None, subscribers: int, consent: bool, window_days: int, choice: str,
+                       overlaps: list[str]) -> str:
+    """"Germany, Family: from €18.99 to €20.99 for new subscribers from 1 December 2026, 00:00 (Europe/Berlin);
+    8,412 current subscribers asked for their consent from 2 November 2026, 09:00 (Europe/Berlin), within 45 days;
+    without it: when the period already paid at the consent deadline runs out, the account moves to the free plan,
+    and keeps its playlists and library (the music service's choice); overlaps: none." In a notice market the current
+    subscribers are told, and may leave before the new price."""
+    old = format_money(current) if current is not None else "no price"
+    price = format_money(new) if new is not None else "a price not set yet"
+    when = f" from {starts}" if starts else ""
+    told = f" from {notices}" if notices else ""
+    people = f"{format_count(subscribers)} current subscriber{'' if subscribers == 1 else 's'}"
+    choice_words = choice[0].lower() + choice[1:] if choice else ""
+    if consent:
+        existing = (f"{people} asked for their consent{told}, within {window_days} days; without it: "
+                    f"{choice_words.rstrip('.')} (the music service's choice)")
+    else:
+        existing = f"{people} told{told}, {window_days} days before the new price applies to them; they may leave before it"
+    clash = listing(overlaps) if overlaps else "none"
+    return f"{market_name}, {plan_name}: from {old} to {price} for new subscribers{when}; {existing}; overlaps: {clash}."
+
+
+def prepaid_sentence(*, title: str, plan_name: str, months: int, code_valid_months: int, markets: list[str]) -> str:
+    """"Three-month gift pass: Individual for 3 months, paid in advance and never renewed; Italy: €29.99 (€10.49 a
+    month at the list price), on sale from 1 October 2026, 00:00 (Europe/Rome); a code waits up to 12 months to be
+    activated." A market not priced yet is left out; with none, it says so."""
+    sold = "; ".join(markets) if markets else "no market priced yet"
+    lasting = f"{months} month{'' if months == 1 else 's'}" if months > 0 else "months not set"
+    waits = (f"a code waits up to {code_valid_months} month{'' if code_valid_months == 1 else 's'} to be activated"
+             if code_valid_months > 0 else "how long a code waits is not set")
+    return f"{title}: {plan_name} for {lasting}, paid in advance and never renewed; {sold}; {waits}."
+
+
 def list_price_sentence(*, market_name: str, plan_name: str, current: Money | None, new: Money | None,
                         starts: str | None, subscribers: int, overlaps: list[str]) -> str:
     """"Germany, Family: from €18.99 to €20.99 for new subscribers from 1 December 2026, 00:00 (Europe/Berlin);

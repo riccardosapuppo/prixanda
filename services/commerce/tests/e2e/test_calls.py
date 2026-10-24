@@ -15,8 +15,8 @@ from commerce.v1 import (
     subscriptions_pb2,
 )
 from engine_support import (
-    AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, approved, create, family_rise, fingerprint, scheduled,
-    student_autumn, submitted, validated,
+    AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, approved, create, family_migration, family_rise, fingerprint,
+    gift_pass, scheduled, student_autumn, submitted, validated,
 )
 from wire_support import SEEN, wire  # noqa: F401  (the fixture)
 
@@ -175,6 +175,69 @@ async def test_simulation_calls(wire):
     assert (await wire.call("SimulateOffer", missing, FINANCE)).code is CODE.NOT_FOUND
 
 
+async def test_price_migration_calls(wire):
+    world = wire.world
+    change = await create(world, family_migration(), LEAD)
+    simulate = simulation_pb2.SimulateMigrationRequest
+    simulated = await wire.call("SimulateMigration", simulate(change_id=change.id), FINANCE)
+    assert simulated.code is OK and simulated.response.result.after.net.amount_minor == 1_764
+    assert refused(await wire.call("SimulateMigration", simulate(change_id=change.id), ON_CALL),
+                   REFUSAL.REFUSAL_CODE_ROLE_NOT_ALLOWED)
+    assert (await wire.call("SimulateMigration", simulate(change_id=999), FINANCE)).code is CODE.NOT_FOUND
+    typed = [simulation_pb2.AssumptionOverride(name="acceptance", value=20_000)]
+    assert (await wire.call("SimulateMigration", simulate(change_id=change.id, overrides=typed), FINANCE)).code is (
+        CODE.INVALID_ARGUMENT)
+
+    started = await scheduled(world, family_migration(title="Family price rise, Germany, again"), LEAD, FINANCE)
+    world.clock.at = datetime(2026, 11, 2, 8, 0, tzinfo=UTC)
+    await world.engine.run_launches()
+    asked = await world.owner.fetchval("select id from price_change_request where change_id = $1 and subscriber_id = 203",
+                                       started.id)
+    answer = subscriptions_pb2.AnswerPriceChangeRequest
+    said = await wire.call("AnswerPriceChange", answer(subscriber_id=203, price_change_id=asked, accept=True), PUBLIC,
+                           request_id="site-answer-0203")
+    assert said.code is OK and said.response.price_change.state == "accepted"
+    [event] = await world.events("price_change.answered")
+    assert (event["request_id"], event["actor"], event["actor_role"]) == ("site-answer-0203", "subscriber-203", "subscriber")
+    assert refused(await wire.call("AnswerPriceChange", answer(subscriber_id=203, price_change_id=asked, accept=False), PUBLIC),
+                   REFUSAL.REFUSAL_CODE_WRONG_STATE)
+    assert (await wire.call("AnswerPriceChange", answer(subscriber_id=203, price_change_id=999, accept=True),
+                            PUBLIC)).code is CODE.NOT_FOUND
+    assert (await wire.call("AnswerPriceChange", answer(subscriber_id=203, price_change_id=asked, accept=True), PUBLIC,
+                            key=None)).code is CODE.INVALID_ARGUMENT
+
+
+async def test_prepaid_pass_calls(wire):
+    world = wire.world
+    change = await scheduled(world, gift_pass(), LEAD, FINANCE)
+    world.clock.at = datetime(2026, 11, 1, 9, 0, tzinfo=UTC)
+    await world.engine.run_launches()
+    listed = await wire.call("ListPrepaidPasses", catalog_pb2.ListPrepaidPassesRequest(market="IT"), PUBLIC)
+    assert listed.code is OK and [p.pass_id for p in listed.response.passes] == [change.id]
+    assert (await wire.call("ListPrepaidPasses", catalog_pb2.ListPrepaidPassesRequest(market="it"), PUBLIC)).code is (
+        CODE.INVALID_ARGUMENT)
+
+    buy = subscriptions_pb2.BuyPrepaidPassRequest
+    bought = await wire.call("BuyPrepaidPass", buy(subscriber_id=101, pass_id=change.id), PUBLIC, request_id="site-buy-0101")
+    assert bought.code is OK and bought.response.code.state == "pending"
+    [event] = await world.events("prepaid.sold")
+    assert (event["request_id"], event["actor"]) == ("site-buy-0101", "subscriber-101")
+    assert refused(await wire.call("BuyPrepaidPass", buy(subscriber_id=201, pass_id=change.id), PUBLIC),
+                   REFUSAL.REFUSAL_CODE_NOT_ELIGIBLE)
+    assert (await wire.call("BuyPrepaidPass", buy(subscriber_id=101, pass_id=999), PUBLIC)).code is CODE.NOT_FOUND
+
+    activate = subscriptions_pb2.ActivatePrepaidPassRequest
+    code = bought.response.code.code
+    assert refused(await wire.call("ActivatePrepaidPass", activate(subscriber_id=102, code=code), PUBLIC),
+                   REFUSAL.REFUSAL_CODE_WRONG_STATE)  # its payment is not settled yet
+    await world.engine.deliver_outbox()
+    world.clock.at = datetime(2026, 11, 2, 9, 0, tzinfo=UTC)
+    activated = await wire.call("ActivatePrepaidPass", activate(subscriber_id=102, code=code), PUBLIC)
+    assert activated.code is OK and activated.response.subscription.prepaid_code == code
+    assert (await wire.call("ActivatePrepaidPass", activate(subscriber_id=102, code="nonsense"), PUBLIC)).code is (
+        CODE.INVALID_ARGUMENT)
+
+
 async def test_audit_calls(wire):
     await create(wire.world, student_autumn())
     events = await wire.call("ListEvents", audit_pb2.ListEventsRequest(), MARKETING)
@@ -296,5 +359,5 @@ def test_every_call_of_the_contract_was_seen_answering_refusing_and_failing():
             gaps.append(f"{method.name}: never seen {', '.join(sorted(missing))}")
         if not seen - {"answer", "refusal"}:
             gaps.append(f"{method.name}: never seen failing with a status code")
-    assert len(METHODS) == 31
+    assert len(METHODS) == 36
     assert not gaps, gaps

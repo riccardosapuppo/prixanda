@@ -18,6 +18,7 @@ from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, format_local, parse_local, to_local
 from commerce.domain.money import Money
 from commerce.domain.offers import OfferPrice
+from commerce.domain.migration import CHOICE_LABEL
 from commerce.domain.validation import on_sale, resolve_price
 from commerce.engine import contract, reference
 from commerce.engine.call import Call, Clock
@@ -111,13 +112,21 @@ class Catalog:
 
     async def list_markets(self, tx: Connection, call: Call, request: catalog_pb2.ListMarketsRequest) -> catalog_pb2.ListMarketsResponse:
         ref = await reference.load(tx, self.clock.now())
+        rules = await reference.policies(tx)
         markets = []
         for m in ref.markets.values():
             terms = m.terms(self.book)
-            markets.append(catalog_pb2.Market(
+            market = catalog_pb2.Market(
                 code=m.code, name=m.name, currency=m.currency, minor_units=m.minor_units, time_zone=m.zone, vat_bp=m.vat_bp,
                 artists_minimum=contract.money(Money(terms.minimum, m.currency)),
-                floor=contract.money(Money(terms.floor(), m.currency))))
+                floor=contract.money(Money(terms.floor(), m.currency)))
+            if m.code in rules:
+                p = rules[m.code]
+                market.price_change_policy.CopyFrom(catalog_pb2.PriceChangePolicy(
+                    market=p.market, legal_requirement=p.legal_requirement, legal_basis=p.legal_basis,
+                    legal_sources=list(p.legal_sources), window_days=p.window_days, after_window=p.after_window,
+                    commercial_choice=p.commercial_choice, alternatives=list(p.alternatives), label=CHOICE_LABEL))
+            markets.append(market)
         return catalog_pb2.ListMarketsResponse(markets=markets)
 
     async def list_plans(self, tx: Connection, call: Call, request: catalog_pb2.ListPlansRequest) -> catalog_pb2.ListPlansResponse:
@@ -132,14 +141,19 @@ class Catalog:
             "left join list_price lp on lp.plan_id = p.id and lp.market = $1 and lp.valid @> $2::text::timestamp "
             f"order by {reference.PLAN_ORDER}", code, local)
         plans = []
+        # The business is open in the market when a paid plan has a price in force there; the unpaid plan with it.
+        open_there = any(row["paid"] and row["amount_minor"] is not None for row in rows)
         for row in rows:
-            if row["audio"] is None or (row["paid"] and row["amount_minor"] is None):
+            if (row["paid"] and row["amount_minor"] is None) or not open_there:
                 continue  # not on sale in this market at that instant
-            plan = catalog_pb2.Plan(
-                id=row["id"], name=row["name"], paid=row["paid"],
-                entitlements=catalog_pb2.Entitlements(
-                    skips_per_hour=row["skips_per_hour"] or 0, audio=row["audio"], offline=row["offline"],
-                    seats=row["seats"], needs_student_check=row["needs_student_check"]))
+            # What a plan includes: its seats always; skips, sound and offline listening are the music service's,
+            # and a business with no such entitlements leaves them empty (§14.7).
+            entitlements = catalog_pb2.Entitlements(seats=row["seats"], needs_student_check=row["needs_student_check"])
+            if row["audio"] is not None:
+                entitlements.skips_per_hour = row["skips_per_hour"] or 0
+                entitlements.audio = row["audio"]
+                entitlements.offline = row["offline"]
+            plan = catalog_pb2.Plan(id=row["id"], name=row["name"], paid=row["paid"], entitlements=entitlements)
             if row["paid"]:
                 plan.list_price.CopyFrom(contract.money(Money(row["amount_minor"], market.currency)))
                 plan.breakdown.CopyFrom(breakdown(self.book, market, row["amount_minor"]))

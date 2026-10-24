@@ -22,9 +22,10 @@ import { buildConsole, GATEWAY_URL as E2E_GATEWAY_URL, runEndToEnd } from "../ap
 import { nestedSegmentFiles } from "../apps/site/scripts/segments.ts";
 import { licenseInventory, writeReport } from "./licenses.ts";
 import { flyway } from "./lib/flyway.ts";
+import { measure } from "./lib/measure.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
 import { assertFree } from "./lib/ports.ts";
-import { type Cluster, createDatabase, startCluster } from "./lib/postgres.ts";
+import { type Cluster, createDatabase, dropDatabase, startCluster } from "./lib/postgres.ts";
 import { run } from "./lib/run.ts";
 
 type Outcome = "passed" | "failed" | "not run";
@@ -41,19 +42,22 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 13, contractFiles: 47, migrations: 11, pythonTests: 573, invariants: 10, generatedSubscribers: 5_000,
-  faultsInjected: 12,
+  typecheckedFiles: 14, contractFiles: 47, migrations: 17, pythonTests: 721, invariants: 17, generatedSubscribers: 5_000,
+  faultsInjected: 12, measuredQueries: 7,
   // npm's lockfile lists every platform's packages; the Python environment
   // has one more on Windows (colorama, for pytest).
   licensedPackages: 570,
 };
+// The change in two times (migrations V12 and V14): the version of the schema
+// before it, and the expansion, where the compatibility check stops on its way.
+const COMPAT = { before: "11", expansion: "12" };
 // pytest's tests by area, read from the folder each test lives in: the
 // database's own rules (tests/), the rules as plain Python (domain), the
 // business book's numbers (golden), every service against PostgreSQL
 // (services), the calls over gRPC with a real server (e2e), the properties
 // Hypothesis generates cases for (properties), and the faults injected in a
 // launch with the engine's real process (faults).
-const AREA_FLOOR: Record<string, number> = { database: 90, domain: 154, golden: 32, services: 245, e2e: 28, properties: 10, faults: 14 };
+const AREA_FLOOR: Record<string, number> = { database: 111, domain: 235, golden: 44, services: 277, e2e: 30, properties: 10, faults: 14 };
 // What tests/faults writes: every fault injected in a launch, and what it left.
 type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 
@@ -204,6 +208,94 @@ const SUITES: Suite[] = [
       return passed(counted, `${summary.counts.listening_days} listening rows`);
     },
   },
+  // The change in two times of a subscription's price (migrations V12 and
+  // V14): a database of its own stands where the version before it stood,
+  // with data written as that version wrote it; then the expansion, under
+  // which that version's reads and writes must still work; then every later
+  // migration, the invariants, and this version's engine reading the same
+  // accounts and revenue (services/commerce/src/commerce/compat.py).
+  {
+    name: "compat",
+    what: "the schema change in two times: data of the version before it, the expansion with that version still working, then every migration, the invariants and this engine reading the same",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const database = "commerce_compat";
+      await dropDatabase(cluster, database);
+      await createDatabase(cluster, database);
+      try {
+        const commerce = join(repoRoot, "services", "commerce");
+        const env = { ...process.env, PYTHONPATH: join(commerce, "src") };
+        const owner = cluster.url(database, "owner");
+        const target = { port: cluster.port, database, user: cluster.owner.user, password: cluster.owner.password };
+        const state = join(reports, "compat-state.json");
+        await rm(state, { force: true });
+        const migrate = async (upTo?: string): Promise<number> => {
+          const ran = await flyway("migrate", target, migrationsDir, upTo);
+          if (ran.code !== 0) throw new Error(`Flyway, up to ${upTo ?? "the last migration"}:\n${ran.output.slice(-3000)}`);
+          return Number(/Successfully applied (\d+) migrations?/.exec(ran.output)?.[1] ?? 0);
+        };
+        type Phase = { phase: string; failures: string[]; accounts: number; writes_mirrored?: number };
+        const phase = async (name: string, extra: string[] = []): Promise<Phase> => {
+          const ran = await run(venvPython, ["-m", "commerce.compat", "--phase", name, "--url", owner, "--state", state, ...extra],
+            { cwd: commerce, env });
+          const line = ran.output.split(/\r?\n/).find((candidate) => candidate.startsWith("{"));
+          if (line === undefined) throw new Error(`compat ${name}:\n${ran.output.slice(-3000)}`);
+          const report = JSON.parse(line) as Phase;
+          if (ran.code !== 0 && report.failures.length === 0) throw new Error(`compat ${name} exited ${ran.code}`);
+          return report;
+        };
+        const before = await migrate(COMPAT.before);
+        const generated = await run(venvPython, ["-m", "commerce.generate", "--url", owner, "--size", "small", "--seed", "7"],
+          { cwd: commerce, env });
+        if (generated.code !== 0) return failed("-", generated.output.slice(-3000));
+        const read = await phase("before");
+        const expansion = await migrate(COMPAT.expansion);
+        const expanded = await phase("expanded");
+        const rest = await migrate();
+        const invariants = await run(venvPython, ["-m", "commerce.invariants", "--url", owner], { cwd: commerce, env });
+        const checked = JSON.parse(invariants.output) as { checked: number; broken: number; invariants: Array<{ name: string; violations: number }> };
+        const contracted = await phase("contracted", ["--app-url", cluster.url(database, "app")]);
+        const counted = `${read.accounts} accounts through V${COMPAT.before}, V${COMPAT.expansion} and V${before + expansion + rest}; `
+          + `${expanded.writes_mirrored ?? 0} earlier writes mirrored; ${checked.checked} invariants, ${checked.broken} broken`;
+        const failures = [...expanded.failures, ...contracted.failures,
+          ...checked.invariants.filter((i) => i.violations).map((i) => `${i.name}: ${i.violations}`)];
+        if (failures.length || invariants.code !== 0) return failed(counted, failures.join("\n") || invariants.output.slice(-2000));
+        if (before !== Number(COMPAT.before) || expansion !== 1) return failed(counted, "Flyway did not stop where the check asked");
+        if (read.accounts < FLOOR.generatedSubscribers) return failed(counted, "fewer accounts read than the small size declares");
+        if (expanded.writes_mirrored !== 2) return failed(counted, "the earlier version's two writes were not both checked");
+        if (contracted.accounts < FLOOR.generatedSubscribers / 2) return failed(counted, "too few accounts read by this engine");
+        return passed(counted);
+      } finally {
+        await dropDatabase(cluster, database);
+      }
+    },
+  },
+  // The tool that measures the queries that matter (business book §14.2),
+  // tried on the small data: it runs every step, and every query gives the
+  // same answer before and after the migrations it measures. The numbers to
+  // quote come from `npm run measure` on the full data, on a quiet machine.
+  {
+    name: "measure",
+    what: "the measuring tool on the small data: every query before and after migration V16, with the same answers",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const database = "commerce_measure";
+      try {
+        const report = await measure(cluster, { size: "small", runs: 1, auditEvents: 20_000, database });
+        const names = Object.keys(report.queries);
+        const counted = `${names.length} queries, ${names.filter((n) => report.queries[n]?.same_answer).length} with the same answer`;
+        if (report.differ.length) return failed(counted, report.differ.join("\n"));
+        if (names.length < FLOOR.measuredQueries) return failed(counted, `fewer than ${FLOOR.measuredQueries} queries measured`);
+        return passed(counted, "reports/measure.json");
+      } finally {
+        await dropDatabase(cluster, database);
+      }
+    },
+  },
   // The gateway (stage 3). Its tests start a fake engine on 127.0.0.1:4613
   // and the gateway on 4621 and 4622 (CHECK_FAKE_ENGINE_PORT,
   // CHECK_GATEWAY_INTERNAL_PORT and CHECK_GATEWAY_PUBLIC_PORT move them),
@@ -279,7 +371,7 @@ const SUITES: Suite[] = [
   // over HTTP only, up to a student's subscription.
   {
     name: "integration",
-    what: "the real engine and the real gateway over HTTP: §14.1 from a draft to a student's subscription on the site, the audit log, idempotency",
+    what: "the real engine and the real gateway over HTTP: §14.1 from a draft to a student's subscription on the site, the audit log, idempotency; §14.3's Family price in Germany and §14.4's prepaid pass",
     needsDatabase: true,
     async run({ cluster }) {
       if (!cluster) return notRun("no database");
@@ -305,16 +397,27 @@ const SUITES: Suite[] = [
           engineExit: number | null;
           subscription: { price: string; months: number; fullPrice: string; fullPriceFrom: string; payment: string; logged: boolean } | null;
           launchSteps: number;
+          migration: { asked: number; waiting: number; answered: string } | null;
+          prepaid: { unearnedBefore: string; unearnedAfter: string; activated: boolean } | null;
         };
         const euros = (minor: string) => (Number(minor) / 100).toFixed(2);
         const paid = summary.subscription
           ? `subscribed at ${euros(summary.subscription.price)} × ${summary.subscription.months}, then ${euros(summary.subscription.fullPrice)} from ${summary.subscription.fullPriceFrom}, the first month ${summary.subscription.payment}`
           : "no subscription";
-        const counted = `${tests.counted}; on the site ${summary.activationMs === null ? "never" : `${(summary.activationMs / 1000).toFixed(1)} s`} after 09:00; ${summary.auditEvents} audit events; ${paid}; launch read with ${summary.launchSteps} steps done`;
+        const migrated = summary.migration
+          ? `the Family price in Germany asked ${summary.migration.asked} subscribers for consent, and the demo's one said ${summary.migration.answered}`
+          : "no price migration";
+        const prepaid = summary.prepaid?.activated
+          ? `a prepaid pass sold and activated, finance's unearned value in Italy from ${euros(summary.prepaid.unearnedBefore)} to ${euros(summary.prepaid.unearnedAfter)}`
+          : "no prepaid pass activated";
+        const counted = `${tests.counted}; on the site ${summary.activationMs === null ? "never" : `${(summary.activationMs / 1000).toFixed(1)} s`} after 09:00; ${summary.auditEvents} audit events; ${paid}; launch read with ${summary.launchSteps} steps done; ${migrated}; ${prepaid}`;
         if (tests.outcome !== "passed") return { ...tests, counted };
         if (summary.auditEvents < GATEWAY_FLOOR.integrationAuditEvents) return failed(counted, `fewer than ${GATEWAY_FLOOR.integrationAuditEvents} audit events of the pass were found`);
         if (!summary.subscription?.logged) return failed(counted, "the student's subscription was not found in the audit log");
         if (summary.launchSteps !== 5) return failed(counted, "the console did not read the pass's launch with its five steps done");
+        if ((summary.migration?.asked ?? 0) < 1) return failed(counted, "the Family price migration asked nobody");
+        if (summary.migration?.answered !== "yes") return failed(counted, "the demo's Family subscriber in Germany did not answer");
+        if (!summary.prepaid?.activated) return failed(counted, "the prepaid pass was not bought, paid and activated");
         if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
         return passed(counted);
       } finally {
@@ -589,7 +692,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 47, coreFiles: 19, generated: 3, schemaTests: 21, tests: 193, dataloaderOffers: 25, integrationTests: 9, integrationAuditEvents: 7,
+  files: 51, coreFiles: 19, generated: 3, schemaTests: 23, tests: 244, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
 };
 
 /**

@@ -1,8 +1,10 @@
-"""The first month's payment (business book §4.5): asked for after the
-confirmation commits, settled by the payment provider's events.
+"""The first month's payment (business book §4.5), and a prepaid pass's
+(§9): asked for after the confirmation or the purchase commits, settled by
+the payment provider's events.
 
 ConfirmQuote writes the subscription, the payment (pending) and an outbox
-message in one transaction (subscribers.py). The relay hands the message to
+message in one transaction (subscribers.py); BuyPrepaidPass writes the code
+in place of the subscription. The relay hands the message to
 Charges, which asks the provider for the charge outside any transaction, with
 the payment's identifier as the idempotency key, and takes in the events the
 provider answers with. ProviderEvents.receive is the one door the events come
@@ -11,8 +13,9 @@ and an event that arrives after a later one, out of order, is kept and moves
 nothing.
 
 A payment settles once: from pending to succeeded, when the receipt is
-issued, or to failed, when the paid subscription ends at the end of that day
-and the listener is back on the free plan the day after. The simulated
+issued and a code becomes ready to activate, or to failed, when the paid
+subscription ends at the end of that day and the listener is back on the
+free plan the day after, or the code fails and never works. The simulated
 provider never declines; a real one can.
 """
 
@@ -21,10 +24,9 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timedelta
 
-from commerce.domain import billing
 from commerce.domain.localtime import format_instant
 from commerce.domain.money import Money
-from commerce.engine import contract, outbox, records, reference
+from commerce.engine import charging, contract, outbox, records, reference
 from commerce.engine.call import Clock
 from commerce.engine.database import Connection, Database, utc_text
 from commerce.engine.providers import FAILED, PENDING, SUCCEEDED, Charge, PaymentProvider, ProviderEvent
@@ -56,14 +58,35 @@ async def request(tx: Connection, *, payment_id: str, quote_id: str, subscriptio
                               payload={"payment": payment_id, "description": description})
 
 
+async def request_prepaid(tx: Connection, *, payment_id: str, code: str, subscriber_id: int, price: Money, description: str,
+                          provider: str, now: datetime, request_id: str) -> int:
+    """A prepaid code's payment, pending, and its outbox message, in the purchase's transaction."""
+    await tx.execute(
+        "insert into payment (id, prepaid_code, subscriber_id, amount_minor, currency, provider, requested_at, request_id) "
+        "values ($1, $2, $3, $4, $5, $6, $7::text::timestamptz, $8)",
+        payment_id, code, subscriber_id, price.amount, price.currency, provider, format_instant(now), request_id)
+    return await outbox.write(tx, topic=TOPIC, key=payment_id, now=now, request_id=request_id,
+                              payload={"payment": payment_id, "description": description})
+
+
+_PAYMENT = (f"select p.id, p.state, p.amount_minor, p.currency, p.provider, {utc_text('p.requested_at')} as requested_at, "
+            f"{utc_text('p.settled_at')} as settled_at, p.failure_reason, r.id as receipt_id, r.amount_minor as receipt_amount, "
+            f"{utc_text('r.issued_at')} as issued_at, r.provider_reference, r.note from payment p ")
+
+
 async def of_subscription(tx: Connection, subscription_id: int) -> subscriptions_pb2.Payment | None:
     """The payment of a subscription confirmed from a quote, with its receipt once it succeeded."""
-    row = await tx.fetchrow(
-        f"select p.id, p.state, p.amount_minor, p.currency, p.provider, {utc_text('p.requested_at')} as requested_at, "
-        f"{utc_text('p.settled_at')} as settled_at, p.failure_reason, r.id as receipt_id, r.amount_minor as receipt_amount, "
-        f"{utc_text('r.issued_at')} as issued_at, r.provider_reference, r.note "
-        "from payment p left join receipt r on r.subscription_id = p.subscription_id where p.subscription_id = $1",
-        subscription_id)
+    return _payment(await tx.fetchrow(
+        _PAYMENT + "left join receipt r on r.subscription_id = p.subscription_id where p.subscription_id = $1", subscription_id))
+
+
+async def of_prepaid(tx: Connection, code: str) -> subscriptions_pb2.Payment | None:
+    """The payment of a prepaid code, with its receipt once it succeeded."""
+    return _payment(await tx.fetchrow(
+        _PAYMENT + "left join receipt r on r.prepaid_code = p.prepaid_code where p.prepaid_code = $1", code))
+
+
+def _payment(row) -> subscriptions_pb2.Payment | None:
     if row is None:
         return None
     currency = row["currency"].strip()
@@ -93,8 +116,9 @@ class ProviderEvents:
         now = self.clock.now()
         async with self.db.transaction() as tx:
             payment = await tx.fetchrow(
-                "select id, quote_id, subscription_id, subscriber_id, amount_minor, currency, state, request_id "
-                "from payment where id = $1 for update", event.payment_id)
+                "select p.id, p.quote_id, p.subscription_id, p.prepaid_code, c.id as code_id, p.subscriber_id, p.amount_minor, "
+                "p.currency, p.state, p.request_id from payment p left join prepaid_code c on c.code = p.prepaid_code "
+                "where p.id = $1 for update of p", event.payment_id)
             if payment is None:
                 raise LookupError(f"the provider's event {event.event_id} names no payment of this platform")
             moves = payment["state"] == "pending" and RANK[event.type] > RANK[payment["state"]]
@@ -120,16 +144,21 @@ class ProviderEvents:
         receipt_id = f"r_{secrets.token_hex(16)}"
         currency = payment["currency"].strip()
         await tx.execute(
-            "insert into receipt (id, subscription_id, quote_id, subscriber_id, amount_minor, currency, issued_at, provider, "
-            "provider_reference, note) values ($1, $2, $3, $4, $5, $6, $7::text::timestamptz, $8, $9, $10)",
-            receipt_id, payment["subscription_id"], payment["quote_id"], payment["subscriber_id"], payment["amount_minor"],
-            currency, format_instant(now), event.provider, event.reference, RECEIPT_NOTE)
+            "insert into receipt (id, subscription_id, quote_id, prepaid_code, subscriber_id, amount_minor, currency, issued_at, "
+            "provider, provider_reference, note) values ($1, $2, $3, $4, $5, $6, $7, $8::text::timestamptz, $9, $10, $11)",
+            receipt_id, payment["subscription_id"], payment["quote_id"], payment["prepaid_code"], payment["subscriber_id"],
+            payment["amount_minor"], currency, format_instant(now), event.provider, event.reference, RECEIPT_NOTE)
         await tx.execute(
             "update payment set state = 'succeeded', settled_at = $2::text::timestamptz, provider_reference = $3 where id = $1",
             payment["id"], format_instant(now), event.reference)
+        paid_for = ({"prepaid": payment["code_id"]} if payment["prepaid_code"] is not None
+                    else {"subscription": payment["subscription_id"]})
+        if payment["prepaid_code"] is not None:
+            await tx.execute("update prepaid_code set state = 'ready' where code = $1 and state = 'pending'",
+                             payment["prepaid_code"])
         await records.record(tx, at=now, actor=ACTOR, role=ROLE, action="payment.succeeded", subject=f"payment:{payment['id']}",
                              request_id=payment["request_id"], body={
-                                 "payment": payment["id"], "subscription": payment["subscription_id"],
+                                 "payment": payment["id"], **paid_for,
                                  "subscriber": payment["subscriber_id"], "amount": payment["amount_minor"], "currency": currency,
                                  "provider": event.provider, "provider_reference": event.reference, "receipt": receipt_id,
                                  "event": event.event_id})
@@ -139,6 +168,15 @@ class ProviderEvents:
         await tx.execute(
             "update payment set state = 'failed', settled_at = $2::text::timestamptz, provider_reference = $3, "
             "failure_reason = $4 where id = $1", payment["id"], format_instant(now), event.reference, reason[:400])
+        if payment["prepaid_code"] is not None:  # the code never works; nothing else was given
+            await tx.execute("update prepaid_code set state = 'failed' where code = $1 and state = 'pending'",
+                             payment["prepaid_code"])
+            await records.record(tx, at=now, actor=ACTOR, role=ROLE, action="payment.failed", subject=f"payment:{payment['id']}",
+                                 request_id=payment["request_id"], body={
+                                     "payment": payment["id"], "prepaid": payment["code_id"], "subscriber": payment["subscriber_id"],
+                                     "provider": event.provider, "provider_reference": event.reference, "reason": reason,
+                                     "event": event.event_id})
+            return
         subscription = await tx.fetchrow(
             "select id, subscriber_id, market from subscription where id = $1 for update",
             payment["subscription_id"])
@@ -146,11 +184,8 @@ class ProviderEvents:
         back_on_free = market.today(now) + timedelta(days=1)
         await tx.execute("update subscription set ended_on = $2::text::date where id = $1", subscription["id"],
                          back_on_free.isoformat())
-        free = await tx.fetchval(
-            "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, billing_day) "
-            "values (nextval('subscription_id_seq'), $1, $2, $3, 'free', false, 0, $4::text::date, $5) returning id",
-            subscription["subscriber_id"], market.code, market.currency, back_on_free.isoformat(),
-            billing.billing_day_for(back_on_free))
+        free = await charging.write_free_subscription(tx, market, subscriber_id=subscription["subscriber_id"],
+                                                      started_on=back_on_free)
         await records.record(tx, at=now, actor=ACTOR, role=ROLE, action="payment.failed", subject=f"payment:{payment['id']}",
                              request_id=payment["request_id"], body={
                                  "payment": payment["id"], "subscription": subscription["id"], "subscriber": subscription["subscriber_id"],

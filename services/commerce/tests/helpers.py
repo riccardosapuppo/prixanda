@@ -32,6 +32,27 @@ async def add_people(conn: asyncpg.Connection) -> None:
             await conn.execute("insert into person_role (person_id, role) values ($1, $2)", person, role)
 
 
+CURRENCIES = {"IT": "EUR", "FR": "EUR", "DE": "EUR", "GB": "GBP"}
+
+
+async def add_subscription(conn: asyncpg.Connection, subscriber: int, market: str, plan: str, price: int, started, *,
+                           subscription: int | None = None, ended=None, billing_day: int = 10, quote_id: str | None = None,
+                           offer_change_id: int | None = None, offer_months: int | None = None) -> int:
+    """A subscription and the price it starts at, the first row of its history, written together as the engine writes
+    them: migration V14 checks, when the transaction commits, that no subscription is without it. Without a number the
+    subscription takes the engine's next one. Dates are dates or ISO text."""
+    async with conn.transaction():
+        number = await conn.fetchval(
+            "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, started_on, ended_on, billing_day, "
+            "quote_id, offer_change_id, offer_months) values (coalesce($1, nextval('subscription_id_seq')), $2, $3, $4, $5, "
+            "(select paid from plan where id = $5), $6::text::date, $7::text::date, $8, $9, $10, $11) returning id",
+            subscription, subscriber, market, CURRENCIES[market], plan, str(started),
+            None if ended is None else str(ended), billing_day, quote_id, offer_change_id, offer_months)
+        await conn.execute("insert into subscription_price (subscription_id, from_on, price_minor) values ($1, $2::text::date, $3)",
+                           number, str(started), price)
+    return number
+
+
 async def sqlstate_of(statement) -> str:
     """The SQLSTATE the database refused with; failing the test if it accepted."""
     try:

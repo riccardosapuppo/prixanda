@@ -26,7 +26,7 @@ from commerce.v1 import changes_pb2 as commerce_dot_v1_dot_changes__pb2
 from commerce.v1 import common_pb2 as commerce_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1a\x63ommerce/v1/overview.proto\x12\x0b\x63ommerce.v1\x1a\x19\x63ommerce/v1/changes.proto\x1a\x18\x63ommerce/v1/common.proto\" \n\x12GetOverviewRequest\x12\n\n\x02\x61t\x18\x01 \x01(\t\"\x9e\x01\n\x06Launch\x12\x15\n\tchange_id\x18\x01 \x01(\x03\x42\x02\x30\x01\x12\r\n\x05title\x18\x02 \x01(\t\x12&\n\x06starts\x18\x03 \x01(\x0b\x32\x16.commerce.v1.LocalTime\x12\'\n\x05state\x18\x04 \x01(\x0e\x32\x18.commerce.v1.ChangeState\x12\x0f\n\x07\x61t_risk\x18\x05 \x01(\x08\x12\x0c\n\x04risk\x18\x06 \x01(\t\"\xbc\x01\n\x08Incident\x12\x15\n\tchange_id\x18\x01 \x01(\x03\x42\x02\x30\x01\x12\r\n\x05title\x18\x02 \x01(\t\x12\x0b\n\x03run\x18\x03 \x01(\t\x12\r\n\x05state\x18\x04 \x01(\t\x12\x0f\n\x07summary\x18\x05 \x01(\t\x12\x15\n\tlaunch_id\x18\x06 \x01(\x03\x42\x02\x30\x01\x12\x0c\n\x04kind\x18\x07 \x01(\t\x12\x11\n\topened_at\x18\x08 \x01(\t\x12\x11\n\tclosed_at\x18\t \x01(\t\x12\x12\n\nresolution\x18\n \x01(\t\">\n\x0fSubscriberCount\x12\x0e\n\x06market\x18\x01 \x01(\t\x12\x0c\n\x04plan\x18\x02 \x01(\t\x12\r\n\x05\x63ount\x18\x03 \x01(\x03\"m\n\rMarketRevenue\x12\x0e\n\x06market\x18\x01 \x01(\t\x12#\n\x07revenue\x18\x02 \x01(\x0b\x32\x12.commerce.v1.Money\x12\'\n\x0brevenue_eur\x18\x03 \x01(\x0b\x32\x12.commerce.v1.Money\"\xd1\x03\n\x13GetOverviewResponse\x12\x38\n\x14waiting_for_approval\x18\x01 \x03(\x0b\x32\x1a.commerce.v1.ChangeSummary\x12\x31\n\x14launches_next_7_days\x18\x02 \x03(\x0b\x32\x13.commerce.v1.Launch\x12.\n\x0fincidents_today\x18\x03 \x03(\x0b\x32\x15.commerce.v1.Incident\x12\x38\n\x12paying_subscribers\x18\x04 \x03(\x0b\x32\x1c.commerce.v1.SubscriberCount\x12\x34\n\x0e\x66ree_listeners\x18\x05 \x03(\x0b\x32\x1c.commerce.v1.SubscriberCount\x12\x33\n\x0fmonthly_revenue\x18\x06 \x03(\x0b\x32\x1a.commerce.v1.MarketRevenue\x12/\n\x13monthly_revenue_eur\x18\x07 \x01(\x0b\x32\x12.commerce.v1.Money\x12\x1a\n\x12\x65xchange_rate_note\x18\x08 \x01(\t\x12+\n\x0fmonthly_top_ups\x18\t \x01(\x0b\x32\x12.commerce.v1.Money\"E\n\x06Person\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05label\x18\x02 \x01(\t\x12 \n\x05roles\x18\x03 \x03(\x0e\x32\x11.commerce.v1.Role\"\x13\n\x11ListPeopleRequest\"9\n\x12ListPeopleResponse\x12#\n\x06people\x18\x01 \x03(\x0b\x32\x13.commerce.v1.Person2c\n\x0fOverviewService\x12P\n\x0bGetOverview\x12\x1f.commerce.v1.GetOverviewRequest\x1a .commerce.v1.GetOverviewResponse2^\n\rPeopleService\x12M\n\nListPeople\x12\x1e.commerce.v1.ListPeopleRequest\x1a\x1f.commerce.v1.ListPeopleResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1a\x63ommerce/v1/overview.proto\x12\x0b\x63ommerce.v1\x1a\x19\x63ommerce/v1/changes.proto\x1a\x18\x63ommerce/v1/common.proto\" \n\x12GetOverviewRequest\x12\n\n\x02\x61t\x18\x01 \x01(\t\"\x9e\x01\n\x06Launch\x12\x15\n\tchange_id\x18\x01 \x01(\x03\x42\x02\x30\x01\x12\r\n\x05title\x18\x02 \x01(\t\x12&\n\x06starts\x18\x03 \x01(\x0b\x32\x16.commerce.v1.LocalTime\x12\'\n\x05state\x18\x04 \x01(\x0e\x32\x18.commerce.v1.ChangeState\x12\x0f\n\x07\x61t_risk\x18\x05 \x01(\x08\x12\x0c\n\x04risk\x18\x06 \x01(\t\"\xbc\x01\n\x08Incident\x12\x15\n\tchange_id\x18\x01 \x01(\x03\x42\x02\x30\x01\x12\r\n\x05title\x18\x02 \x01(\t\x12\x0b\n\x03run\x18\x03 \x01(\t\x12\r\n\x05state\x18\x04 \x01(\t\x12\x0f\n\x07summary\x18\x05 \x01(\t\x12\x15\n\tlaunch_id\x18\x06 \x01(\x03\x42\x02\x30\x01\x12\x0c\n\x04kind\x18\x07 \x01(\t\x12\x11\n\topened_at\x18\x08 \x01(\t\x12\x11\n\tclosed_at\x18\t \x01(\t\x12\x12\n\nresolution\x18\n \x01(\t\">\n\x0fSubscriberCount\x12\x0e\n\x06market\x18\x01 \x01(\t\x12\x0c\n\x04plan\x18\x02 \x01(\t\x12\r\n\x05\x63ount\x18\x03 \x01(\x03\"m\n\rMarketRevenue\x12\x0e\n\x06market\x18\x01 \x01(\t\x12#\n\x07revenue\x18\x02 \x01(\x0b\x32\x12.commerce.v1.Money\x12\'\n\x0brevenue_eur\x18\x03 \x01(\x0b\x32\x12.commerce.v1.Money\"\xa0\x01\n\x0cPrepaidValue\x12\x0e\n\x06market\x18\x01 \x01(\t\x12\x0c\n\x04sold\x18\x02 \x01(\x03\x12\x11\n\tactivated\x18\x03 \x01(\x03\x12\x0f\n\x07\x65xpired\x18\x04 \x01(\x03\x12$\n\x08unearned\x18\x05 \x01(\x0b\x32\x12.commerce.v1.Money\x12(\n\x0cunearned_eur\x18\x06 \x01(\x0b\x32\x12.commerce.v1.Money\"\xaf\x04\n\x13GetOverviewResponse\x12\x38\n\x14waiting_for_approval\x18\x01 \x03(\x0b\x32\x1a.commerce.v1.ChangeSummary\x12\x31\n\x14launches_next_7_days\x18\x02 \x03(\x0b\x32\x13.commerce.v1.Launch\x12.\n\x0fincidents_today\x18\x03 \x03(\x0b\x32\x15.commerce.v1.Incident\x12\x38\n\x12paying_subscribers\x18\x04 \x03(\x0b\x32\x1c.commerce.v1.SubscriberCount\x12\x34\n\x0e\x66ree_listeners\x18\x05 \x03(\x0b\x32\x1c.commerce.v1.SubscriberCount\x12\x33\n\x0fmonthly_revenue\x18\x06 \x03(\x0b\x32\x1a.commerce.v1.MarketRevenue\x12/\n\x13monthly_revenue_eur\x18\x07 \x01(\x0b\x32\x12.commerce.v1.Money\x12\x1a\n\x12\x65xchange_rate_note\x18\x08 \x01(\t\x12+\n\x0fmonthly_top_ups\x18\t \x01(\x0b\x32\x12.commerce.v1.Money\x12*\n\x07prepaid\x18\n \x03(\x0b\x32\x19.commerce.v1.PrepaidValue\x12\x30\n\x14prepaid_unearned_eur\x18\x0b \x01(\x0b\x32\x12.commerce.v1.Money\"E\n\x06Person\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05label\x18\x02 \x01(\t\x12 \n\x05roles\x18\x03 \x03(\x0e\x32\x11.commerce.v1.Role\"\x13\n\x11ListPeopleRequest\"9\n\x12ListPeopleResponse\x12#\n\x06people\x18\x01 \x03(\x0b\x32\x13.commerce.v1.Person2c\n\x0fOverviewService\x12P\n\x0bGetOverview\x12\x1f.commerce.v1.GetOverviewRequest\x1a .commerce.v1.GetOverviewResponse2^\n\rPeopleService\x12M\n\nListPeople\x12\x1e.commerce.v1.ListPeopleRequest\x1a\x1f.commerce.v1.ListPeopleResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -49,16 +49,18 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_SUBSCRIBERCOUNT']._serialized_end=544
   _globals['_MARKETREVENUE']._serialized_start=546
   _globals['_MARKETREVENUE']._serialized_end=655
-  _globals['_GETOVERVIEWRESPONSE']._serialized_start=658
-  _globals['_GETOVERVIEWRESPONSE']._serialized_end=1123
-  _globals['_PERSON']._serialized_start=1125
-  _globals['_PERSON']._serialized_end=1194
-  _globals['_LISTPEOPLEREQUEST']._serialized_start=1196
-  _globals['_LISTPEOPLEREQUEST']._serialized_end=1215
-  _globals['_LISTPEOPLERESPONSE']._serialized_start=1217
-  _globals['_LISTPEOPLERESPONSE']._serialized_end=1274
-  _globals['_OVERVIEWSERVICE']._serialized_start=1276
-  _globals['_OVERVIEWSERVICE']._serialized_end=1375
-  _globals['_PEOPLESERVICE']._serialized_start=1377
-  _globals['_PEOPLESERVICE']._serialized_end=1471
+  _globals['_PREPAIDVALUE']._serialized_start=658
+  _globals['_PREPAIDVALUE']._serialized_end=818
+  _globals['_GETOVERVIEWRESPONSE']._serialized_start=821
+  _globals['_GETOVERVIEWRESPONSE']._serialized_end=1380
+  _globals['_PERSON']._serialized_start=1382
+  _globals['_PERSON']._serialized_end=1451
+  _globals['_LISTPEOPLEREQUEST']._serialized_start=1453
+  _globals['_LISTPEOPLEREQUEST']._serialized_end=1472
+  _globals['_LISTPEOPLERESPONSE']._serialized_start=1474
+  _globals['_LISTPEOPLERESPONSE']._serialized_end=1531
+  _globals['_OVERVIEWSERVICE']._serialized_start=1533
+  _globals['_OVERVIEWSERVICE']._serialized_end=1632
+  _globals['_PEOPLESERVICE']._serialized_start=1634
+  _globals['_PEOPLESERVICE']._serialized_end=1728
 # @@protoc_insertion_point(module_scope)

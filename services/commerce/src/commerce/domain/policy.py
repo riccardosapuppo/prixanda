@@ -12,23 +12,29 @@ ROLES = ("marketing", "commercial_lead", "finance", "catalog_manager", "on_call"
 SIGNING_ROLES = frozenset({"commercial_lead", "finance"})
 
 # The kinds of change the contract carries content for today; the database
-# already knows the three that stage 7 adds.
-KINDS = ("offer", "list_price")
+# knows one more, a plan's entitlements.
+KINDS = ("offer", "list_price", "price_migration", "prepaid")
 
 # Who writes each kind: CreateChange, SaveVersion, ValidateChange, SubmitChange.
 AUTHORS: dict[str, frozenset[str]] = {
     "offer": frozenset({"marketing"}),
     "list_price": frozenset({"commercial_lead"}),
+    "price_migration": frozenset({"commercial_lead"}),
+    "prepaid": frozenset({"commercial_lead"}),
 }
 # Finance approves but does not set a launch going: separation of duties.
 SCHEDULERS: dict[str, frozenset[str]] = {
     "offer": frozenset({"marketing", "commercial_lead"}),
     "list_price": frozenset({"commercial_lead"}),
+    "price_migration": frozenset({"commercial_lead"}),
+    "prepaid": frozenset({"commercial_lead"}),
 }
 # Cancelling a scheduled launch is part of "roll back a launch" (§12).
 CANCELLERS: dict[str, frozenset[str]] = {
     "offer": frozenset({"marketing", "commercial_lead", "on_call"}),
     "list_price": frozenset({"commercial_lead", "on_call"}),
+    "price_migration": frozenset({"commercial_lead", "on_call"}),
+    "prepaid": frozenset({"commercial_lead", "on_call"}),
 }
 SUSPENDERS = frozenset({"on_call"})
 # Retrying or cancelling a launch that stopped: "roll back a launch" (§12).
@@ -38,6 +44,8 @@ CHAIN_VERIFIERS = frozenset({"auditor", "on_call"})
 HEAD_EXPORTERS = frozenset({"auditor"})
 # Revenue and the artists' top-ups on the home page (§12: finance reads revenue).
 REVENUE_READERS = frozenset({"finance", "commercial_lead"})
+# The value of prepaid passes sold and not yet earned (§9.2, §12.2).
+PREPAID_VALUE_READERS = frozenset({"finance"})
 
 # §7.1, the same moves the database trigger allows (migration V2).
 TRANSITIONS: dict[str, tuple[str, ...]] = {

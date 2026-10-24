@@ -31,7 +31,7 @@ import json
 import random
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 
 import asyncpg
@@ -181,10 +181,12 @@ def verify_free_students(seed: int, subscribers, subscriptions, until: date):
     return verifications
 
 
-# The listeners the site's entrance offers (§14.1, §14.5), each showing one
-# situation. They come after the generated people, with numbers of their own
-# and dates fixed relative to --until, so the other rows stay as they were.
-# student tells the simulated verifier whether this listener has a student record.
+# The listeners the site's entrance offers (§14.1, §14.3, §14.5), each showing
+# one situation. They come after the generated people, with numbers of their
+# own and dates fixed relative to --until, so the other rows stay as they were;
+# a listener added later comes after the others, for the same reason.
+# student tells the simulated verifier whether this listener has a student
+# record; paid is a paid plan from a day, billed on that day of each month.
 DEMO_LISTENERS = [
     {"title": "Student in Italy, verified", "market": "IT", "joined": 200, "student": True,
      "label": "Simulated listener. A verified student in Italy who has never paid: the Student Autumn Pass is for them.",
@@ -200,6 +202,16 @@ DEMO_LISTENERS = [
     {"title": "Free listener in France", "market": "FR", "joined": 300, "student": False,
      "label": "Simulated listener. On Free in France and not a student: list prices, and no offer for them.",
      "verified": []},
+    # From 15 June 2025 with the default --until (24 October 2026): billed on the 15th.
+    {"title": "Family subscriber in Germany", "market": "DE", "joined": 600, "student": False,
+     "label": "Simulated listener. Pays for Family in Germany since June 2025, billed on the 15th: a price rise there "
+              "asks for their consent first (§8.2).",
+     "verified": [], "paid": ("family", 496)},
+    # From 8 May 2026 with the default --until: billed on the 8th.
+    {"title": "Individual subscriber in Italy", "market": "IT", "joined": 260, "student": False,
+     "label": "Simulated listener. Pays for Individual in Italy since May 2026, billed on the 8th: a price rise there "
+              "comes with notice, and they may leave before it applies (§8.3).",
+     "verified": [], "paid": ("individual", 169)},
 ]
 
 
@@ -216,12 +228,19 @@ def demo_listeners(first_subscriber: int, first_subscription: int, start: date, 
         market, joined = demo["market"], back(demo["joined"])
         subscribers.append((subscriber_id, market, joined))
         history = [("free", False, 0, joined)]
+        billing_day = 12
         if "paid_student" in demo:
             began, ended = (back(days) for days in demo["paid_student"])
             history = [("free", False, 0, joined), ("student", True, PRICES[market]["student"], began), ("free", False, 0, ended)]
+        if "paid" in demo:
+            plan, days = demo["paid"]
+            began = back(days)
+            history = [("free", False, 0, joined), (plan, True, PRICES[market][plan], began)]
+            billing_day = min(began.day, 28)
         for n, (plan, paid, price, began) in enumerate(history):
             ended = history[n + 1][3] if n + 1 < len(history) else None
-            subscriptions.append((subscription_id, subscriber_id, market, CURRENCY[market], plan, paid, price, began, ended, 12))
+            subscriptions.append((subscription_id, subscriber_id, market, CURRENCY[market], plan, paid, price, began, ended,
+                                  billing_day))
             subscription_id += 1
         for days in demo["verified"]:
             verified = back(days)
@@ -269,7 +288,26 @@ def listening(rng: random.Random, size: Size, subscribers, subscriptions, artist
 # A hash per row, summed: it does not depend on the order rows were written
 # in, and never builds one huge text (PostgreSQL caps a text at 1 GB).
 FINGERPRINTED = ["person", "person_role", "plan_entitlement", "list_price", "label", "artist", "release",
-                 "subscriber", "subscription", "student_verification", "listening_day", "demo_listener"]
+                 "subscriber", "subscription", "subscription_price", "student_verification", "listening_day", "demo_listener"]
+
+
+async def write_subscriptions(conn: asyncpg.Connection, subscriptions: list[tuple]) -> None:
+    """Each subscription with the price it starts at, where the schema keeps it: since migration V14 the first row of
+    its history; before it a column of the subscription, which a trigger copied into the history from V12 on. So the
+    compatibility check (compat.py) can write the data of the version before the history too."""
+    column = await conn.fetchval(
+        "select exists (select from information_schema.columns where table_schema = current_schema() "
+        "and table_name = 'subscription' and column_name = 'price_minor')")
+    columns = ["id", "subscriber_id", "market", "currency", "plan_id", "paid", "price_minor", "started_on", "ended_on",
+               "billing_day"]
+    if column:
+        await conn.copy_records_to_table("subscription", records=subscriptions, columns=columns)
+        return
+    price, started = columns.index("price_minor"), columns.index("started_on")
+    await conn.copy_records_to_table("subscription", records=[s[:price] + s[price + 1:] for s in subscriptions],
+                                     columns=columns[:price] + columns[price + 1:])
+    await conn.copy_records_to_table("subscription_price", records=[(s[0], s[started], s[price]) for s in subscriptions],
+                                     columns=["subscription_id", "from_on", "price_minor"])
 
 
 async def fingerprint(conn: asyncpg.Connection) -> str:
@@ -282,8 +320,10 @@ async def fingerprint(conn: asyncpg.Connection) -> str:
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
-async def generate(url: str, size_name: str, seed: int, start: date, until: date) -> dict:
-    size = SIZES[size_name]
+async def generate(url: str, size_name: str, seed: int, start: date, until: date, *, listening_days: int | None = None) -> dict:
+    """listening_days, when given, replaces the size's weeks of listening: the measurements (measure.py) can ask
+    for a longer history than the data of the demo holds."""
+    size = SIZES[size_name] if listening_days is None else replace(SIZES[size_name], listening_days=listening_days)
     rng = random.Random(seed)
     timings: dict[str, int] = {}
     begun = time.perf_counter()
@@ -330,9 +370,7 @@ async def generate(url: str, size_name: str, seed: int, start: date, until: date
             subscribers, subscriptions, verifications = subscribers + demo[0], subscriptions + demo[1], verifications + demo[2]
             lap("plan_people")
             await conn.copy_records_to_table("subscriber", records=subscribers, columns=["id", "market", "joined_on"])
-            await conn.copy_records_to_table(
-                "subscription", records=subscriptions,
-                columns=["id", "subscriber_id", "market", "currency", "plan_id", "paid", "price_minor", "started_on", "ended_on", "billing_day"])
+            await write_subscriptions(conn, subscriptions)
             await conn.copy_records_to_table("student_verification", records=verifications,
                                              columns=["subscriber_id", "verified_on", "valid_until", "provider"])
             await conn.copy_records_to_table("demo_listener", records=demo[3],
@@ -360,7 +398,8 @@ async def generate(url: str, size_name: str, seed: int, start: date, until: date
         by_market_plan = await conn.fetch(
             "select market, plan_id, count(*)::int as n from subscription where ended_on is null group by 1, 2 order by 1, 2")
         return {
-            "size": size_name, "seed": seed, "start": start.isoformat(), "until": until.isoformat(), "counts": counts,
+            "size": size_name, "seed": seed, "start": start.isoformat(), "until": until.isoformat(),
+            "listening_days": size.listening_days, "counts": counts,
             "current_subscriptions": {f"{r['market']}/{r['plan_id']}": r["n"] for r in by_market_plan},
             "database_bytes": await conn.fetchval("select pg_database_size(current_database())"),
             "timings_ms": timings,
@@ -376,6 +415,7 @@ async def main() -> int:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--start", type=date.fromisoformat, default=START)
     parser.add_argument("--until", type=date.fromisoformat, default=UNTIL)
+    parser.add_argument("--listening-days", type=int, help="days of listening before --until, instead of the size's")
     parser.add_argument("--fingerprint", action="store_true", help="only print the fingerprint of the generated rows")
     args = parser.parse_args()
     if args.fingerprint:
@@ -387,7 +427,9 @@ async def main() -> int:
         return 0
     if args.until <= args.start:
         parser.error("--until must come after --start")
-    summary = await generate(args.url, args.size, args.seed, args.start, args.until)
+    if args.listening_days is not None and not 1 <= args.listening_days <= 730:
+        parser.error("--listening-days is between 1 and 730")
+    summary = await generate(args.url, args.size, args.seed, args.start, args.until, listening_days=args.listening_days)
     print(json.dumps(summary, indent=2))
     return 0
 

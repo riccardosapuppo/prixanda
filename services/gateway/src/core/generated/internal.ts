@@ -7,7 +7,7 @@ import type { MarketCodeValue } from '../scalars.ts';
 import type { PlanCodeValue } from '../scalars.ts';
 import type { Sha256Value } from '../scalars.ts';
 import type { GraphQLResolveInfo, GraphQLScalarType, GraphQLScalarTypeConfig } from 'graphql';
-import type { PersonModel, SessionModel, MarketModel, EntitlementsModel, PriceBreakdownModel, PlanModel, PriceListEntryModel, ChangePageModel, ChangeSummaryModel, ChangeModel, ChangeVersionModel, OfferContentModel, ListPriceContentModel, AudienceModel, ListeningRuleModel, OfferPriceModel, OfferPeriodModel, OfferPageModel, ApprovalModel, RequiredSignatureModel, FactModel, ValidationFindingModel, ValidationReportModel, RefusalModel, OverviewModel, MarketTimeModel, LaunchModel, IncidentModel, SubscriberCountModel, MarketRevenueModel, AssumptionModel, TotalsModel, FinanceConditionModel, SimulationModel, AuditEventModel, AuditPageModel, ChainHeadModel, ChainVerificationModel, LaunchPageModel, LaunchRunModel, LaunchStepModel, LaunchIncidentModel } from '../models.ts';
+import type { PersonModel, SessionModel, MarketModel, EntitlementsModel, PriceBreakdownModel, PlanModel, PriceListEntryModel, ChangePageModel, ChangeSummaryModel, ChangeModel, ChangeVersionModel, OfferContentModel, ListPriceContentModel, AudienceModel, ListeningRuleModel, OfferPriceModel, OfferPeriodModel, OfferPageModel, ApprovalModel, RequiredSignatureModel, FactModel, ValidationFindingModel, ValidationReportModel, RefusalModel, OverviewModel, MarketTimeModel, LaunchModel, IncidentModel, SubscriberCountModel, MarketRevenueModel, AssumptionModel, TotalsModel, FinanceConditionModel, SimulationModel, AuditEventModel, AuditPageModel, ChainHeadModel, ChainVerificationModel, LaunchPageModel, LaunchRunModel, LaunchStepModel, LaunchIncidentModel, PriceChangePolicyModel, PriceChangeLawModel, PriceChangeChoiceModel, MigrationProgressModel, PriceMigrationContentModel, PriceStepModel, MigrationSimulationModel, PrepaidPassContentModel, PrepaidPassPriceModel, PrepaidValueModel } from '../models.ts';
 import type { InternalContext } from '../context.ts';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
@@ -59,6 +59,8 @@ export type Query = {
   readonly changes: ChangePage;
   /** The simulation of an offer in one market against not running it (§6.6). */
   readonly simulateOffer: SimulationOutcome;
+  /** The simulation of a price migration (§8.7); its current version when version is absent. Marketing, the commercial lead and finance. */
+  readonly simulateMigration: MigrationSimulationOutcome;
   /** The audit log, newest first (§11). The auditor's (§12). */
   readonly auditEvents: AuditPage;
   /** Recomputes the log's chain; with an exported head, also checks that the chain still leads to it (§11.3). */
@@ -107,6 +109,13 @@ export type QuerySimulateOfferArgs = {
 };
 
 
+export type QuerySimulateMigrationArgs = {
+  changeId: Scalars['ID']['input'];
+  version?: InputMaybe<Scalars['Int']['input']>;
+  overrides?: InputMaybe<ReadonlyArray<AssumptionInput>>;
+};
+
+
 export type QueryAuditEventsArgs = {
   filter?: InputMaybe<AuditFilter>;
   first?: Scalars['Int']['input'];
@@ -138,9 +147,15 @@ export type Mutation = {
   readonly signOut: Scalars['Boolean']['output'];
   readonly createOffer: ChangeResult;
   readonly createListPrice: ChangeResult;
+  /** A price migration (§8, §14.3): the commercial lead's alone (§12); finance always signs it (§7.3, conditions 1 and 5). */
+  readonly createPriceMigration: ChangeResult;
+  /** A prepaid pass (§9, §14.4): the commercial lead's alone (§12); finance signs it, as a price (§7.3, condition 1). */
+  readonly createPrepaidPass: ChangeResult;
   /** A new version from the one the author started from; refused as STALE_VERSION when someone saved a newer one (§6.3). */
   readonly saveOfferVersion: ChangeResult;
   readonly saveListPriceVersion: ChangeResult;
+  readonly savePriceMigrationVersion: ChangeResult;
+  readonly savePrepaidPassVersion: ChangeResult;
   readonly validateChange: ChangeResult;
   /** authorReason is required when the simulated contribution is negative (§7.3, condition 4). */
   readonly submitChange: ChangeResult;
@@ -185,6 +200,16 @@ export type MutationCreateListPriceArgs = {
 };
 
 
+export type MutationCreatePriceMigrationArgs = {
+  migration: PriceMigrationInput;
+};
+
+
+export type MutationCreatePrepaidPassArgs = {
+  pass: PrepaidPassInput;
+};
+
+
 export type MutationSaveOfferVersionArgs = {
   changeId: Scalars['ID']['input'];
   baseVersion: Scalars['Int']['input'];
@@ -196,6 +221,20 @@ export type MutationSaveListPriceVersionArgs = {
   changeId: Scalars['ID']['input'];
   baseVersion: Scalars['Int']['input'];
   listPrice: ListPriceInput;
+};
+
+
+export type MutationSavePriceMigrationVersionArgs = {
+  changeId: Scalars['ID']['input'];
+  baseVersion: Scalars['Int']['input'];
+  migration: PriceMigrationInput;
+};
+
+
+export type MutationSavePrepaidPassVersionArgs = {
+  changeId: Scalars['ID']['input'];
+  baseVersion: Scalars['Int']['input'];
+  pass: PrepaidPassInput;
 };
 
 
@@ -309,7 +348,58 @@ export type Market = {
   readonly artistsMinimum: Scalars['Money']['output'];
   /** The lowest price whose pool covers the minimum without a top-up (§5.4). */
   readonly floor: Scalars['Money']['output'];
+  /** What happens before an existing subscriber pays more (§8); null when the engine gives none. */
+  readonly priceChangePolicy?: Maybe<PriceChangePolicy>;
 };
+
+/**
+ * What happens before an existing subscriber pays more (§8). Two questions,
+ * never mixed (§8.1): what the law of the market requires, with its sources,
+ * and what the music service chose to do, a setting of the market and never law
+ * (§8.6).
+ */
+export type PriceChangePolicy = {
+  readonly __typename?: 'PriceChangePolicy';
+  readonly law: PriceChangeLaw;
+  readonly choice: PriceChangeChoice;
+};
+
+/** What the law of the market requires before an existing subscriber pays a higher price (§8.2 to §8.5). */
+export type PriceChangeLaw = {
+  readonly __typename?: 'PriceChangeLaw';
+  readonly requirement: PriceChangeRequirement;
+  /** The law, in words. */
+  readonly basis: Scalars['String']['output'];
+  readonly sources: ReadonlyArray<Scalars['String']['output']>;
+};
+
+/** What the music service chose to do: a setting of the market, never law (§8.6). */
+export type PriceChangeChoice = {
+  readonly __typename?: 'PriceChangeChoice';
+  /** How long the subscriber has: to consent, or before the new price applies after the notice. */
+  readonly windowDays: Scalars['Int']['output'];
+  /** What happens at the end of the window to those who did not consent, or who did not leave. */
+  readonly afterWindow: AfterWindow;
+  /** The same choice in words, as the subscriber reads it. */
+  readonly words: Scalars['String']['output'];
+  /** The other choices the market could make. */
+  readonly alternatives: ReadonlyArray<Scalars['String']['output']>;
+  /** That it is a choice: Rione's choice, configurable per market. Not a legal requirement. */
+  readonly label: Scalars['String']['output'];
+};
+
+export type PriceChangeRequirement =
+  /** The subscriber must say yes, and silence is no (§8.2). */
+  | 'CONSENT'
+  /** The subscriber is told in advance and may leave before the new price applies (§8.3 to §8.5). */
+  | 'NOTICE';
+
+export type AfterWindow =
+  | 'MOVE_TO_FREE'
+  | 'END_AT_PERIOD_END'
+  | 'KEEP_OLD_PRICE'
+  /** In a notice market: the new price applies to those who did not leave. */
+  | 'NEW_PRICE';
 
 export type AudioQuality =
   | 'STANDARD'
@@ -435,6 +525,29 @@ export type Change = {
   readonly sentence?: Maybe<Scalars['String']['output']>;
   /** Why the campaign is worth running despite a negative contribution (§7.3, condition 4). */
   readonly authorReason?: Maybe<Scalars['String']['output']>;
+  /** A price migration that started: where its existing subscribers stand; null before, and for other kinds of change. */
+  readonly migration?: Maybe<MigrationProgress>;
+};
+
+/** How a price migration stands with the existing subscribers of its plan in its market, once it started (§8). */
+export type MigrationProgress = {
+  readonly __typename?: 'MigrationProgress';
+  /** What the market's law asks for. */
+  readonly requirement: PriceChangeRequirement;
+  /** The end of the window: the consent deadline, or the end of the notice. */
+  readonly windowEnds: MarketTime;
+  /** The subscribers asked or told, and where each stands. */
+  readonly asked: Scalars['Int']['output'];
+  readonly waiting: Scalars['Int']['output'];
+  readonly accepted: Scalars['Int']['output'];
+  /** Said no: in a consent market they keep their price until the window ends; in a notice market they leave before the new price applies. */
+  readonly declined: Scalars['Int']['output'];
+  /** Gave no answer in a consent market by the end of the window. */
+  readonly lapsed: Scalars['Int']['output'];
+  /** Paying the new price from their own date. */
+  readonly newPrice: Scalars['Int']['output'];
+  /** Moved to the free plan by the market's commercial choice, or ended. */
+  readonly left: Scalars['Int']['output'];
 };
 
 export type ChangeVersion = {
@@ -447,7 +560,7 @@ export type ChangeVersion = {
   readonly content: ChangeContent;
 };
 
-export type ChangeContent = OfferContent | ListPriceContent;
+export type ChangeContent = OfferContent | ListPriceContent | PriceMigrationContent | PrepaidPassContent;
 
 export type Segment =
   /** People who have never paid. */
@@ -526,6 +639,54 @@ export type ListPriceContent = {
   readonly startsLocal: Scalars['LocalDateTime']['output'];
 };
 
+/**
+ * A higher price for one plan in one market, for everyone (§8, §14.3): new
+ * subscribers pay it from startsLocal; the existing subscribers of the plan in
+ * the market are asked for their consent, or told, from noticesLocal, by the
+ * rules of their market (Market.priceChangePolicy). Finance signs it (§7.3,
+ * conditions 1 and 5).
+ */
+export type PriceMigrationContent = {
+  readonly __typename?: 'PriceMigrationContent';
+  readonly title: Scalars['String']['output'];
+  readonly plan: Scalars['PlanCode']['output'];
+  readonly market: Scalars['MarketCode']['output'];
+  /** The new price, above the list price in force. */
+  readonly amount: Scalars['Money']['output'];
+  /** When the existing subscribers are asked or told; the change starts then. */
+  readonly noticesLocal: Scalars['LocalDateTime']['output'];
+  /** When new subscribers start paying it; not before noticesLocal. */
+  readonly startsLocal: Scalars['LocalDateTime']['output'];
+};
+
+/**
+ * A prepaid pass (§9, §14.4): months of a plan paid once, in advance, sold as
+ * a single-use code that can be given as a gift. It never renews, and price
+ * changes made after it was sold do not touch it. It goes on sale when the
+ * first of its periods starts, through its launch, as a list price does.
+ */
+export type PrepaidPassContent = {
+  readonly __typename?: 'PrepaidPassContent';
+  readonly title: Scalars['String']['output'];
+  /** The plan it gives, for its months. */
+  readonly plan: Scalars['PlanCode']['output'];
+  readonly months: Scalars['Int']['output'];
+  /** Its price in each market where it is sold, VAT included. */
+  readonly prices: ReadonlyArray<PrepaidPassPrice>;
+  /** When it is on sale in each market; no end: open. */
+  readonly periods: ReadonlyArray<OfferPeriod>;
+  /** How long a code sold can be activated: months from the day it was sold. */
+  readonly codeValidMonths: Scalars['Int']['output'];
+  readonly pages: ReadonlyArray<OfferPage>;
+};
+
+/** A prepaid pass's price in one market: a fixed price, VAT included. */
+export type PrepaidPassPrice = {
+  readonly __typename?: 'PrepaidPassPrice';
+  readonly market: Scalars['MarketCode']['output'];
+  readonly amount: Scalars['Money']['output'];
+};
+
 export type ListeningRuleInput = {
   readonly artistId: Scalars['Int']['input'];
   readonly minSeconds: Scalars['Int']['input'];
@@ -579,6 +740,35 @@ export type ListPriceInput = {
   readonly market: Scalars['MarketCode']['input'];
   readonly amount: Scalars['Money']['input'];
   readonly startsLocal: Scalars['LocalDateTime']['input'];
+};
+
+export type PriceMigrationInput = {
+  readonly title: Scalars['String']['input'];
+  readonly plan: Scalars['PlanCode']['input'];
+  readonly market: Scalars['MarketCode']['input'];
+  /** The new price, above the list price in force. */
+  readonly amount: Scalars['Money']['input'];
+  /** When the existing subscribers are asked or told: in the future. */
+  readonly noticesLocal: Scalars['LocalDateTime']['input'];
+  /** When new subscribers start paying it: not before noticesLocal. */
+  readonly startsLocal: Scalars['LocalDateTime']['input'];
+};
+
+export type PrepaidPassInput = {
+  readonly title: Scalars['String']['input'];
+  readonly plan: Scalars['PlanCode']['input'];
+  readonly months: Scalars['Int']['input'];
+  /** A fixed price, VAT included, in each market where it is sold. */
+  readonly prices: ReadonlyArray<PrepaidPassPriceInput>;
+  readonly periods: ReadonlyArray<OfferPeriodInput>;
+  /** How long a code sold can be activated, in months from the day it was sold. */
+  readonly codeValidMonths: Scalars['Int']['input'];
+  readonly pages: ReadonlyArray<OfferPageInput>;
+};
+
+export type PrepaidPassPriceInput = {
+  readonly market: Scalars['MarketCode']['input'];
+  readonly amount: Scalars['Money']['input'];
 };
 
 export type Approval = {
@@ -697,6 +887,29 @@ export type Overview = {
   readonly monthlyTopUps?: Maybe<Scalars['Money']['output']>;
   /** 1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026). */
   readonly exchangeRateNote: Scalars['String']['output'];
+  /** The prepaid passes of each market, and their value sold and not yet earned on the day (§9.2). Finance only (§12.2). */
+  readonly prepaid?: Maybe<ReadonlyArray<PrepaidValue>>;
+  /** That value in all, in euros at the declared rate. Finance only. */
+  readonly prepaidUnearnedEur?: Maybe<Scalars['Money']['output']>;
+};
+
+/**
+ * The prepaid passes of a market and their value not yet earned (§9.2): a
+ * pass's net amount is earned in equal monthly parts from its activation, the
+ * last taking the remainder; a code not activated stays unearned until it
+ * expires.
+ */
+export type PrepaidValue = {
+  readonly __typename?: 'PrepaidValue';
+  readonly market: Scalars['MarketCode']['output'];
+  /** Codes paid for, of which activated, and expired unused. */
+  readonly sold: Scalars['Int']['output'];
+  readonly activated: Scalars['Int']['output'];
+  readonly expired: Scalars['Int']['output'];
+  /** Without VAT, in the market's currency. */
+  readonly unearned: Scalars['Money']['output'];
+  /** In euros at the declared rate (§3.6). */
+  readonly unearnedEur: Scalars['Money']['output'];
 };
 
 export type MarketTime = {
@@ -883,7 +1096,11 @@ export type AssumptionName =
   | 'TAKE_UP'
   | 'INCREMENTAL'
   | 'RETENTION'
-  | 'HORIZON_MONTHS';
+  | 'HORIZON_MONTHS'
+  /** A price migration's: the subscribers of the plan in the market, counted in the data or typed. */
+  | 'EXISTING'
+  /** A price migration's: the share that accepts, in basis points, declared (§8.7). */
+  | 'ACCEPTANCE';
 
 /** Shares in basis points (1200 is 12%); counts and months as they are. */
 export type AssumptionInput = {
@@ -938,6 +1155,55 @@ export type Simulation = {
 };
 
 export type SimulationOutcome = Simulation | Refusal;
+
+/** Per subscription per month, at one price (§3.5, §5). */
+export type PriceStep = {
+  readonly __typename?: 'PriceStep';
+  readonly price: Scalars['Money']['output'];
+  readonly net: Scalars['Money']['output'];
+  /** The pool share of the net amount, never less than the minimum. */
+  readonly artists: Scalars['Money']['output'];
+  readonly paymentCosts: Scalars['Money']['output'];
+  readonly contribution: Scalars['Money']['output'];
+};
+
+/**
+ * The simulation of a price migration (§8.7): who pays what and from when, the
+ * revenue at risk under an acceptance rate declared as an assumption, who would
+ * move to the Free plan, and the prepaid passes the change never touches.
+ */
+export type MigrationSimulation = {
+  readonly __typename?: 'MigrationSimulation';
+  readonly before: PriceStep;
+  readonly after: PriceStep;
+  /** New subscribers pay the new price from here. */
+  readonly newSubscribersFrom: MarketTime;
+  /** When the existing subscribers are asked or told, and when their window ends. */
+  readonly noticesFrom: MarketTime;
+  readonly windowEnds: MarketTime;
+  /** How existing subscribers come to pay it, in words. */
+  readonly existingFrom: Scalars['String']['output'];
+  readonly existing: Scalars['Int']['output'];
+  readonly accepting: Scalars['Int']['output'];
+  readonly notAccepting: Scalars['Int']['output'];
+  /** Of those not accepting, how many the market's choice moves to the free plan. */
+  readonly movingToFree: Scalars['Int']['output'];
+  /** Per month, net of VAT, against not running the migration. */
+  readonly monthlyRevenueChange: Scalars['Money']['output'];
+  readonly monthlyContributionChange: Scalars['Money']['output'];
+  /** What the subscribers not accepting pay today, per month, net. */
+  readonly revenueAtRiskMonthly: Scalars['Money']['output'];
+  /** The lowest acceptance, in basis points, at which revenue does not fall; null when none is. */
+  readonly breakEvenAcceptanceRevenueBasisPoints?: Maybe<Scalars['Int']['output']>;
+  /** The same for the contribution. */
+  readonly breakEvenAcceptanceContributionBasisPoints?: Maybe<Scalars['Int']['output']>;
+  /** Prepaid passes of the plan in the market: never touched (§9.1). */
+  readonly prepaidPassesUntouched: Scalars['Int']['output'];
+  readonly assumptions: ReadonlyArray<Assumption>;
+  readonly financeConditions: ReadonlyArray<FinanceCondition>;
+};
+
+export type MigrationSimulationOutcome = MigrationSimulation | Refusal;
 
 export type AuditFilter = {
   readonly actor?: InputMaybe<Scalars['ID']['input']>;
@@ -1065,6 +1331,8 @@ export type ResolversUnionTypes<_RefType extends Record<string, unknown>> = {
   ChangeContent:
     | ( OfferContentModel )
     | ( ListPriceContentModel )
+    | ( PriceMigrationContentModel )
+    | ( PrepaidPassContentModel )
   ;
   ChangeResult:
     | ( ChangeModel )
@@ -1076,6 +1344,10 @@ export type ResolversUnionTypes<_RefType extends Record<string, unknown>> = {
   ;
   SimulationOutcome:
     | ( SimulationModel )
+    | ( RefusalModel )
+  ;
+  MigrationSimulationOutcome:
+    | ( MigrationSimulationModel )
     | ( RefusalModel )
   ;
   ExportHeadResult:
@@ -1105,6 +1377,11 @@ export type ResolversTypes = {
   SessionMode: SessionMode;
   Session: ResolverTypeWrapper<SessionModel>;
   Market: ResolverTypeWrapper<MarketModel>;
+  PriceChangePolicy: ResolverTypeWrapper<PriceChangePolicyModel>;
+  PriceChangeLaw: ResolverTypeWrapper<PriceChangeLawModel>;
+  PriceChangeChoice: ResolverTypeWrapper<PriceChangeChoiceModel>;
+  PriceChangeRequirement: PriceChangeRequirement;
+  AfterWindow: AfterWindow;
   AudioQuality: AudioQuality;
   Entitlements: ResolverTypeWrapper<EntitlementsModel>;
   PriceBreakdown: ResolverTypeWrapper<PriceBreakdownModel>;
@@ -1116,6 +1393,7 @@ export type ResolversTypes = {
   ChangePage: ResolverTypeWrapper<ChangePageModel>;
   ChangeSummary: ResolverTypeWrapper<ChangeSummaryModel>;
   Change: ResolverTypeWrapper<ChangeModel>;
+  MigrationProgress: ResolverTypeWrapper<MigrationProgressModel>;
   ChangeVersion: ResolverTypeWrapper<ChangeVersionModel>;
   ChangeContent: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['ChangeContent']>;
   Segment: Segment;
@@ -1126,6 +1404,9 @@ export type ResolversTypes = {
   OfferPage: ResolverTypeWrapper<OfferPageModel>;
   OfferContent: ResolverTypeWrapper<OfferContentModel>;
   ListPriceContent: ResolverTypeWrapper<ListPriceContentModel>;
+  PriceMigrationContent: ResolverTypeWrapper<PriceMigrationContentModel>;
+  PrepaidPassContent: ResolverTypeWrapper<PrepaidPassContentModel>;
+  PrepaidPassPrice: ResolverTypeWrapper<PrepaidPassPriceModel>;
   ListeningRuleInput: ListeningRuleInput;
   AudienceInput: AudienceInput;
   OfferPriceInput: OfferPriceInput;
@@ -1133,6 +1414,9 @@ export type ResolversTypes = {
   OfferPageInput: OfferPageInput;
   OfferInput: OfferInput;
   ListPriceInput: ListPriceInput;
+  PriceMigrationInput: PriceMigrationInput;
+  PrepaidPassInput: PrepaidPassInput;
+  PrepaidPassPriceInput: PrepaidPassPriceInput;
   Approval: ResolverTypeWrapper<ApprovalModel>;
   RequiredSignature: ResolverTypeWrapper<RequiredSignatureModel>;
   Severity: Severity;
@@ -1143,6 +1427,7 @@ export type ResolversTypes = {
   Refusal: ResolverTypeWrapper<RefusalModel>;
   ChangeResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['ChangeResult']>;
   Overview: ResolverTypeWrapper<OverviewModel>;
+  PrepaidValue: ResolverTypeWrapper<PrepaidValueModel>;
   MarketTime: ResolverTypeWrapper<MarketTimeModel>;
   Launch: ResolverTypeWrapper<LaunchModel>;
   IncidentState: IncidentState;
@@ -1165,6 +1450,9 @@ export type ResolversTypes = {
   FinanceCondition: ResolverTypeWrapper<FinanceConditionModel>;
   Simulation: ResolverTypeWrapper<SimulationModel>;
   SimulationOutcome: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['SimulationOutcome']>;
+  PriceStep: ResolverTypeWrapper<PriceStepModel>;
+  MigrationSimulation: ResolverTypeWrapper<MigrationSimulationModel>;
+  MigrationSimulationOutcome: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['MigrationSimulationOutcome']>;
   AuditFilter: AuditFilter;
   AuditEvent: ResolverTypeWrapper<AuditEventModel>;
   AuditPage: ResolverTypeWrapper<AuditPageModel>;
@@ -1191,6 +1479,9 @@ export type ResolversParentTypes = {
   Person: PersonModel;
   Session: SessionModel;
   Market: MarketModel;
+  PriceChangePolicy: PriceChangePolicyModel;
+  PriceChangeLaw: PriceChangeLawModel;
+  PriceChangeChoice: PriceChangeChoiceModel;
   Entitlements: EntitlementsModel;
   PriceBreakdown: PriceBreakdownModel;
   Plan: PlanModel;
@@ -1199,6 +1490,7 @@ export type ResolversParentTypes = {
   ChangePage: ChangePageModel;
   ChangeSummary: ChangeSummaryModel;
   Change: ChangeModel;
+  MigrationProgress: MigrationProgressModel;
   ChangeVersion: ChangeVersionModel;
   ChangeContent: ResolversUnionTypes<ResolversParentTypes>['ChangeContent'];
   ListeningRule: ListeningRuleModel;
@@ -1208,6 +1500,9 @@ export type ResolversParentTypes = {
   OfferPage: OfferPageModel;
   OfferContent: OfferContentModel;
   ListPriceContent: ListPriceContentModel;
+  PriceMigrationContent: PriceMigrationContentModel;
+  PrepaidPassContent: PrepaidPassContentModel;
+  PrepaidPassPrice: PrepaidPassPriceModel;
   ListeningRuleInput: ListeningRuleInput;
   AudienceInput: AudienceInput;
   OfferPriceInput: OfferPriceInput;
@@ -1215,6 +1510,9 @@ export type ResolversParentTypes = {
   OfferPageInput: OfferPageInput;
   OfferInput: OfferInput;
   ListPriceInput: ListPriceInput;
+  PriceMigrationInput: PriceMigrationInput;
+  PrepaidPassInput: PrepaidPassInput;
+  PrepaidPassPriceInput: PrepaidPassPriceInput;
   Approval: ApprovalModel;
   RequiredSignature: RequiredSignatureModel;
   Fact: FactModel;
@@ -1223,6 +1521,7 @@ export type ResolversParentTypes = {
   Refusal: RefusalModel;
   ChangeResult: ResolversUnionTypes<ResolversParentTypes>['ChangeResult'];
   Overview: OverviewModel;
+  PrepaidValue: PrepaidValueModel;
   MarketTime: MarketTimeModel;
   Launch: LaunchModel;
   Incident: IncidentModel;
@@ -1240,6 +1539,9 @@ export type ResolversParentTypes = {
   FinanceCondition: FinanceConditionModel;
   Simulation: SimulationModel;
   SimulationOutcome: ResolversUnionTypes<ResolversParentTypes>['SimulationOutcome'];
+  PriceStep: PriceStepModel;
+  MigrationSimulation: MigrationSimulationModel;
+  MigrationSimulationOutcome: ResolversUnionTypes<ResolversParentTypes>['MigrationSimulationOutcome'];
   AuditFilter: AuditFilter;
   AuditEvent: AuditEventModel;
   AuditPage: AuditPageModel;
@@ -1283,6 +1585,7 @@ export type QueryResolvers<ContextType = InternalContext, ParentType extends Res
   change: Resolver<Maybe<ResolversTypes['Change']>, ParentType, ContextType, RequireFields<QueryChangeArgs, 'id'>>;
   changes: Resolver<ResolversTypes['ChangePage'], ParentType, ContextType, RequireFields<QueryChangesArgs, 'first'>>;
   simulateOffer: Resolver<ResolversTypes['SimulationOutcome'], ParentType, ContextType, RequireFields<QuerySimulateOfferArgs, 'changeId' | 'version' | 'market'>>;
+  simulateMigration: Resolver<ResolversTypes['MigrationSimulationOutcome'], ParentType, ContextType, RequireFields<QuerySimulateMigrationArgs, 'changeId'>>;
   auditEvents: Resolver<ResolversTypes['AuditPage'], ParentType, ContextType, RequireFields<QueryAuditEventsArgs, 'first'>>;
   verifyAuditChain: Resolver<ResolversTypes['ChainVerification'], ParentType, ContextType, Partial<QueryVerifyAuditChainArgs>>;
   launches: Resolver<ResolversTypes['LaunchPage'], ParentType, ContextType, RequireFields<QueryLaunchesArgs, 'first'>>;
@@ -1294,8 +1597,12 @@ export type MutationResolvers<ContextType = InternalContext, ParentType extends 
   signOut: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   createOffer: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationCreateOfferArgs, 'offer'>>;
   createListPrice: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationCreateListPriceArgs, 'listPrice'>>;
+  createPriceMigration: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationCreatePriceMigrationArgs, 'migration'>>;
+  createPrepaidPass: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationCreatePrepaidPassArgs, 'pass'>>;
   saveOfferVersion: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationSaveOfferVersionArgs, 'changeId' | 'baseVersion' | 'offer'>>;
   saveListPriceVersion: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationSaveListPriceVersionArgs, 'changeId' | 'baseVersion' | 'listPrice'>>;
+  savePriceMigrationVersion: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationSavePriceMigrationVersionArgs, 'changeId' | 'baseVersion' | 'migration'>>;
+  savePrepaidPassVersion: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationSavePrepaidPassVersionArgs, 'changeId' | 'baseVersion' | 'pass'>>;
   validateChange: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationValidateChangeArgs, 'changeId' | 'version'>>;
   submitChange: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationSubmitChangeArgs, 'changeId' | 'version'>>;
   approveChange: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationApproveChangeArgs, 'changeId' | 'version' | 'fingerprint'>>;
@@ -1331,6 +1638,26 @@ export type MarketResolvers<ContextType = InternalContext, ParentType extends Re
   vatBasisPoints: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   artistsMinimum: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
   floor: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  priceChangePolicy: Resolver<Maybe<ResolversTypes['PriceChangePolicy']>, ParentType, ContextType>;
+};
+
+export type PriceChangePolicyResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['PriceChangePolicy'] = ResolversParentTypes['PriceChangePolicy']> = {
+  law: Resolver<ResolversTypes['PriceChangeLaw'], ParentType, ContextType>;
+  choice: Resolver<ResolversTypes['PriceChangeChoice'], ParentType, ContextType>;
+};
+
+export type PriceChangeLawResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['PriceChangeLaw'] = ResolversParentTypes['PriceChangeLaw']> = {
+  requirement: Resolver<ResolversTypes['PriceChangeRequirement'], ParentType, ContextType>;
+  basis: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  sources: Resolver<ReadonlyArray<ResolversTypes['String']>, ParentType, ContextType>;
+};
+
+export type PriceChangeChoiceResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['PriceChangeChoice'] = ResolversParentTypes['PriceChangeChoice']> = {
+  windowDays: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  afterWindow: Resolver<ResolversTypes['AfterWindow'], ParentType, ContextType>;
+  words: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  alternatives: Resolver<ReadonlyArray<ResolversTypes['String']>, ParentType, ContextType>;
+  label: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
 
 export type EntitlementsResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['Entitlements'] = ResolversParentTypes['Entitlements']> = {
@@ -1406,7 +1733,20 @@ export type ChangeResolvers<ContextType = InternalContext, ParentType extends Re
   requiredSignatures: Resolver<ReadonlyArray<ResolversTypes['RequiredSignature']>, ParentType, ContextType>;
   sentence: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   authorReason: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  migration: Resolver<Maybe<ResolversTypes['MigrationProgress']>, ParentType, ContextType>;
   __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
+};
+
+export type MigrationProgressResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['MigrationProgress'] = ResolversParentTypes['MigrationProgress']> = {
+  requirement: Resolver<ResolversTypes['PriceChangeRequirement'], ParentType, ContextType>;
+  windowEnds: Resolver<ResolversTypes['MarketTime'], ParentType, ContextType>;
+  asked: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  waiting: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  accepted: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  declined: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  lapsed: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  newPrice: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  left: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
 };
 
 export type ChangeVersionResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['ChangeVersion'] = ResolversParentTypes['ChangeVersion']> = {
@@ -1418,7 +1758,7 @@ export type ChangeVersionResolvers<ContextType = InternalContext, ParentType ext
 };
 
 export type ChangeContentResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['ChangeContent'] = ResolversParentTypes['ChangeContent']> = {
-  __resolveType: TypeResolveFn<'OfferContent' | 'ListPriceContent', ParentType, ContextType>;
+  __resolveType: TypeResolveFn<'OfferContent' | 'ListPriceContent' | 'PriceMigrationContent' | 'PrepaidPassContent', ParentType, ContextType>;
 };
 
 export type ListeningRuleResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['ListeningRule'] = ResolversParentTypes['ListeningRule']> = {
@@ -1474,6 +1814,32 @@ export type ListPriceContentResolvers<ContextType = InternalContext, ParentType 
   amount: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
   startsLocal: Resolver<ResolversTypes['LocalDateTime'], ParentType, ContextType>;
   __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
+};
+
+export type PriceMigrationContentResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['PriceMigrationContent'] = ResolversParentTypes['PriceMigrationContent']> = {
+  title: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  plan: Resolver<ResolversTypes['PlanCode'], ParentType, ContextType>;
+  market: Resolver<ResolversTypes['MarketCode'], ParentType, ContextType>;
+  amount: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  noticesLocal: Resolver<ResolversTypes['LocalDateTime'], ParentType, ContextType>;
+  startsLocal: Resolver<ResolversTypes['LocalDateTime'], ParentType, ContextType>;
+  __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
+};
+
+export type PrepaidPassContentResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['PrepaidPassContent'] = ResolversParentTypes['PrepaidPassContent']> = {
+  title: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  plan: Resolver<ResolversTypes['PlanCode'], ParentType, ContextType>;
+  months: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  prices: Resolver<ReadonlyArray<ResolversTypes['PrepaidPassPrice']>, ParentType, ContextType>;
+  periods: Resolver<ReadonlyArray<ResolversTypes['OfferPeriod']>, ParentType, ContextType>;
+  codeValidMonths: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  pages: Resolver<ReadonlyArray<ResolversTypes['OfferPage']>, ParentType, ContextType>;
+  __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
+};
+
+export type PrepaidPassPriceResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['PrepaidPassPrice'] = ResolversParentTypes['PrepaidPassPrice']> = {
+  market: Resolver<ResolversTypes['MarketCode'], ParentType, ContextType>;
+  amount: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
 };
 
 export type ApprovalResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['Approval'] = ResolversParentTypes['Approval']> = {
@@ -1533,6 +1899,17 @@ export type OverviewResolvers<ContextType = InternalContext, ParentType extends 
   monthlyRevenueEur: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
   monthlyTopUps: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
   exchangeRateNote: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  prepaid: Resolver<Maybe<ReadonlyArray<ResolversTypes['PrepaidValue']>>, ParentType, ContextType>;
+  prepaidUnearnedEur: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
+};
+
+export type PrepaidValueResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['PrepaidValue'] = ResolversParentTypes['PrepaidValue']> = {
+  market: Resolver<ResolversTypes['MarketCode'], ParentType, ContextType>;
+  sold: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  activated: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  expired: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  unearned: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  unearnedEur: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
 };
 
 export type MarketTimeResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['MarketTime'] = ResolversParentTypes['MarketTime']> = {
@@ -1671,6 +2048,40 @@ export type SimulationOutcomeResolvers<ContextType = InternalContext, ParentType
   __resolveType: TypeResolveFn<'Simulation' | 'Refusal', ParentType, ContextType>;
 };
 
+export type PriceStepResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['PriceStep'] = ResolversParentTypes['PriceStep']> = {
+  price: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  net: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  artists: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  paymentCosts: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  contribution: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+};
+
+export type MigrationSimulationResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['MigrationSimulation'] = ResolversParentTypes['MigrationSimulation']> = {
+  before: Resolver<ResolversTypes['PriceStep'], ParentType, ContextType>;
+  after: Resolver<ResolversTypes['PriceStep'], ParentType, ContextType>;
+  newSubscribersFrom: Resolver<ResolversTypes['MarketTime'], ParentType, ContextType>;
+  noticesFrom: Resolver<ResolversTypes['MarketTime'], ParentType, ContextType>;
+  windowEnds: Resolver<ResolversTypes['MarketTime'], ParentType, ContextType>;
+  existingFrom: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  existing: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  accepting: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  notAccepting: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  movingToFree: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  monthlyRevenueChange: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  monthlyContributionChange: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  revenueAtRiskMonthly: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  breakEvenAcceptanceRevenueBasisPoints: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
+  breakEvenAcceptanceContributionBasisPoints: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
+  prepaidPassesUntouched: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  assumptions: Resolver<ReadonlyArray<ResolversTypes['Assumption']>, ParentType, ContextType>;
+  financeConditions: Resolver<ReadonlyArray<ResolversTypes['FinanceCondition']>, ParentType, ContextType>;
+  __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
+};
+
+export type MigrationSimulationOutcomeResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['MigrationSimulationOutcome'] = ResolversParentTypes['MigrationSimulationOutcome']> = {
+  __resolveType: TypeResolveFn<'MigrationSimulation' | 'Refusal', ParentType, ContextType>;
+};
+
 export type AuditEventResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['AuditEvent'] = ResolversParentTypes['AuditEvent']> = {
   seq: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
   at: Resolver<ResolversTypes['DateTime'], ParentType, ContextType>;
@@ -1720,6 +2131,9 @@ export type Resolvers<ContextType = InternalContext> = {
   Person: PersonResolvers<ContextType>;
   Session: SessionResolvers<ContextType>;
   Market: MarketResolvers<ContextType>;
+  PriceChangePolicy: PriceChangePolicyResolvers<ContextType>;
+  PriceChangeLaw: PriceChangeLawResolvers<ContextType>;
+  PriceChangeChoice: PriceChangeChoiceResolvers<ContextType>;
   Entitlements: EntitlementsResolvers<ContextType>;
   PriceBreakdown: PriceBreakdownResolvers<ContextType>;
   Plan: PlanResolvers<ContextType>;
@@ -1727,6 +2141,7 @@ export type Resolvers<ContextType = InternalContext> = {
   ChangePage: ChangePageResolvers<ContextType>;
   ChangeSummary: ChangeSummaryResolvers<ContextType>;
   Change: ChangeResolvers<ContextType>;
+  MigrationProgress: MigrationProgressResolvers<ContextType>;
   ChangeVersion: ChangeVersionResolvers<ContextType>;
   ChangeContent: ChangeContentResolvers<ContextType>;
   ListeningRule: ListeningRuleResolvers<ContextType>;
@@ -1736,6 +2151,9 @@ export type Resolvers<ContextType = InternalContext> = {
   OfferPage: OfferPageResolvers<ContextType>;
   OfferContent: OfferContentResolvers<ContextType>;
   ListPriceContent: ListPriceContentResolvers<ContextType>;
+  PriceMigrationContent: PriceMigrationContentResolvers<ContextType>;
+  PrepaidPassContent: PrepaidPassContentResolvers<ContextType>;
+  PrepaidPassPrice: PrepaidPassPriceResolvers<ContextType>;
   Approval: ApprovalResolvers<ContextType>;
   RequiredSignature: RequiredSignatureResolvers<ContextType>;
   Fact: FactResolvers<ContextType>;
@@ -1744,6 +2162,7 @@ export type Resolvers<ContextType = InternalContext> = {
   Refusal: RefusalResolvers<ContextType>;
   ChangeResult: ChangeResultResolvers<ContextType>;
   Overview: OverviewResolvers<ContextType>;
+  PrepaidValue: PrepaidValueResolvers<ContextType>;
   MarketTime: MarketTimeResolvers<ContextType>;
   Launch: LaunchResolvers<ContextType>;
   Incident: IncidentResolvers<ContextType>;
@@ -1759,6 +2178,9 @@ export type Resolvers<ContextType = InternalContext> = {
   FinanceCondition: FinanceConditionResolvers<ContextType>;
   Simulation: SimulationResolvers<ContextType>;
   SimulationOutcome: SimulationOutcomeResolvers<ContextType>;
+  PriceStep: PriceStepResolvers<ContextType>;
+  MigrationSimulation: MigrationSimulationResolvers<ContextType>;
+  MigrationSimulationOutcome: MigrationSimulationOutcomeResolvers<ContextType>;
   AuditEvent: AuditEventResolvers<ContextType>;
   AuditPage: AuditPageResolvers<ContextType>;
   ChainHead: ChainHeadResolvers<ContextType>;

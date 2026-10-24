@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from datetime import date
 
-from helpers import T0, add_people, approve, audit, move, new_change, new_version, sqlstate_of
+from helpers import T0, add_people, add_subscription, approve, audit, move, new_change, new_version, sqlstate_of
 
 VALIDATION = ("insert into change_validation (change_id, version, validated_at, validated_by, valid, eligible, sentence, report) "
               "values ($1, $2, $3, 'marketing-1', true, 10, 'Italy, Student: ...', '{}'::jsonb)")
@@ -173,26 +173,27 @@ async def a_listener_with_a_quote(db, price: int = 299) -> str:
     return quote_id
 
 
-SUBSCRIPTION = ("insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, "
-                "billing_day, quote_id, offer_change_id, offer_months) "
-                "values (nextval('subscription_id_seq'), 1, 'IT', 'EUR', 'student', true, $1, $2, 26, $3, $4, $5) returning id")
+async def subscription(db, price: int, started: date, quote_id: str | None, change: int | None, months: int | None) -> int:
+    """A Student subscription of listener 1, written by the engine's role."""
+    return await add_subscription(db.app, 1, "IT", "student", price, started, billing_day=26, quote_id=quote_id,
+                                  offer_change_id=change, offer_months=months)
 
 
 async def test_engine_subscriptions_are_numbered_above_the_generated_ones_and_a_quote_is_confirmed_once(db):
     quote_id = await a_listener_with_a_quote(db, price=579)
-    first = await db.app.fetchval(SUBSCRIPTION, 579, date(2026, 10, 26), quote_id, None, None)
+    first = await subscription(db, 579, date(2026, 10, 26), quote_id, None, None)
     assert first >= 1_000_000_000
     await db.app.execute("update subscription set ended_on = '2027-01-26' where id = $1", first)
-    assert await sqlstate_of(db.app.fetchval(SUBSCRIPTION, 579, date(2027, 1, 26), quote_id, None, None)) == "23505"
+    assert await sqlstate_of(subscription(db, 579, date(2027, 1, 26), quote_id, None, None)) == "23505"
 
 
 async def test_an_offer_on_a_subscription_comes_with_its_months_and_its_quote(db):
     await add_people(db.owner)
     change = await new_change(db.app)
     quote_id = await a_listener_with_a_quote(db, price=579)
-    assert await sqlstate_of(db.app.fetchval(SUBSCRIPTION, 299, date(2026, 10, 26), quote_id, change, None)) == "23514"
-    assert await sqlstate_of(db.app.fetchval(SUBSCRIPTION, 299, date(2026, 10, 26), None, change, 3)) == "23514"
-    assert await sqlstate_of(db.app.fetchval(SUBSCRIPTION, 299, date(2026, 10, 26), quote_id, change, 37)) == "23514"
+    assert await sqlstate_of(subscription(db, 299, date(2026, 10, 26), quote_id, change, None)) == "23514"
+    assert await sqlstate_of(subscription(db, 299, date(2026, 10, 26), None, change, 3)) == "23514"
+    assert await sqlstate_of(subscription(db, 299, date(2026, 10, 26), quote_id, change, 37)) == "23514"
 
 
 RECEIPT = ("insert into receipt (id, subscription_id, quote_id, subscriber_id, amount_minor, currency, issued_at, provider, "
@@ -202,10 +203,10 @@ RECEIPT = ("insert into receipt (id, subscription_id, quote_id, subscriber_id, a
 
 async def test_a_receipt_is_a_demonstration_of_the_simulated_provider_written_once(db):
     quote_id = await a_listener_with_a_quote(db, price=579)
-    subscription = await db.app.fetchval(SUBSCRIPTION, 579, date(2026, 10, 26), quote_id, None, None)
-    assert await sqlstate_of(db.app.execute(RECEIPT, "r_" + "1" * 32, subscription, quote_id, T0, "simulated", False)) == "23514"
-    assert await sqlstate_of(db.app.execute(RECEIPT, "r_" + "2" * 32, subscription, quote_id, T0, "a-real-bank", True)) == "23514"
-    await db.app.execute(RECEIPT, "r_" + "3" * 32, subscription, quote_id, T0, "simulated", True)
+    number = await subscription(db, 579, date(2026, 10, 26), quote_id, None, None)
+    assert await sqlstate_of(db.app.execute(RECEIPT, "r_" + "1" * 32, number, quote_id, T0, "simulated", False)) == "23514"
+    assert await sqlstate_of(db.app.execute(RECEIPT, "r_" + "2" * 32, number, quote_id, T0, "a-real-bank", True)) == "23514"
+    await db.app.execute(RECEIPT, "r_" + "3" * 32, number, quote_id, T0, "simulated", True)
     assert await sqlstate_of(db.owner.execute("update receipt set amount_minor = 1")) == "RL005"
     assert await sqlstate_of(db.app.execute("delete from receipt")) == "42501"
 

@@ -8,9 +8,12 @@ tests' process."""
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 from datetime import UTC, datetime
+
+import asyncpg
 
 import pytest
 
@@ -19,8 +22,9 @@ from commerce.engine.launches import STEPS
 from commerce.server.app import Jobs
 from commerce.server.logs import JsonLog
 from commerce.v1 import changes_pb2, common_pb2, launches_pb2, overview_pb2
+from conftest import ADMIN_URL, on_database
 from engine_support import (
-    AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, family_rise, past_validation_by_hand, scheduled, student_autumn,
+    AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, apply, eur, family_rise, past_validation_by_hand, scheduled, student_autumn,
 )
 
 REFUSAL = common_pb2.RefusalCode
@@ -247,6 +251,72 @@ async def test_the_alarm_waits_five_minutes_after_the_start(world):
     assert [h.detail["kind"] for h in opened] == ["late"]
     world.clock.advance(minutes=5)
     assert [h for h in await world.engine.run_launches() if h.event == "incident_opened"] == []  # one is open already
+
+
+async def test_an_alarm_is_never_opened_on_a_launch_that_stopped_meanwhile(world):
+    """The alarm reads the late launches, then opens their incidents: a launch cancelled in between must not get an
+    incident that nobody would close. Here the cancellation holds the launch while the alarm runs."""
+    change = await refused_list_price(world)  # refused at its check: stopped, and late from five minutes on
+    await world.owner.execute("update incident set state = 'resolved', closed_at = opened_at + interval '1 minute', "
+                              "closed_by = 'on-call-1', resolution = 'Looked at.' where state = 'open'")
+    launch = await world.owner.fetchval("select id from launch where change_id = $1", change.id)
+    world.clock.at = at(2026, 12, 1, 0, 0)  # an hour after the start in Berlin
+    cancelling = world.owner.transaction()
+    await cancelling.start()
+    await world.owner.execute("select id from launch where id = $1 for update", launch)
+    alarm = asyncio.create_task(world.engine.launches._raise_alarms())
+    waiting = await asyncpg.connect(on_database(ADMIN_URL, world.name))
+    try:
+        for _ in range(200):  # until the alarm waits for the launch the cancellation holds
+            if await waiting.fetchval("select count(*) from pg_locks where not granted") or alarm.done():
+                break
+            await asyncio.sleep(0.05)
+    finally:
+        await waiting.close()
+    await world.owner.execute("update launch set state = 'cancelled', finished_at = now(), "
+                              "resolution = 'cancelled by on-call-1: the price list needs a fix first.' where id = $1", launch)
+    await cancelling.commit()
+    assert await alarm == []
+    assert await world.owner.fetchval("select count(*) from incident where launch_id = $1 and state = 'open'", launch) == 0
+
+
+def two_markets(**changes) -> changes_pb2.OfferContent:
+    """Individual at €8.99 for new subscribers: in Italy for 26 October only, in Germany for a month."""
+    content = student_autumn(
+        title="Weekend start", plan="individual", audience=changes_pb2.Audience(segment=changes_pb2.SEGMENT_NEVER_PAID),
+        prices=[changes_pb2.OfferPrice(market="IT", fixed=eur(899)), changes_pb2.OfferPrice(market="DE", fixed=eur(899))],
+        periods=[changes_pb2.OfferPeriod(market="IT", starts_local="2026-10-26T09:00", ends_local="2026-10-27T00:00"),
+                 changes_pb2.OfferPeriod(market="DE", starts_local="2026-10-26T09:00", ends_local="2026-11-26T00:00")],
+        non_combinability_group="weekend-offers",
+        pages=[changes_pb2.OfferPage(market=m, title="Weekend start", text="Individual for 8,99 €.", terms="New only.")
+               for m in ("IT", "DE")])
+    return apply(content, changes)
+
+
+async def test_a_resumed_launch_verifies_what_the_site_shows_after_a_market_s_period_ended(world):
+    """A launch stopped before its verify step; meanwhile the offer's day in Italy ended and another publication left
+    Italy out. The site shows what it must, and the verify step, tried again, says so."""
+    change = await scheduled(world, two_markets())
+    left = {"failures": 1}
+
+    async def site_away(step, phase, tx):
+        if (step, phase) == ("verify", "start") and left["failures"]:
+            left["failures"] -= 1
+            raise OSError("the site did not answer")
+
+    world.engine.launches.probe = site_away
+    world.clock.at = DUE
+    await world.engine.run_launches()
+    run = await launch_of(world, change.id)
+    assert (run.state, run.current_step) == (STATE.LAUNCH_STATE_RUNNING, "verify")
+    world.clock.at = at(2026, 10, 26, 23, 0, 30)  # 00:00:30 on 27 October in Rome: Italy's day is over
+    async with world.engine.db.transaction() as tx:
+        await world.engine.publisher.publish(tx, now=world.clock.now(), actor="on-call-1", role="on_call",
+                                             request_id="req-another-publication", cause={"another": "publication"})
+    await world.engine.run_launches()
+    run = await launch_of(world, change.id)
+    assert (run.state, steps(run)["verify"].facts["markets"]) == (STATE.LAUNCH_STATE_DONE, "DE")
+    assert [i.state for i in run.incidents] == []
 
 
 async def test_the_on_call_engineer_cancels_a_launch_that_has_not_published(world):

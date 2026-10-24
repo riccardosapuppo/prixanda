@@ -21,7 +21,7 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
-import type { Money, Refusal } from "./common_pb.js";
+import type { LocalTime, Money, Refusal } from "./common_pb.js";
 
 /**
  * Describes the file commerce/v1/subscriptions.proto.
@@ -278,7 +278,8 @@ export declare type Subscription = Message<"commerce.v1.Subscription"> & {
   fullPrice?: Money | undefined;
 
   /**
-   * The next charge and its amount; empty on the free plan.
+   * The next charge and its amount; empty on the free plan, and when the
+   * subscription ends before it (ends_on).
    *
    * @generated from field: string next_billing_on = 14;
    */
@@ -288,6 +289,30 @@ export declare type Subscription = Message<"commerce.v1.Subscription"> & {
    * @generated from field: commerce.v1.Money next_charge = 15;
    */
   nextCharge?: Money | undefined;
+
+  /**
+   * The day a paid subscription ends if the listener does nothing more: after
+   * a no to a price change, or without the yes one needs (§8), or when a
+   * prepaid pass's months run out (§9); from then the listener is on the free
+   * plan. Empty when it does not end.
+   *
+   * @generated from field: string ends_on = 16;
+   */
+  endsOn: string;
+
+  /**
+   * A prepaid pass's subscription (§9): the code it was activated with, and
+   * what the pass cost. It is never charged (price is zero, and there is no
+   * next charge) and never renewed. Empty otherwise.
+   *
+   * @generated from field: string prepaid_code = 17;
+   */
+  prepaidCode: string;
+
+  /**
+   * @generated from field: commerce.v1.Money prepaid_price = 18;
+   */
+  prepaidPrice?: Money | undefined;
 };
 
 /**
@@ -524,6 +549,20 @@ export declare type Account = Message<"commerce.v1.Account"> & {
    * @generated from field: commerce.v1.Payment payment = 5;
    */
   payment?: Payment | undefined;
+
+  /**
+   * The price changes of the running subscription, the latest first (§8).
+   *
+   * @generated from field: repeated commerce.v1.PriceChange price_changes = 6;
+   */
+  priceChanges: PriceChange[];
+
+  /**
+   * The prepaid passes this listener bought, the latest first (§9).
+   *
+   * @generated from field: repeated commerce.v1.PrepaidCode prepaid_codes = 7;
+   */
+  prepaidCodes: PrepaidCode[];
 };
 
 /**
@@ -531,6 +570,190 @@ export declare type Account = Message<"commerce.v1.Account"> & {
  * Use `create(AccountSchema)` to create a new message.
  */
 export declare const AccountSchema: GenMessage<Account>;
+
+/**
+ * A price change as the listener sees it (§8): a request for consent, or a notice.
+ *
+ * @generated from message commerce.v1.PriceChange
+ */
+export declare type PriceChange = Message<"commerce.v1.PriceChange"> & {
+  /**
+   * @generated from field: int64 price_change_id = 1 [jstype = JS_STRING];
+   */
+  priceChangeId: string;
+
+  /**
+   * The price migration it comes from.
+   *
+   * @generated from field: int64 change_id = 2 [jstype = JS_STRING];
+   */
+  changeId: string;
+
+  /**
+   * @generated from field: string plan = 3;
+   */
+  plan: string;
+
+  /**
+   * What the listener pays now, and the new price.
+   *
+   * @generated from field: commerce.v1.Money old_price = 4;
+   */
+  oldPrice?: Money | undefined;
+
+  /**
+   * @generated from field: commerce.v1.Money new_price = 5;
+   */
+  newPrice?: Money | undefined;
+
+  /**
+   * consent: nothing changes without a yes; notice: the new price applies
+   * unless the listener leaves before it.
+   *
+   * @generated from field: string kind = 6;
+   */
+  kind: string;
+
+  /**
+   * ISO 8601 with Z.
+   *
+   * @generated from field: string sent_at = 7;
+   */
+  sentAt: string;
+
+  /**
+   * The end of the window, in the market's local time.
+   *
+   * @generated from field: commerce.v1.LocalTime window_ends = 8;
+   */
+  windowEnds?: LocalTime | undefined;
+
+  /**
+   * waiting: the window is open and no answer came (in a notice market, a
+   * yes keeps it waiting); accepted: said yes, in a consent market, and pays
+   * the new price from new_price_from; declined: said no, so the market's
+   * choice applies at the end of the window (consent), or the subscription
+   * ends before the new price (notice); lapsed: no answer by the end of a
+   * consent window, which counts as no; new_price: the notice ran out and the
+   * new price applies from new_price_from.
+   *
+   * @generated from field: string state = 9;
+   */
+  state: string;
+
+  /**
+   * The first day the new price is charged; empty while it is not decided.
+   *
+   * @generated from field: string new_price_from = 10;
+   */
+  newPriceFrom: string;
+
+  /**
+   * What happens without a yes (consent), or after the notice: the market's
+   * commercial choice, in words, and that it is a choice and not law.
+   *
+   * @generated from field: string if_no_answer = 11;
+   */
+  ifNoAnswer: string;
+
+  /**
+   * The law of the market, in words, with its sources.
+   *
+   * @generated from field: string legal_basis = 12;
+   */
+  legalBasis: string;
+
+  /**
+   * When new subscribers start paying the new price.
+   *
+   * @generated from field: commerce.v1.LocalTime new_subscribers_from = 13;
+   */
+  newSubscribersFrom?: LocalTime | undefined;
+
+  /**
+   * While the request waits, as of the market's day of the read: the first
+   * day charged at the new price, after a yes given that day (consent) or when
+   * the notice runs out (notice); and the day the paid subscription would end
+   * after a no, or without an answer (consent). if_no_leaves_on is empty when
+   * the market's choice keeps the subscription. Both empty once decided.
+   *
+   * @generated from field: string applies_from = 14;
+   */
+  appliesFrom: string;
+
+  /**
+   * @generated from field: string if_no_leaves_on = 15;
+   */
+  ifNoLeavesOn: string;
+
+  /**
+   * The day the paid subscription ends because of this change, once decided;
+   * empty when it does not end.
+   *
+   * @generated from field: string leaves_on = 16;
+   */
+  leavesOn: string;
+};
+
+/**
+ * Describes the message commerce.v1.PriceChange.
+ * Use `create(PriceChangeSchema)` to create a new message.
+ */
+export declare const PriceChangeSchema: GenMessage<PriceChange>;
+
+/**
+ * @generated from message commerce.v1.AnswerPriceChangeRequest
+ */
+export declare type AnswerPriceChangeRequest = Message<"commerce.v1.AnswerPriceChangeRequest"> & {
+  /**
+   * @generated from field: int64 subscriber_id = 1 [jstype = JS_STRING];
+   */
+  subscriberId: string;
+
+  /**
+   * @generated from field: int64 price_change_id = 2 [jstype = JS_STRING];
+   */
+  priceChangeId: string;
+
+  /**
+   * @generated from field: bool accept = 3;
+   */
+  accept: boolean;
+};
+
+/**
+ * Describes the message commerce.v1.AnswerPriceChangeRequest.
+ * Use `create(AnswerPriceChangeRequestSchema)` to create a new message.
+ */
+export declare const AnswerPriceChangeRequestSchema: GenMessage<AnswerPriceChangeRequest>;
+
+/**
+ * @generated from message commerce.v1.AnswerPriceChangeResponse
+ */
+export declare type AnswerPriceChangeResponse = Message<"commerce.v1.AnswerPriceChangeResponse"> & {
+  /**
+   * @generated from oneof commerce.v1.AnswerPriceChangeResponse.outcome
+   */
+  outcome: {
+    /**
+     * @generated from field: commerce.v1.PriceChange price_change = 1;
+     */
+    value: PriceChange;
+    case: "priceChange";
+  } | {
+    /**
+     * @generated from field: commerce.v1.Refusal refusal = 2;
+     */
+    value: Refusal;
+    case: "refusal";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message commerce.v1.AnswerPriceChangeResponse.
+ * Use `create(AnswerPriceChangeResponseSchema)` to create a new message.
+ */
+export declare const AnswerPriceChangeResponseSchema: GenMessage<AnswerPriceChangeResponse>;
 
 /**
  * @generated from message commerce.v1.GetAccountRequest
@@ -563,6 +786,194 @@ export declare type GetAccountResponse = Message<"commerce.v1.GetAccountResponse
  * Use `create(GetAccountResponseSchema)` to create a new message.
  */
 export declare const GetAccountResponseSchema: GenMessage<GetAccountResponse>;
+
+/**
+ * A prepaid pass's single-use code (§9.1).
+ *
+ * @generated from message commerce.v1.PrepaidCode
+ */
+export declare type PrepaidCode = Message<"commerce.v1.PrepaidCode"> & {
+  /**
+   * @generated from field: string code = 1;
+   */
+  code: string;
+
+  /**
+   * @generated from field: int64 pass_id = 2 [jstype = JS_STRING];
+   */
+  passId: string;
+
+  /**
+   * @generated from field: string title = 3;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string plan = 4;
+   */
+  plan: string;
+
+  /**
+   * @generated from field: string market = 5;
+   */
+  market: string;
+
+  /**
+   * @generated from field: int32 months = 6;
+   */
+  months: number;
+
+  /**
+   * What it cost, VAT included.
+   *
+   * @generated from field: commerce.v1.Money price = 7;
+   */
+  price?: Money | undefined;
+
+  /**
+   * ISO 8601 with Z.
+   *
+   * @generated from field: string sold_at = 8;
+   */
+  soldAt: string;
+
+  /**
+   * The last day it can be activated, in the market's calendar.
+   *
+   * @generated from field: string valid_until = 9;
+   */
+  validUntil: string;
+
+  /**
+   * pending: its payment is not settled yet; ready: it can be activated;
+   * activated; expired: not activated by valid_until; failed: the provider
+   * declined its payment.
+   *
+   * @generated from field: string state = 10;
+   */
+  state: string;
+
+  /**
+   * @generated from field: commerce.v1.Payment payment = 11;
+   */
+  payment?: Payment | undefined;
+
+  /**
+   * Who activated it, and on which day; empty before.
+   *
+   * @generated from field: int64 activated_by = 12 [jstype = JS_STRING];
+   */
+  activatedBy: string;
+
+  /**
+   * @generated from field: string activated_on = 13;
+   */
+  activatedOn: string;
+};
+
+/**
+ * Describes the message commerce.v1.PrepaidCode.
+ * Use `create(PrepaidCodeSchema)` to create a new message.
+ */
+export declare const PrepaidCodeSchema: GenMessage<PrepaidCode>;
+
+/**
+ * @generated from message commerce.v1.BuyPrepaidPassRequest
+ */
+export declare type BuyPrepaidPassRequest = Message<"commerce.v1.BuyPrepaidPassRequest"> & {
+  /**
+   * @generated from field: int64 subscriber_id = 1 [jstype = JS_STRING];
+   */
+  subscriberId: string;
+
+  /**
+   * @generated from field: int64 pass_id = 2 [jstype = JS_STRING];
+   */
+  passId: string;
+};
+
+/**
+ * Describes the message commerce.v1.BuyPrepaidPassRequest.
+ * Use `create(BuyPrepaidPassRequestSchema)` to create a new message.
+ */
+export declare const BuyPrepaidPassRequestSchema: GenMessage<BuyPrepaidPassRequest>;
+
+/**
+ * @generated from message commerce.v1.BuyPrepaidPassResponse
+ */
+export declare type BuyPrepaidPassResponse = Message<"commerce.v1.BuyPrepaidPassResponse"> & {
+  /**
+   * @generated from oneof commerce.v1.BuyPrepaidPassResponse.outcome
+   */
+  outcome: {
+    /**
+     * @generated from field: commerce.v1.PrepaidCode code = 1;
+     */
+    value: PrepaidCode;
+    case: "code";
+  } | {
+    /**
+     * @generated from field: commerce.v1.Refusal refusal = 2;
+     */
+    value: Refusal;
+    case: "refusal";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message commerce.v1.BuyPrepaidPassResponse.
+ * Use `create(BuyPrepaidPassResponseSchema)` to create a new message.
+ */
+export declare const BuyPrepaidPassResponseSchema: GenMessage<BuyPrepaidPassResponse>;
+
+/**
+ * @generated from message commerce.v1.ActivatePrepaidPassRequest
+ */
+export declare type ActivatePrepaidPassRequest = Message<"commerce.v1.ActivatePrepaidPassRequest"> & {
+  /**
+   * @generated from field: int64 subscriber_id = 1 [jstype = JS_STRING];
+   */
+  subscriberId: string;
+
+  /**
+   * @generated from field: string code = 2;
+   */
+  code: string;
+};
+
+/**
+ * Describes the message commerce.v1.ActivatePrepaidPassRequest.
+ * Use `create(ActivatePrepaidPassRequestSchema)` to create a new message.
+ */
+export declare const ActivatePrepaidPassRequestSchema: GenMessage<ActivatePrepaidPassRequest>;
+
+/**
+ * @generated from message commerce.v1.ActivatePrepaidPassResponse
+ */
+export declare type ActivatePrepaidPassResponse = Message<"commerce.v1.ActivatePrepaidPassResponse"> & {
+  /**
+   * @generated from oneof commerce.v1.ActivatePrepaidPassResponse.outcome
+   */
+  outcome: {
+    /**
+     * @generated from field: commerce.v1.Subscription subscription = 1;
+     */
+    value: Subscription;
+    case: "subscription";
+  } | {
+    /**
+     * @generated from field: commerce.v1.Refusal refusal = 2;
+     */
+    value: Refusal;
+    case: "refusal";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message commerce.v1.ActivatePrepaidPassResponse.
+ * Use `create(ActivatePrepaidPassResponseSchema)` to create a new message.
+ */
+export declare const ActivatePrepaidPassResponseSchema: GenMessage<ActivatePrepaidPassResponse>;
 
 /**
  * The first month's payment of a subscription confirmed from a quote (§4.5).
@@ -661,6 +1072,51 @@ export declare const SubscriberService: GenService<{
     methodKind: "unary";
     input: typeof GetAccountRequestSchema;
     output: typeof GetAccountResponseSchema;
+  },
+  /**
+   * The listener's answer to a price change (§8): in a consent market, yes or
+   * no; in a notice market, no means leaving before the new price applies, and
+   * yes only says they read it. Once answered, the same answer comes back; an
+   * answer after the window, or a different answer, is refused with
+   * REFUSAL_CODE_WRONG_STATE.
+   *
+   * @generated from rpc commerce.v1.SubscriberService.AnswerPriceChange
+   */
+  answerPriceChange: {
+    methodKind: "unary";
+    input: typeof AnswerPriceChangeRequestSchema;
+    output: typeof AnswerPriceChangeResponseSchema;
+  },
+  /**
+   * A prepaid pass bought, to keep or give (§9): the engine takes the pass's
+   * price as it is on sale in the buyer's market, writes the code and its
+   * payment, PENDING, and asks the simulated provider through the outbox, as
+   * for a confirmation. The code can be activated once the payment succeeded,
+   * until its valid_until; unused, it expires. A pass not on sale in the
+   * buyer's market is refused with REFUSAL_CODE_NOT_ELIGIBLE.
+   *
+   * @generated from rpc commerce.v1.SubscriberService.BuyPrepaidPass
+   */
+  buyPrepaidPass: {
+    methodKind: "unary";
+    input: typeof BuyPrepaidPassRequestSchema;
+    output: typeof BuyPrepaidPassResponseSchema;
+  },
+  /**
+   * A code activated by a listener of the pass's market with no paid
+   * subscription running: the pass's plan from that day for its months,
+   * never charged and never renewed, then the free plan. A code of another
+   * market is refused with REFUSAL_CODE_NOT_ELIGIBLE, a listener already
+   * paying with REFUSAL_CODE_ALREADY_SUBSCRIBED, a code that is not ready
+   * (payment pending or declined, used, expired) with REFUSAL_CODE_WRONG_STATE.
+   * The same listener activating the same code again gets the same answer.
+   *
+   * @generated from rpc commerce.v1.SubscriberService.ActivatePrepaidPass
+   */
+  activatePrepaidPass: {
+    methodKind: "unary";
+    input: typeof ActivatePrepaidPassRequestSchema;
+    output: typeof ActivatePrepaidPassResponseSchema;
   },
 }>;
 

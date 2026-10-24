@@ -13,6 +13,7 @@ import { internalSdl } from "../src/core/generated/sdl.ts";
 import { internalResolvers } from "../src/core/internal/resolvers.ts";
 import { guardInternalSchema } from "../src/core/policy.ts";
 import { buildInternalSchema } from "../src/core/schemas.ts";
+import { unionConflicts } from "./support/unions.ts";
 
 /** The console's operations, with their arguments: changing one is changing the console's contract. */
 const OPERATIONS = [
@@ -25,6 +26,8 @@ const OPERATIONS = [
   "Query.change(id: ID!): Change",
   "Query.changes(filter: ChangeFilter, first: Int!, after: String): ChangePage!",
   "Query.simulateOffer(changeId: ID!, version: Int!, market: MarketCode!, overrides: [AssumptionInput!]): SimulationOutcome!",
+  // Stage 7: the price migrations (§8, §14.3).
+  "Query.simulateMigration(changeId: ID!, version: Int, overrides: [AssumptionInput!]): MigrationSimulationOutcome!",
   "Query.auditEvents(filter: AuditFilter, first: Int!, after: String): AuditPage!",
   "Query.verifyAuditChain(anchor: ChainHeadInput): ChainVerification!",
   // Stage 6: the launches, for the console's history of them.
@@ -34,8 +37,13 @@ const OPERATIONS = [
   "Mutation.signOut: Boolean!",
   "Mutation.createOffer(offer: OfferInput!): ChangeResult!",
   "Mutation.createListPrice(listPrice: ListPriceInput!): ChangeResult!",
+  "Mutation.createPriceMigration(migration: PriceMigrationInput!): ChangeResult!",
+  // Stage 7: the prepaid passes (§9, §14.4).
+  "Mutation.createPrepaidPass(pass: PrepaidPassInput!): ChangeResult!",
   "Mutation.saveOfferVersion(changeId: ID!, baseVersion: Int!, offer: OfferInput!): ChangeResult!",
   "Mutation.saveListPriceVersion(changeId: ID!, baseVersion: Int!, listPrice: ListPriceInput!): ChangeResult!",
+  "Mutation.savePriceMigrationVersion(changeId: ID!, baseVersion: Int!, migration: PriceMigrationInput!): ChangeResult!",
+  "Mutation.savePrepaidPassVersion(changeId: ID!, baseVersion: Int!, pass: PrepaidPassInput!): ChangeResult!",
   "Mutation.validateChange(changeId: ID!, version: Int!): ChangeResult!",
   "Mutation.submitChange(changeId: ID!, version: Int!, authorReason: String): ChangeResult!",
   "Mutation.approveChange(changeId: ID!, version: Int!, fingerprint: Sha256!): ChangeResult!",
@@ -62,12 +70,21 @@ describe("the console's schema", () => {
 
   test("answers every mutation that reaches the engine with a union that holds a typed Refusal", () => {
     const mutations = Object.values(schema.getMutationType()?.getFields() ?? {}).filter((field) => !["signIn", "signOut"].includes(field.name));
-    // Create (2), save (2), validate, submit, approve, reject, schedule, cancel, suspend, export; retry and cancel a launch.
-    assert.equal(mutations.length, 14);
+    // Create (4), save (4), validate, submit, approve, reject, schedule, cancel, suspend, export; retry and cancel a launch.
+    assert.equal(mutations.length, 18);
     for (const field of mutations) {
       const result = getNamedType(field.type);
       assert.ok(isUnionType(result) && result.getTypes().some((member) => member.name === "Refusal"), field.name);
     }
+  });
+
+  test("lets a client ask for every member of a union in one selection, without an alias, but for the one exception known", () => {
+    // A launch's change is Change! and a refusal's Change: a client asking for
+    // both in retryLaunch's or cancelLaunch's answer needs an alias. Making the
+    // launch's nullable would break the console of stage 4, which reads it as
+    // always there (src/lib/launch.ts and src/features/launches); the
+    // coordinator decides. Any other conflict fails here.
+    assert.deepEqual(unionConflicts(schema), ["LaunchResult: LaunchRun.change and Refusal.change, Change! and Change"]);
   });
 
   test("has the engine's enums, value for value", () => {
