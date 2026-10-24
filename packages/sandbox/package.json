@@ -1,0 +1,13 @@
+{
+  "name": "sandbox",
+  "private": true,
+  "type": "module",
+  "description": "The demo in the browser: the engine in Pyodide over PGlite and the gateway's core, in one worker that the site and the console of an origin share.",
+  "license": "MIT",
+  "exports": {
+    "./protocol": "./src/protocol.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  }
+}
