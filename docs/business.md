@@ -497,8 +497,9 @@ export and kept outside the database; a chain that no longer leads to an
 exported head has been rewritten. The log is tamper-evident against that
 anchor, not immutable.
 
-§11.4 The auditor reads and exports the log; nobody can change it through
-Plancia.
+§11.4 Everyone on the team reads the log, so any decision can be traced from
+any seat; the auditor exports it, and the auditor and the on-call engineer
+verify the chain. Nobody can change it through Plancia.
 
 ## 12. The team
 
@@ -507,11 +508,16 @@ Plancia.
 | Role | Can | Cannot |
 |---|---|---|
 | Marketing | create and edit campaigns, run simulations, submit | approve |
-| Commercial lead | own the price list and commercial rules, create price changes, approve campaigns within the thresholds | approve own versions; sign for finance |
+| Commercial lead | own the price list and commercial rules, create price changes, approve campaigns within the thresholds, read revenue | approve own versions; sign for finance |
 | Finance | approve price changes and anything over a finance condition (§7.3); read revenue and unearned value | approve own versions |
 | Catalog manager | define plans and entitlements | approve own versions; change prices |
 | On-call engineer | suspend an active change and roll back a launch | create or approve anything |
 | Auditor | read and export the audit log | change anything |
+
+§12.2 Every role reads the changes, the home and the audit log. Revenue is
+read by finance and the commercial lead, unearned pass value by finance
+(§9.2); the console tells the other roles who can read them, and the engine
+leaves those figures out of its answers to them.
 
 ## 13. Subscribers and data
 
