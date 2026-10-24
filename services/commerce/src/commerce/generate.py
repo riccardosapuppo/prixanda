@@ -1,0 +1,321 @@
+"""The generated data of Encore: deterministic for a seed, in two sizes.
+
+    python -m commerce.generate --url <owner URL> --size small --seed 7
+
+It loads, into a database that Flyway has just migrated:
+
+* the people of the demo, named by role (business book §12.1);
+* what each plan includes and the price list at the start of the data, in
+  every market (§2, §4.4);
+* labels, artists and releases: seven invented ones that the interface
+  shows by name, and filler ones with invented names;
+* subscribers with their subscription history (everyone starts on Free;
+  some move to a paid plan, some leave it again), student verifications;
+* listening data for the last weeks, which fan campaigns are aimed with (§14.2);
+* one audit event saying what was generated, from which seed.
+
+Nothing reads the clock: the period is --start to --until, fixed by default.
+The same seed, size and period give the same rows, and --fingerprint prints a
+hash of them, which the tests compare across two databases.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import hashlib
+import json
+import random
+import sys
+import time
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
+
+import asyncpg
+
+# The period of the data: fixed, never "today".
+START = date(2025, 1, 1)
+UNTIL = date(2026, 10, 24)
+
+
+@dataclass(frozen=True)
+class Size:
+    paying: int
+    free: int
+    filler_artists: int
+    listening_days: int
+
+
+SIZES = {
+    "small": Size(paying=2_000, free=3_000, filler_artists=40, listening_days=35),
+    "full": Size(paying=200_000, free=280_000, filler_artists=400, listening_days=35),
+}
+
+MARKETS = {"IT": 0.20, "FR": 0.22, "DE": 0.27, "GB": 0.31}
+PAID_PLANS = {"individual": 0.56, "duo": 0.12, "family": 0.15, "student": 0.17}
+
+# Business book §4.4: prices at the start of the data, including VAT.
+PRICES = {
+    "IT": {"individual": 1049, "duo": 1449, "family": 1799, "student": 579},
+    "FR": {"individual": 1099, "duo": 1499, "family": 1849, "student": 649},
+    "DE": {"individual": 1099, "duo": 1499, "family": 1899, "student": 599},
+    "GB": {"individual": 949, "duo": 1299, "family": 1649, "student": 529},
+}
+CURRENCY = {"IT": "EUR", "FR": "EUR", "DE": "EUR", "GB": "GBP"}
+
+# Business book §2.1.
+ENTITLEMENTS = {
+    "free": (6, "standard", False),
+    "individual": (None, "lossless", True),
+    "duo": (None, "lossless", True),
+    "family": (None, "lossless", True),
+    "student": (None, "lossless", True),
+}
+
+PEOPLE = {
+    "marketing-1": ("Marketing", ["marketing"]),
+    "marketing-2": ("Marketing, second", ["marketing"]),
+    "commercial-lead-1": ("Commercial lead", ["commercial_lead"]),
+    "finance-1": ("Finance", ["finance"]),
+    "catalog-manager-1": ("Catalog manager", ["catalog_manager"]),
+    "on-call-1": ("On-call engineer", ["on_call"]),
+    "auditor-1": ("Auditor", ["auditor"]),
+}
+
+# Invented labels and artists that the interface shows by name; checked
+# against existing acts on 24 October 2026.
+LABELS = [(1, "Casa Lenta", "IT"), (2, "Disques Pareil", "FR"), (3, "Kellerlicht", "DE"), (4, "Coldframe Records", "GB")]
+NAMED_ARTISTS = [
+    (1, "Velluto Basso", 1, "IT", "Stanze al piano terra"),
+    (2, "Ottoline Marr", 4, "GB", "Low Tide Hymns"),
+    (3, "Ciel Fendu", 2, "FR", "Lumière de service"),
+    (4, "Doppelfenster", 3, "DE", "Nordflur"),
+    (5, "Pinewire", 4, "GB", "Signal Fires"),
+    (6, "Corale Ferrovia", 1, "IT", "Binario Morto"),
+    (7, "Halde", 3, "DE", "Abraum"),
+]
+# Filler names are put together from invented syllables, not from words.
+SYLLABLES = ["vel", "mar", "osk", "tin", "dra", "lu", "ber", "sko", "ane", "riv", "quo", "len",
+             "fai", "mot", "zur", "pel", "ido", "sha", "kre", "nov", "ulm", "taz", "bri", "ech"]
+
+
+def filler_name(rng: random.Random, taken: set[str]) -> str:
+    while True:
+        first = "".join(rng.choice(SYLLABLES) for _ in range(rng.randint(2, 3))).capitalize()
+        second = "".join(rng.choice(SYLLABLES) for _ in range(2)).capitalize()
+        name = f"{first} {second}" if rng.random() < 0.6 else first
+        if name not in taken:
+            taken.add(name)
+            return name
+
+
+def pick(rng: random.Random, weights: dict[str, float]) -> str:
+    return rng.choices(list(weights), weights=list(weights.values()))[0]
+
+
+def day_between(rng: random.Random, first: date, last: date) -> date:
+    return first + timedelta(days=rng.randint(0, max(0, (last - first).days)))
+
+
+def plan_people(rng: random.Random, size: Size, start: date, until: date):
+    """Subscribers, their subscriptions and student verifications, in memory."""
+    subscribers, subscriptions, verifications = [], [], []
+    subscription_id = 0
+    total = size.paying + size.free
+    paying_ids = set(rng.sample(range(1, total + 1), size.paying))
+    for subscriber_id in range(1, total + 1):
+        market = pick(rng, MARKETS)
+        joined = day_between(rng, start, until - timedelta(days=2))
+        subscribers.append((subscriber_id, market, joined))
+        billing_day = rng.randint(1, 28)
+        currency = CURRENCY[market]
+        if subscriber_id not in paying_ids:
+            subscription_id += 1
+            subscriptions.append((subscription_id, subscriber_id, market, currency, "free", False, 0, joined, None, billing_day))
+            continue
+        plan = pick(rng, PAID_PLANS)
+        upgraded = min(joined + timedelta(days=rng.randint(0, 60)), until - timedelta(days=1))
+        if upgraded > joined:
+            subscription_id += 1
+            subscriptions.append((subscription_id, subscriber_id, market, currency, "free", False, 0, joined, upgraded, billing_day))
+        left = None
+        if rng.random() < 0.10 and (until - upgraded).days > 40:
+            left = day_between(rng, upgraded + timedelta(days=30), until - timedelta(days=1))
+        if plan == "student":
+            # Verified at most ten days before the Student price starts, for 12
+            # months; renewed while the subscription continues (§10.2).
+            verified = max(joined, upgraded - timedelta(days=rng.randint(0, 10)))
+            end = left or until
+            while True:
+                valid_until = add_months(verified, 12)
+                verifications.append((subscriber_id, verified, valid_until, "simulated"))
+                if valid_until > end:
+                    break
+                verified = valid_until - timedelta(days=rng.randint(0, 20))
+        subscription_id += 1
+        subscriptions.append((subscription_id, subscriber_id, market, currency, plan, True, PRICES[market][plan], upgraded, left, billing_day))
+        if left:
+            subscription_id += 1
+            subscriptions.append((subscription_id, subscriber_id, market, currency, "free", False, 0, left, None, billing_day))
+    return subscribers, subscriptions, verifications
+
+
+def add_months(day: date, months: int) -> date:
+    month = day.month - 1 + months
+    year, month = day.year + month // 12, month % 12 + 1
+    for candidate in (day.day, 30, 29, 28):
+        try:
+            return date(year, month, min(day.day, candidate))
+        except ValueError:
+            continue
+    raise ValueError(day)
+
+
+def listening(rng: random.Random, size: Size, subscribers, subscriptions, artists: list[int], until: date, counter: list[int]):
+    """Seconds per listener, artist and day over the last weeks, streamed to the
+    database rather than held in memory. A few artists are played much more
+    than the rest, and Doppelfenster has its fans in Germany."""
+    days = [until - timedelta(days=size.listening_days - offset) for offset in range(size.listening_days)]
+    current = {row[1]: row for row in subscriptions if row[8] is None}
+    weights = [1.0 / (rank + 1) ** 1.1 for rank in range(len(artists))]
+    for subscriber_id, market, joined in subscribers:
+        paid = current[subscriber_id][5]
+        active = 0.5 if paid else 0.25
+        fan = market == "DE" and rng.random() < 0.08
+        for day in days:
+            if day < joined or rng.random() > active:
+                continue
+            played = set(rng.choices(artists, weights=weights, k=rng.randint(1, 3)))
+            if fan and rng.random() < 0.6:
+                played.add(4)
+            for artist_id in sorted(played):
+                seconds = rng.randint(300, 7_200 if paid else 3_600)
+                if fan and artist_id == 4:
+                    seconds = rng.randint(1_800, 5_400)
+                counter[0] += 1
+                yield (subscriber_id, artist_id, day, seconds)
+
+
+# A hash per row, summed: it does not depend on the order rows were written
+# in, and never builds one huge text (PostgreSQL caps a text at 1 GB).
+FINGERPRINTED = ["person", "person_role", "plan_entitlement", "list_price", "label", "artist", "release",
+                 "subscriber", "subscription", "student_verification", "listening_day"]
+
+
+async def fingerprint(conn: asyncpg.Connection) -> str:
+    parts = []
+    for table in FINGERPRINTED:
+        # Identity columns are left out: they number rows, they are not data.
+        row = "(to_jsonb(t) - 'id')" if table in ("plan_entitlement", "list_price") else "t"
+        total = await conn.fetchval(f"select count(*)::text || ':' || coalesce(sum(hashtextextended({row}::text, 0)::numeric), 0)::text from {table} t")
+        parts.append(f"{table}={total}")
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()
+
+
+async def generate(url: str, size_name: str, seed: int, start: date, until: date) -> dict:
+    size = SIZES[size_name]
+    rng = random.Random(seed)
+    timings: dict[str, int] = {}
+    begun = time.perf_counter()
+
+    def lap(name: str) -> None:
+        nonlocal begun
+        timings[name] = round((time.perf_counter() - begun) * 1000)
+        begun = time.perf_counter()
+
+    conn = await asyncpg.connect(url)
+    try:
+        if await conn.fetchval("select count(*) from subscriber"):
+            raise SystemExit("this database already holds generated data: generate into a freshly migrated one")
+        async with conn.transaction():
+            for person, (label, roles) in PEOPLE.items():
+                await conn.execute("insert into person (id, label) values ($1, $2)", person, label)
+                for role in roles:
+                    await conn.execute("insert into person_role (person_id, role) values ($1, $2)", person, role)
+            beginning = datetime.combine(start, datetime.min.time())
+            for market in MARKETS:
+                for plan, (skips, audio, offline) in ENTITLEMENTS.items():
+                    await conn.execute(
+                        "insert into plan_entitlement (plan_id, market, skips_per_hour, audio, offline, valid) "
+                        "values ($1, $2, $3, $4, $5, tsrange($6, null))", plan, market, skips, audio, offline, beginning)
+                for plan, amount in PRICES[market].items():
+                    await conn.execute(
+                        "insert into list_price (plan_id, market, currency, amount_minor, valid) "
+                        "values ($1, $2, $3, $4, tsrange($5, null))", plan, market, CURRENCY[market], amount, beginning)
+            await conn.copy_records_to_table("label", records=LABELS, columns=["id", "name", "country"])
+            taken = {name for _, name, *_ in NAMED_ARTISTS}
+            artists = [(a, name, label, country) for a, name, label, country, _ in NAMED_ARTISTS]
+            releases = [(a, a, title, date(2026, 11, 6) if a == 4 else day_between(rng, start, until)) for a, _, _, _, title in NAMED_ARTISTS]
+            for n in range(size.filler_artists):
+                artist_id = len(NAMED_ARTISTS) + n + 1
+                artists.append((artist_id, filler_name(rng, taken), rng.randint(1, len(LABELS)), rng.choice(list(MARKETS))))
+                releases.append((artist_id, artist_id, filler_name(rng, taken), day_between(rng, start, until)))
+            await conn.copy_records_to_table("artist", records=artists, columns=["id", "name", "label_id", "country"])
+            await conn.copy_records_to_table("release", records=releases, columns=["id", "artist_id", "title", "released_on"])
+            lap("reference")
+
+            subscribers, subscriptions, verifications = plan_people(rng, size, start, until)
+            lap("plan_people")
+            await conn.copy_records_to_table("subscriber", records=subscribers, columns=["id", "market", "joined_on"])
+            await conn.copy_records_to_table(
+                "subscription", records=subscriptions,
+                columns=["id", "subscriber_id", "market", "currency", "plan_id", "paid", "price_minor", "started_on", "ended_on", "billing_day"])
+            await conn.copy_records_to_table("student_verification", records=verifications,
+                                             columns=["subscriber_id", "verified_on", "valid_until", "provider"])
+            lap("write_people")
+
+            listened = [0]
+            await conn.copy_records_to_table(
+                "listening_day", records=listening(rng, size, subscribers, subscriptions, [a[0] for a in artists], until, listened),
+                columns=["subscriber_id", "artist_id", "day", "seconds"])
+            lap("listening")
+
+            counts = {
+                "subscribers": len(subscribers), "subscriptions": len(subscriptions), "student_verifications": len(verifications),
+                "artists": len(artists), "listening_days": listened[0],
+            }
+            await conn.execute(
+                "insert into audit_event (at, actor, actor_role, action, subject, request_id, reason, body, prev_hash, hash) "
+                "values ($1, 'data-generator', 'system', 'data.generated', 'database', $2, null, $3::jsonb, $4, $4)",
+                datetime.combine(until, datetime.min.time(), tzinfo=UTC), f"generate-{size_name}-{seed}",
+                json.dumps({"size": size_name, "seed": seed, "start": start.isoformat(), "until": until.isoformat(), **counts}),
+                bytes(32))
+        await conn.execute("analyze")
+        lap("commit_and_analyze")
+        by_market_plan = await conn.fetch(
+            "select market, plan_id, count(*)::int as n from subscription where ended_on is null group by 1, 2 order by 1, 2")
+        return {
+            "size": size_name, "seed": seed, "start": start.isoformat(), "until": until.isoformat(), "counts": counts,
+            "current_subscriptions": {f"{r['market']}/{r['plan_id']}": r["n"] for r in by_market_plan},
+            "database_bytes": await conn.fetchval("select pg_database_size(current_database())"),
+            "timings_ms": timings,
+        }
+    finally:
+        await conn.close()
+
+
+async def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--url", required=True, help="the database, as its owner")
+    parser.add_argument("--size", choices=sorted(SIZES), default="small")
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--start", type=date.fromisoformat, default=START)
+    parser.add_argument("--until", type=date.fromisoformat, default=UNTIL)
+    parser.add_argument("--fingerprint", action="store_true", help="only print the fingerprint of the generated rows")
+    args = parser.parse_args()
+    if args.fingerprint:
+        conn = await asyncpg.connect(args.url)
+        try:
+            print(await fingerprint(conn))
+        finally:
+            await conn.close()
+        return 0
+    if args.until <= args.start:
+        parser.error("--until must come after --start")
+    summary = await generate(args.url, args.size, args.seed, args.start, args.until)
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))

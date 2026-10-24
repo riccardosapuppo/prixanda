@@ -32,7 +32,7 @@ const failed = (counted: string, detail: string): Omit<Result, "suite" | "second
 const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome: "not run", counted: "-", detail });
 
 // The floors: what each suite must at least have checked.
-const FLOOR = { typecheckedFiles: 7, migrations: 5, ruleTests: 45 };
+const FLOOR = { typecheckedFiles: 8, migrations: 5, pythonTests: 60, invariants: 9, generatedSubscribers: 5_000 };
 
 const SUITES: Suite[] = [
   {
@@ -72,8 +72,8 @@ const SUITES: Suite[] = [
     },
   },
   {
-    name: "rules",
-    what: "pytest: the rules the database keeps, each refused case with its SQLSTATE",
+    name: "pytest",
+    what: "the database's rules (each refused case with its SQLSTATE), the generator and the invariants",
     needsDatabase: true,
     async run({ cluster }) {
       if (!cluster) return notRun("no database");
@@ -95,8 +95,34 @@ const SUITES: Suite[] = [
       const counted = `${counts.tests} tests, ${counts.failures + counts.errors} failed, ${counts.skipped} skipped`;
       if (ran.code !== 0 || counts.failures + counts.errors > 0) return failed(counted, `pytest exited ${ran.code}`);
       if (counts.skipped > 0) return failed(counted, "a skipped test checked nothing");
-      if (counts.tests < FLOOR.ruleTests) return failed(counted, `fewer than ${FLOOR.ruleTests} tests`);
+      if (counts.tests < FLOOR.pythonTests) return failed(counted, `fewer than ${FLOOR.pythonTests} tests`);
       return passed(counted);
+    },
+  },
+  {
+    name: "data",
+    what: "the small generated data, end to end: generator, then every invariant on what it wrote",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const database = "commerce_data";
+      await createDatabase(cluster, database, TEMPLATE);
+      const commerce = join(repoRoot, "services", "commerce");
+      const env = { ...process.env, PYTHONPATH: join(commerce, "src") };
+      const url = cluster.url(database, "owner");
+      const generated = await run(venvPython, ["-m", "commerce.generate", "--url", url, "--size", "small", "--seed", "7"], { cwd: commerce, env });
+      if (generated.code !== 0) return failed("-", generated.output.slice(-3000));
+      const summary = JSON.parse(generated.output) as { counts: { subscribers: number; listening_days: number } };
+      const invariants = await run(venvPython, ["-m", "commerce.invariants", "--url", url], { cwd: commerce, env });
+      const report = JSON.parse(invariants.output) as { checked: number; broken: number; invariants: Array<{ name: string; violations: number }> };
+      const counted = `${report.checked} invariants, ${report.broken} broken; ${summary.counts.subscribers} subscribers`;
+      if (invariants.code !== 0 || report.broken > 0) {
+        return failed(counted, report.invariants.filter((i) => i.violations).map((i) => `${i.name}: ${i.violations}`).join("\n"));
+      }
+      if (report.checked < FLOOR.invariants) return failed(counted, `fewer than ${FLOOR.invariants} invariants`);
+      if (summary.counts.subscribers < FLOOR.generatedSubscribers) return failed(counted, "the generator wrote fewer subscribers than the small size declares");
+      return passed(counted, `${summary.counts.listening_days} listening rows`);
     },
   },
 ];
