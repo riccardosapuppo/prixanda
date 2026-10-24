@@ -1,23 +1,23 @@
 "use client";
 // What the pages ask for, one hook per need. Each wraps one operation of
-// src/graphql in TanStack Query, under a key that names it and its variables,
-// so two parts of a page asking the same thing share one request.
-import { useMutation, useQuery } from "@tanstack/react-query";
-import {
-  SiteMarkets, SiteOffers, SitePlans, SiteRequestQuote, type SiteOffersQuery, type SiteRequestQuoteMutationVariables,
-} from "../graphql/generated.ts";
+// src/graphql in TanStack Query, under a key of keys.ts, so two parts of a
+// page asking the same thing share one request. Mutations that change the
+// demo listener's session or account update or refresh what the pages read.
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LABELS, RELEASES } from "../content/editorial.ts";
+import {
+  SiteConfirmSubscription, SiteDemoListeners, SiteMarkets, SiteMe, type SiteMeQuery, SiteOffers, type SiteOffersQuery, SitePlans,
+  SiteRequestQuote, type SiteRequestQuoteMutationVariables, SiteSignIn, SiteSignOut, SiteVerifyStudent,
+} from "../graphql/generated.ts";
 import { OFFERS_REFRESH_MS } from "./config.ts";
+import { keys } from "./keys.ts";
 import { isSiteMarket, SITE_MARKETS, type SiteMarket } from "./markets.ts";
 import { useSiteApi } from "./provider.tsx";
 
 export type Offer = SiteOffersQuery["offers"][number];
+export type Me = NonNullable<SiteMeQuery["me"]>;
 
-export const keys = {
-  markets: ["markets"] as const,
-  plans: (market: SiteMarket) => ["plans", market] as const,
-  offers: (market: SiteMarket) => ["offers", market] as const,
-};
+export { keys };
 
 /** The markets the API sells in that the site can write prices for, in the site's order (Italy first). */
 export function useMarkets() {
@@ -31,7 +31,7 @@ export function useMarkets() {
   });
 }
 
-/** A market's plans now, with the price a new subscriber pays. */
+/** A market's plans now, with the price a new subscriber pays and where it goes. */
 export function usePlans(market: SiteMarket) {
   const api = useSiteApi();
   return useQuery({
@@ -61,11 +61,70 @@ export function useOffers(market: SiteMarket, { live = true }: { readonly live?:
  * cannot tell, and a remote catalogue would change only these two hooks.
  */
 export function useLabels() {
-  return useQuery({ queryKey: ["editorial", "labels"], queryFn: () => LABELS, initialData: LABELS, staleTime: Number.POSITIVE_INFINITY });
+  return useQuery({ queryKey: keys.labels, queryFn: () => LABELS, initialData: LABELS, staleTime: Number.POSITIVE_INFINITY });
 }
 
 export function useReleases() {
-  return useQuery({ queryKey: ["editorial", "releases"], queryFn: () => RELEASES, initialData: RELEASES, staleTime: Number.POSITIVE_INFINITY });
+  return useQuery({ queryKey: keys.releases, queryFn: () => RELEASES, initialData: RELEASES, staleTime: Number.POSITIVE_INFINITY });
+}
+
+// ---------------------------------------------------------------------------
+// The demo listener. DEMONSTRATION MODE: the visitor picks one of the demo's
+// invented listeners; the gateway keeps the choice in an HttpOnly cookie, and
+// every call below acts for that listener. Not a sign-in.
+
+/**
+ * The listener of this browser, with their account; null when nobody entered.
+ * `readAgain`, given what was read last, says in how many milliseconds to read
+ * again (false: not by itself).
+ */
+export function useMe({ readAgain }: { readonly readAgain?: (me: Me | null | undefined) => number | false } = {}) {
+  const api = useSiteApi();
+  return useQuery({
+    queryKey: keys.me,
+    queryFn: async ({ signal }) => (await api.query(SiteMe, {}, signal)).me,
+    staleTime: 0,
+    refetchInterval: readAgain ? (query) => readAgain(query.state.data) : false,
+    // The session lives in a cookie: every tab reads it from the API.
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useDemoListeners() {
+  const api = useSiteApi();
+  return useQuery({
+    queryKey: keys.demoListeners,
+    queryFn: async ({ signal }) => (await api.query(SiteDemoListeners, {}, signal)).demoListeners,
+    staleTime: 10 * 60_000,
+  });
+}
+
+export function useSignIn() {
+  const api = useSiteApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (listenerId: string) => api.mutate(SiteSignIn, { listenerId }, { idempotencyKey: null }),
+    onSuccess: (data) => client.setQueryData<SiteMeQuery["me"]>(keys.me, data.signInAsListener),
+  });
+}
+
+export function useSignOut() {
+  const api = useSiteApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.mutate(SiteSignOut, {}, { idempotencyKey: null }),
+    onSuccess: () => client.setQueryData<SiteMeQuery["me"]>(keys.me, null),
+  });
+}
+
+/** The simulated provider checks the session's listener as a student; the account then shows the check. */
+export function useVerifyStudent() {
+  const api = useSiteApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (idempotencyKey: string) => api.mutate(SiteVerifyStudent, {}, { idempotencyKey }),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.me }),
+  });
 }
 
 /** A quote from the engine; the variables carry the action's idempotency key. */
@@ -74,5 +133,16 @@ export function useRequestQuote() {
   return useMutation({
     mutationFn: ({ idempotencyKey, ...variables }: SiteRequestQuoteMutationVariables & { readonly idempotencyKey: string }) =>
       api.mutate(SiteRequestQuote, variables, { idempotencyKey }),
+  });
+}
+
+/** Confirms a quote by its id: the demo subscription starts, its first payment pending (§4.5). */
+export function useConfirmSubscription() {
+  const api = useSiteApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quoteId, idempotencyKey }: { readonly quoteId: string; readonly idempotencyKey: string }) =>
+      api.mutate(SiteConfirmSubscription, { quoteId }, { idempotencyKey }),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.me }),
   });
 }

@@ -42,6 +42,15 @@ export function lastDayBefore(endLocal: string, { withYear = true }: { readonly 
   return words({ year: previous.getUTCFullYear(), month: previous.getUTCMonth() + 1, day: previous.getUTCDate() }, withYear);
 }
 
+/** The day an instant falls on in a market's calendar: "24 October 2026". */
+export function siteDayAt(utc: string, timeZone: string): string {
+  const instant = new Date(utc);
+  if (Number.isNaN(instant.getTime())) throw new RangeError(`not an instant: ${JSON.stringify(utc)}`);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone, year: "numeric", month: "numeric", day: "numeric" })
+    .formatToParts(instant).map((part) => [part.type, part.value]));
+  return words({ year: Number(parts["year"]), month: Number(parts["month"]), day: Number(parts["day"]) });
+}
+
 /** An instant as the wall-clock time of a market: "10:47". */
 export function siteTime(utc: string, timeZone: string): string {
   const instant = new Date(utc);

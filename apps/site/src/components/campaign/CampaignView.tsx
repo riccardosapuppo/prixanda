@@ -8,7 +8,7 @@
 // The address names the market and the offer: /campaign/?market=IT&offer=42.
 // The site is a static build, so one page serves every campaign and reads
 // which one from the address.
-import { formatSitePrice } from "design";
+import { formatSitePrice, type MoneyLike } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -21,6 +21,7 @@ import { monthsScene } from "../art/geometry.ts";
 import { MonthsDrawing } from "../art/Sails.tsx";
 import { Failure, Loading } from "../ui/States.tsx";
 import { CampaignAction } from "./CampaignAction.tsx";
+import { PromiseBand } from "./PromiseBand.tsx";
 
 export function CampaignView() {
   const search = useSearchParams();
@@ -55,15 +56,18 @@ function Campaign({ market, offerId }: { readonly market: SiteMarket; readonly o
     );
   }
   if (!offer) return <Gone market={market} />;
-  const marketName = markets.data?.find((candidate) => candidate.code === market)?.name ?? market;
+  const marketData = markets.data?.find((candidate) => candidate.code === market);
   const planName = plans.data?.find((candidate) => candidate.code === offer.plan)?.name ?? offer.plan;
-  return <CampaignPage offer={offer} market={market} marketName={marketName} planName={planName} />;
+  return (
+    <CampaignPage offer={offer} market={market} marketName={marketData?.name ?? market} minimum={marketData?.artistsMinimum ?? null} planName={planName} />
+  );
 }
 
-function CampaignPage({ offer, market, marketName, planName }: {
+function CampaignPage({ offer, market, marketName, minimum, planName }: {
   readonly offer: Offer;
   readonly market: SiteMarket;
   readonly marketName: string;
+  readonly minimum: MoneyLike | null;
   readonly planName: string;
 }) {
   const price = formatSitePrice(offer.price, market);
@@ -117,6 +121,7 @@ function CampaignPage({ offer, market, marketName, planName }: {
           </figcaption>
         </figure>
       </section>
+      {offer.breakdown ? <PromiseBand breakdown={offer.breakdown} minimum={minimum} market={market} /> : null}
       <section aria-label="Details of the offer" className="wrap grid gap-x-12 gap-y-4 border-t border-cord pt-8 pb-16 md:grid-cols-2">
         <p className="m-0 max-w-[62ch]">
           {offer.audience}.{offer.needsStudentCheck ? ` ${copy.campaign.studentCheckNote}` : null}

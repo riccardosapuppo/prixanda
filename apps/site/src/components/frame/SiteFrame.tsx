@@ -7,6 +7,7 @@ import { Icon } from "design/icon";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { copy } from "../../content/copy.ts";
+import { HeaderLinks } from "./HeaderLinks.tsx";
 
 export function ProjectTags() {
   return (
@@ -52,18 +53,7 @@ export function SiteFrame({ children }: { readonly children: ReactNode }) {
       <header className="border-b border-cord">
         <div className="wrap flex min-h-[4.25rem] items-center gap-8 max-md:min-h-[3.75rem] max-md:gap-3">
           <Wordmark />
-          <nav aria-label={copy.nav.label}>
-            <ul role="list" className="m-0 flex list-none gap-1 p-0">
-              <li>
-                <Link
-                  href="/"
-                  className="inline-flex min-h-11 items-center rounded-control px-3 text-[0.96875rem] font-[550] text-ink-2 no-underline hover:bg-stone-2 hover:text-ink"
-                >
-                  {copy.nav.plans}
-                </Link>
-              </li>
-            </ul>
-          </nav>
+          <HeaderLinks />
         </div>
       </header>
       <main id="main" tabIndex={-1} className="flex-1 focus-visible:outline-none">

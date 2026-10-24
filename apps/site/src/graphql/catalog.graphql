@@ -1,7 +1,17 @@
 # What is for sale: the markets, a market's plans with the price a new
-# subscriber pays, and the offers on sale there now (business book §2, §4, §6).
-# Every figure the site shows comes from these answers; the site computes no
-# price, share or date of its own.
+# subscriber pays, and the offers on sale there now (business book §2, §4, §6),
+# each price with where it goes (§1.2, §5). Every figure the site shows comes
+# from these answers; the site computes no price, share or date of its own.
+
+fragment SiteBreakdown on PriceBreakdown {
+  price
+  vat
+  net
+  artists
+  topUp
+  paymentCosts
+  companyKeeps
+}
 
 query SiteMarkets {
   markets {
@@ -9,6 +19,8 @@ query SiteMarkets {
     name
     currency
     timeZone
+    vatBasisPoints
+    artistsMinimum
   }
 }
 
@@ -18,6 +30,9 @@ query SitePlans($market: MarketCode!) {
     name
     paid
     listPrice
+    breakdown {
+      ...SiteBreakdown
+    }
     entitlements {
       skipsPerHour
       audio
@@ -47,5 +62,8 @@ query SiteOffers($market: MarketCode!) {
     }
     audience
     needsStudentCheck
+    breakdown {
+      ...SiteBreakdown
+    }
   }
 }

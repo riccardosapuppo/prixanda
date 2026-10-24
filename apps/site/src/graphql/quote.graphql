@@ -1,6 +1,7 @@
 # The engine's quote for a plan, with or without an offer (§4.5). The site
 # never sends a price: it names the plan, the market and the offer, shows what
-# comes back, and later confirms the quote by its id.
+# comes back, and confirms the quote by its id. Signed in as a demo listener,
+# the quote is theirs, and the engine checks they may take the offer.
 mutation SiteRequestQuote($plan: PlanCode!, $market: MarketCode!, $offerId: ID) {
   requestQuote(plan: $plan, market: $market, offerId: $offerId) {
     __typename
@@ -15,7 +16,7 @@ mutation SiteRequestQuote($plan: PlanCode!, $market: MarketCode!, $offerId: ID) 
       expiresAt
       offerId
     }
-    ... on QuoteRefusal {
+    ... on Refusal {
       code
       reason
     }

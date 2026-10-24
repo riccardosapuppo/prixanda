@@ -64,6 +64,8 @@ function MarketChooser({ market }: { readonly market: SiteMarket }) {
 
 function Plans({ market }: { readonly market: SiteMarket }) {
   const plans = usePlans(market);
+  const markets = useMarkets();
+  const currency = markets.data?.find((each) => each.code === market)?.currency;
   if (plans.isPending) return <Loading />;
   if (plans.isError) return <Failure error={plans.error} onRetry={() => void plans.refetch()} />;
   return (
@@ -72,7 +74,7 @@ function Plans({ market }: { readonly market: SiteMarket }) {
         <li key={plan.code} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 border-b border-cord py-3">
           <span className="text-[clamp(1.375rem,1.1rem+0.75vw,1.75rem)] leading-[1.1] font-medium tracking-[-0.015em] [font-stretch:112%]">{plan.name}</span>
           <span className="num text-[clamp(1.375rem,1.1rem+0.7vw,1.75rem)] leading-[1.1] font-[650] whitespace-nowrap [font-stretch:112%]">
-            {plan.listPrice ? formatSitePrice(plan.listPrice, market) : copy.plans.free}
+            {plan.listPrice ? formatSitePrice(plan.listPrice, market) : currency ? formatSitePrice({ amountMinor: "0", currency }, market) : null}
           </span>
           <span className="col-span-2 text-md leading-[1.35] text-ink-2">{copy.plans.lines[plan.code] ?? ""}</span>
         </li>

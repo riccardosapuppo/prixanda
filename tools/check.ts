@@ -417,7 +417,7 @@ async function nodeTests(suite: string, files: string[], floor: number, env: Rec
 // where the end-to-end test starts it (CHECK_GATEWAY_PUBLIC_PORT).
 const siteDir = join(repoRoot, "apps", "site");
 const SITE_FLOOR = { files: 23, nodeFiles: 16, operations: 4, unitTests: 42 };
-const SITE_PAGES = ["index.html", "campaign/index.html", "404.html"];
+const SITE_PAGES = ["index.html", "campaign/index.html", "account/index.html", "404.html"];
 const SITE_CHECK_API = `http://127.0.0.1:${PORTS.gatewayCheckPublic}/graphql`;
 
 /** Node's test runner over the site's unit tests, counting the cases of its JUnit report. */
