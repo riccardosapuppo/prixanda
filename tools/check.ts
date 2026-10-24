@@ -18,6 +18,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { nestedSegmentFiles } from "../apps/site/scripts/segments.ts";
 import { flyway } from "./lib/flyway.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
 import { assertFree } from "./lib/ports.ts";
@@ -248,6 +249,76 @@ const SUITES: Suite[] = [
       return passed(counted);
     },
   },
+  // The site (stage 5): apps/site, a static Next.js build. Its types, its
+  // operations and its unit tests need nothing running; its build writes
+  // apps/site/out, for the API of the end-to-end test.
+  {
+    name: "site-types",
+    what: "tsc over the site: its pages and components as Next.js builds them, then what Node runs (scripts and tests)",
+    needsDatabase: false,
+    async run() {
+      const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+      if (!existsSync(tsc)) return notRun("typescript is not installed: npm install");
+      // next-env.d.ts and the route types are generated, not committed.
+      const typegen = await run(process.execPath, [join(siteDir, "scripts", "next.ts"), "typegen"], { cwd: siteDir });
+      if (typegen.code !== 0) return failed("-", typegen.output.slice(-3000));
+      const counted: string[] = [];
+      for (const [config, floor, label] of [["tsconfig.json", SITE_FLOOR.files, "in the pages"], ["tsconfig.node.json", SITE_FLOOR.nodeFiles, "run by Node"]] as const) {
+        const ran = await run(process.execPath, [tsc, "-p", config, "--listFiles"], { cwd: siteDir });
+        const ours = ran.output.split(/\r?\n/).filter((line) => {
+          const path = line.replaceAll("\\", "/");
+          return path.includes("/apps/site/") && /\.tsx?$/.test(path) && !path.includes("node_modules") && !path.includes("/.next/") && !path.endsWith("next-env.d.ts");
+        }).length;
+        counted.push(`${ours} ${label}`);
+        if (ran.code !== 0) return failed(counted.join(", "), ran.output.split(/\r?\n/).filter((line) => /error TS\d+/.test(line)).slice(0, 8).join("\n") || ran.output.slice(0, 2000));
+        if (ours < floor) return failed(counted.join(", "), `${config}: fewer than ${floor} files of the site were checked`);
+      }
+      return passed(counted.join(", "));
+    },
+  },
+  {
+    name: "site-codegen",
+    what: "the site's GraphQL operations validate against public.graphql, and their generated types equal a fresh generation",
+    needsDatabase: false,
+    async run() {
+      const ran = await run(process.execPath, [join(siteDir, "scripts", "graphql.ts"), "--check"], { cwd: siteDir });
+      const operations = Number(/match the schema \((\d+) operations\)/.exec(ran.output)?.[1] ?? 0);
+      if (ran.code !== 0) return failed(`${operations} operations`, ran.output.slice(-3000));
+      if (operations < SITE_FLOOR.operations) return failed(`${operations} operations`, `fewer than ${SITE_FLOOR.operations} operations`);
+      return passed(`${operations} operations`);
+    },
+  },
+  {
+    name: "site-unit",
+    what: "the site's data layer, dates, markets, drawings and build correction, without a browser",
+    needsDatabase: false,
+    async run() {
+      const files = (await readdir(join(siteDir, "test"))).filter((name) => name.endsWith(".test.ts")).map((name) => `test/${name}`);
+      return siteNodeTests("site-unit", files, SITE_FLOOR.unitTests);
+    },
+  },
+  {
+    name: "site-build",
+    what: "next build: the static export in apps/site/out, every page there, no prefetch file where the router would not find it",
+    needsDatabase: false,
+    async run() {
+      const env = { ...process.env, NEXT_PUBLIC_SITE_API: SITE_CHECK_API };
+      const ran = await run(process.execPath, [join(siteDir, "scripts", "next.ts"), "build"], { cwd: siteDir, env });
+      if (ran.code !== 0) return failed("-", ran.output.slice(-3000));
+      const out = join(siteDir, "out");
+      const pages = SITE_PAGES.filter((page) => existsSync(join(out, ...page.split("/"))));
+      const counted = `${pages.length} of ${SITE_PAGES.length} pages`;
+      if (pages.length !== SITE_PAGES.length) return failed(counted, `missing: ${SITE_PAGES.filter((page) => !pages.includes(page)).join(", ")}`);
+      const misplaced = await nestedSegmentFiles(out);
+      if (misplaced.length) return failed(counted, `prefetch files the router would not find: ${misplaced.join(", ")}`);
+      // The API is written into the build: the end-to-end test needs the one it serves.
+      const html = await readFile(join(out, "index.html"), "utf8");
+      const scripts = await readdir(join(out, "_next", "static", "chunks"));
+      const chunks = await Promise.all(scripts.filter((name) => name.endsWith(".js")).map((name) => readFile(join(out, "_next", "static", "chunks", name), "utf8")));
+      if (!chunks.some((chunk) => chunk.includes(SITE_CHECK_API))) return failed(counted, `the build does not call ${SITE_CHECK_API}`);
+      return passed(`${counted}, API ${SITE_CHECK_API}`, `${html.length} bytes of index.html`);
+    },
+  },
 ];
 
 // pytest's JUnit report: the totals of its test suites.
@@ -278,6 +349,32 @@ async function nodeTests(suite: string, files: string[], floor: number): Promise
   const report = join(reports, `${suite}.xml`);
   const ran = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=junit", `--test-reporter-destination=${report}`,
     "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true });
+  if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
+  const xml = await readFile(report, "utf8");
+  const tests = [...xml.matchAll(/<testcase\b/g)].length;
+  const failures = [...xml.matchAll(/<failure\b/g)].length;
+  const skipped = [...xml.matchAll(/<skipped\b/g)].length;
+  const counted = `${tests} tests, ${failures} failed, ${skipped} skipped`;
+  if (ran.code !== 0 || failures > 0) return failed(counted, `node --test exited ${ran.code}`);
+  if (skipped > 0) return failed(counted, "a skipped test checked nothing");
+  if (tests < floor) return failed(counted, `fewer than ${floor} tests`);
+  return passed(counted);
+}
+
+// The site's floors: what its suites must at least have checked, and the
+// pages its static build must hold. Its build calls the gateway's public API
+// where the end-to-end test starts it (CHECK_GATEWAY_PUBLIC_PORT).
+const siteDir = join(repoRoot, "apps", "site");
+const SITE_FLOOR = { files: 22, nodeFiles: 15, operations: 4, unitTests: 36 };
+const SITE_PAGES = ["index.html", "campaign/index.html", "404.html"];
+const SITE_CHECK_API = `http://127.0.0.1:${Number(process.env["CHECK_GATEWAY_PUBLIC_PORT"] ?? 4622)}/graphql`;
+
+/** Node's test runner over the site's unit tests, counting the cases of its JUnit report. */
+async function siteNodeTests(suite: string, files: string[], floor: number): Promise<Omit<Result, "suite" | "seconds">> {
+  if (files.length === 0) return failed("0", "no test file found");
+  const report = join(reports, `${suite}.xml`);
+  const ran = await run(process.execPath, ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`,
+    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: siteDir, echo: true });
   if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
   const xml = await readFile(report, "utf8");
   const tests = [...xml.matchAll(/<testcase\b/g)].length;

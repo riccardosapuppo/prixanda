@@ -54,5 +54,5 @@ export async function nestedSegmentFiles(out: string): Promise<string[]> {
   for (const entry of await readdir(out, { withFileTypes: true, recursive: true })) {
     if (entry.isDirectory() && entry.name.startsWith("__next.")) left.push(relative(out, join(entry.parentPath, entry.name)));
   }
-  return left;
+  return left.sort();
 }
