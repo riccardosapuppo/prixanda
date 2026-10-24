@@ -14,6 +14,8 @@ three variables say where it is:
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 import uuid
 from dataclasses import dataclass
 from urllib.parse import urlsplit, urlunsplit
@@ -21,10 +23,26 @@ from urllib.parse import urlsplit, urlunsplit
 import asyncpg
 import pytest
 import pytest_asyncio
+from hypothesis import settings
+from hypothesis.configuration import set_hypothesis_home_dir
 
 ADMIN_URL = os.environ.get("COMMERCE_TEST_ADMIN_URL", "")
 TEMPLATE = os.environ.get("COMMERCE_TEST_TEMPLATE", "")
 APP_URL = os.environ.get("COMMERCE_TEST_APP_URL", "")
+
+# Property tests: the same examples on every run (a check that passes once and
+# fails the next is no check), no example database, and no deadline, because a
+# loaded machine is slow. Hypothesis still caches what it reads from the source
+# files: that goes to a folder of this session, removed when it ends, so that
+# nothing is left in the repository (rule 26).
+settings.register_profile("engine", database=None, derandomize=True, deadline=None, print_blob=False)
+settings.load_profile("engine")
+HYPOTHESIS_HOME = tempfile.mkdtemp(prefix="commerce-tests-hypothesis-")
+set_hypothesis_home_dir(HYPOTHESIS_HOME)
+
+
+def pytest_unconfigure(config):
+    shutil.rmtree(HYPOTHESIS_HOME, ignore_errors=True)
 
 
 def pytest_configure(config):

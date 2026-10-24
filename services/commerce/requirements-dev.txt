@@ -1,4 +1,8 @@
 -r requirements.txt
 grpcio-tools==1.74.0
+# Property tests on the quote's invariants; sortedcontainers is its one
+# dependency, pinned too so that the environment is the same everywhere.
+hypothesis==6.168.5
 pytest==9.1.1
 pytest-asyncio==1.4.0
+sortedcontainers==2.4.0
