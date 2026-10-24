@@ -6,8 +6,10 @@
 // the publish step's database connection is cut inside its transaction, once.
 // The step rolls back, the catalog of before stays live, the engine tries the
 // step again five seconds later, and the launch goes through. The console's
-// timeline shows all of it; the on-call engineer's actions are refused by the
-// server to every other role, and to a launch that is done.
+// timeline shows all of it, and its links to the audit log still lead to the
+// launch's events once more than fifty newer ones have been written; the
+// on-call engineer's actions are refused by the server to every other role,
+// and to a launch that is done.
 import { expect, test } from "@playwright/test";
 import { asPerson, axe, callByHand, enterAs, switchTo } from "./support.ts";
 
@@ -107,6 +109,31 @@ test("a scheduled offer launches step by step, a cut publish is tried again, and
   await expect(events.getByText("catalog.published")).toBeVisible();
   await expect(page.getByText(/Published: there is nothing to try again/)).toBeVisible();
   await axe(page, "a launch's timeline");
+
+  // The log moves on: a second marketer saves 52 versions of a draft, one event each, so the launch's events are no
+  // longer among the fifty newest. A link from the timeline still leads to its event, read for page after page.
+  const second = asPerson("marketing-2");
+  await second.signIn();
+  const busy = { ...offer, title: `Busy log ${RUN}`, nonCombinabilityGroup: `busy-${RUN}` };
+  const draft = await second.mutate("mutation ($offer: OfferInput!) { createOffer(offer: $offer) { __typename ... on Change { id } } }", { offer: busy });
+  for (let base = 1; base <= 52; base += 1) {
+    const saved = await second.mutate(
+      "mutation ($id: ID!, $base: Int!, $offer: OfferInput!) { saveOfferVersion(changeId: $id, baseVersion: $base, offer: $offer) { __typename ... on Change { currentVersion } } }",
+      { id: draft.createOffer.id, base, offer: { ...busy, title: `Busy log ${RUN}, v${base + 1}` } },
+    );
+    expect(saved.saveOfferVersion.currentVersion).toBe(base + 1);
+  }
+  await page.reload();
+  const firstEvent = events.getByRole("link", { name: /^#\d+$/ }).first();
+  const seq = ((await firstEvent.textContent()) ?? "").replace("#", "");
+  const newest = await marketing.query("query { auditEvents(first: 50) { nodes { seq } } }");
+  expect(newest.auditEvents.nodes.map((node: { seq: string }) => node.seq), "the launch's first event is older than the fifty newest").not.toContain(seq);
+  await firstEvent.click();
+  await expect(page).toHaveURL(new RegExp(`/audit/\\?seq=${seq}$`));
+  await expect(page.getByText(`Event #${seq}, the one the link names, is highlighted below.`)).toBeVisible();
+  await expect(page.locator(`#event-${seq}`)).toHaveAttribute("aria-current", "true");
+  await expect(page.locator(`#event-${seq}`)).toBeInViewport();
+  await page.goBack();
 
   // Trying a launch again is the on-call engineer's: the server refuses it to Marketing, and to a launch that is done.
   const byMarketing = await callByHand(page, "mutation ($id: ID!) { retryLaunch(launchId: $id) { __typename ... on Refusal { code } } }", { id: done.id });

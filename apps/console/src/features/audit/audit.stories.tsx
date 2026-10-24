@@ -1,9 +1,12 @@
 // The audit log as the auditor reads it: a verification speaks of the head it
 // was given, a head typed afterwards clears it; Marketing reads the log, the
 // page says §11.4 word for word, and a lock stands where the verification and
-// the export would be.
+// the export would be. A link to an event older than the newest fifty (from
+// an approval or a launch) reads on until it, and highlights it; a link to an
+// event the log does not hold says so.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
+import { GatewayError } from "../../lib/gateway.ts";
 import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
 import type { Viewer } from "../../lib/react/session.tsx";
 import { AuditScreen } from "./audit.tsx";
@@ -84,5 +87,70 @@ export const MarketingReadsAndFindsTheLocks: Story = {
     await expect(page.getByText("The auditor and the on-call engineer verify the chain. As Marketing you read every event below.")).toBeInTheDocument();
     await expect(page.getByText("The auditor exports the log, with the head of the chain kept outside the database. As Marketing you read it, like everyone on the team.")).toBeInTheDocument();
     await expect(page.queryByRole("button", { name: "Verify the chain" })).toBeNull();
+  },
+};
+
+/**
+ * A log of 120 events, read as the engine pages it: newest first, each page
+ * after the last sequence number of the one before. failOnce: the page after
+ * #21 fails the first time it is asked for, as when the engine does not reply.
+ */
+function longLog(options: { readonly failOnce?: boolean } = {}) {
+  let failed = false;
+  const all = Array.from({ length: 120 }, (_, index) => {
+    const seq = 120 - index;
+    return event(seq, seq % 2 ? "change.version_saved" : "change.validated", "MARKETING", "marketing-1", new Date(Date.UTC(2026, 9, 24, 8, 0) - index * 60_000).toISOString(), { change: 7, version: seq });
+  });
+  return fakeGateway({
+    People: () => ({ people: Object.values(PEOPLE).map((person) => ({ id: person.personId, label: person.label, roles: person.roles })) }),
+    AuditEvents: (variables: { first: number; after: string | null }) => {
+      if (options.failOnce && variables.after === "21" && !failed) {
+        failed = true;
+        throw new GatewayError("ENGINE_UNAVAILABLE", "The engine did not reply in time.", "console:00000000-aaaa-4bbb-8ccc-000000000021");
+      }
+      const older = variables.after === null ? all : all.filter((entry) => Number(entry.seq) < Number(variables.after));
+      const page = older.slice(0, variables.first);
+      return { auditEvents: { nodes: page, next: older.length > variables.first ? (page.at(-1)?.seq ?? null) : null } };
+    },
+  });
+}
+
+export const ALinkToAnOlderEventReadsOnUntilIt: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: longLog() },
+  parameters: { route: { pathname: "/audit/", query: { seq: "11" } } },
+  play: async ({ canvasElement, args }) => {
+    const page = within(canvasElement);
+    await expect(await page.findByText("Event #11, the one the link names, is highlighted below.", {}, { timeout: 10_000 })).toBeInTheDocument();
+    const row = canvasElement.ownerDocument.getElementById("event-11");
+    await expect(row).toHaveAttribute("aria-current", "true");
+    // Three pages of fifty: the newest fifty, the fifty before them, and the one holding #11.
+    const pages = args.gateway.calls.filter((call) => call.operation === "AuditEvents").map((call) => (call.variables as { after: string | null }).after);
+    await expect(pages).toEqual([null, "71", "21"]);
+  },
+};
+
+export const ALinkToAnEventTheLogDoesNotHold: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: longLog() },
+  parameters: { route: { pathname: "/audit/", query: { seq: "500" } } },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement);
+    await expect(await page.findByRole("alert")).toHaveTextContent("Event #500 is not in the log.");
+    await expect(page.getByText("120", { selector: "th" })).toBeInTheDocument();
+  },
+};
+
+export const AFailedPageStopsTheSearchUntilTryAgain: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: longLog({ failOnce: true }) },
+  parameters: { route: { pathname: "/audit/", query: { seq: "11" } } },
+  play: async ({ canvasElement, args }) => {
+    const page = within(canvasElement);
+    await expect(await page.findByText(/Event #11 is not reached yet: a page of older events did not load/, {}, { timeout: 10_000 })).toBeInTheDocument();
+    // The page that failed was asked for once: the search waits for the person instead of asking again and again.
+    const asked = () => args.gateway.calls.filter((call) => call.operation === "AuditEvents" && (call.variables as { after: string | null }).after === "21").length;
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await expect(asked()).toBe(1);
+    await userEvent.click(page.getByRole("button", { name: "Try again" }));
+    await expect(await page.findByText("Event #11, the one the link names, is highlighted below.")).toBeInTheDocument();
+    await expect(asked()).toBe(2);
   },
 };
