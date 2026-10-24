@@ -60,7 +60,7 @@ message SimulationResult {
   Totals difference = 7;
   // Revenue given up on people who would have paid the list price anyway.
   Money discount_cost = 8;
-  // What the artists' minimum costs Encore during the offer months.
+  // What the artists' minimum costs the music service during the offer months.
   Money top_up_cost = 9;
   repeated FinanceCondition finance_conditions = 10;
   // The lowest retention, in basis points, at which the contribution is not negative.

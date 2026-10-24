@@ -24,8 +24,10 @@ from commerce.domain.economics import Book
 from commerce.domain.localtime import AmbiguousLocalTime, format_instant, format_local, to_instant, to_local
 from commerce.domain.money import Money
 from commerce.domain.offers import Content, ListPrice, Offer, from_json, local_times, shape_problems, to_json
-from commerce.domain.validation import BLOCKING, PENDING_OR_LIVE, Context, MarketFacts, Neighbour, report_to_json, validate
-from commerce.engine import contract, eligibility, records, reference
+from commerce.domain.validation import (
+    BLOCKING, PENDING_OR_LIVE, Context, MarketFacts, Neighbour, report_to_json, validate,
+)
+from commerce.engine import clashes, contract, eligibility, launches, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import (
     CHECK_VIOLATION, FOREIGN_KEY_VIOLATION, UNIQUE_VIOLATION, Connection, DatabaseError, utc_text,
@@ -100,10 +102,10 @@ class Changes:
             change_id, version, author, format_instant(now), json.dumps(to_json(content)))
 
     async def _event(self, tx: Connection, call: Call, now: datetime, action: str, change: records.ChangeRow | int,
-                     body: dict, reason: str | None = None) -> None:
+                     body: dict, reason: str | None = None) -> int:
         change_id = change if isinstance(change, int) else change.id
-        await records.record(tx, at=now, actor=call.actor, role=call.role, action=action, subject=f"change:{change_id}",
-                             request_id=call.request_id, body={"change": change_id, **body}, reason=reason)
+        return await records.record(tx, at=now, actor=call.actor, role=call.role, action=action, subject=f"change:{change_id}",
+                                    request_id=call.request_id, body={"change": change_id, **body}, reason=reason)
 
     async def _move(self, tx: Connection, change: records.ChangeRow, to: str, now: datetime, reason: str | None = None) -> None:
         await tx.execute("update change set state = $2, state_reason = $3, updated_at = $4::text::timestamptz where id = $1",
@@ -242,7 +244,13 @@ class Changes:
             "join change_version v on v.change_id = c.id and v.version = c.current_version "
             "where c.kind = $1 and c.id <> $2 and c.state in (select jsonb_array_elements_text($3::text::jsonb))",
             change.kind, change.id, json.dumps(list(PENDING_OR_LIVE)))
-        neighbours = tuple(Neighbour(r["id"], r["title"], r["state"], from_json(json.loads(r["content"]))) for r in rows)
+        neighbours = []
+        days = clashes.market_days(ref, content, now) if isinstance(content, Offer) else {}
+        for r in rows:
+            other = from_json(json.loads(r["content"]))
+            shared = (await clashes.shared_people(tx, content, other, days)
+                      if isinstance(content, Offer) and isinstance(other, Offer) else {})
+            neighbours.append(Neighbour(r["id"], r["title"], r["state"], other, shared))
         later: tuple = ()
         if isinstance(content, ListPrice) and content.plan and content.market and content.starts:
             market = ref.markets[content.market]
@@ -254,7 +262,7 @@ class Changes:
                     content.plan, content.market, format_local(content.starts)))
         artist_ids = {content.audience.listening.artist_id} if isinstance(content, Offer) and content.audience.listening else set()
         return Context(now=now, book=self.book, markets=facts, plans=ref.plans,
-                       artists=await reference.artist_names(tx, artist_ids), neighbours=neighbours, later_prices=later)
+                       artists=await reference.artist_names(tx, artist_ids), neighbours=tuple(neighbours), later_prices=later)
 
     async def validate(self, tx: Connection, call: Call, request: changes_pb2.ValidateChangeRequest) -> changes_pb2.ValidateChangeResponse:
         change = await records.lock_change(tx, request.change_id)
@@ -262,6 +270,9 @@ class Changes:
         require_current(change, request.version)
         require_state(change, "draft", doing="validated")
         content, _, _ = await records.version_content(tx, change.id, change.current_version)
+        # One validation at a time among the changes this one can clash with:
+        # the other changes are read only once this lock is held.
+        await clashes.lock_neighbourhood(tx, content)
         now = self.clock.now()
         report = validate(content, await self._context(tx, change, content, now))
         await tx.execute(
@@ -273,9 +284,14 @@ class Changes:
             await tx.execute("update change set updated_at = $2::text::timestamptz where id = $1", change.id, format_instant(now))
             blocking = [f for f in report.findings if f.severity == BLOCKING]
             plural = "s" if len(blocking) != 1 else ""
+            facts: dict[str, object] = {"blocking": len(blocking), "checks": ",".join(sorted({f.check for f in blocking})),
+                                        "version": change.current_version}
+            # The most people one clash found in both audiences; the report has each clash's own count.
+            shared = [int(f.facts["shared"]) for f in blocking if f.check == "conflict" and "shared" in f.facts]
+            if shared:
+                facts["shared"] = max(shared)
             refused = Refused("INVALID", f"Validation found {len(blocking)} blocking problem{plural}: {blocking[0].message}",
-                              {"blocking": len(blocking), "checks": ",".join(sorted({f.check for f in blocking})),
-                               "version": change.current_version})
+                              facts)
             return changes_pb2.ValidateChangeResponse(refusal=contract.refusal(refused))
         await self._move(tx, change, "validated", now)
         await self._event(tx, call, now, "change.validated", change, {
@@ -295,7 +311,7 @@ class Changes:
         content, _, _ = await records.version_content(tx, change.id, change.current_version)
         now = self.clock.now()
         ref = await reference.load(tx, now)
-        passed = [(market, moment) for market, moment in starts_of(content)
+        passed = [(market, moment) for market, moment in records.starts_of(content)
                   if to_instant(moment, ref.markets[market].zone) <= now]
         if passed:
             market, moment = passed[0]
@@ -406,9 +422,10 @@ class Changes:
         now = self.clock.now()
         ref = await reference.load(tx, now)
         starts = []
-        for market, moment in starts_of(content):
+        for market, moment in records.starts_of(content):
             zone = ref.markets[market].zone
             starts.append({"market": market, "local": format_local(moment), "utc": format_instant(to_instant(moment, zone))})
+        await clashes.lock_neighbourhood(tx, content)
         if isinstance(content, ListPrice):
             later = await tx.fetchval(
                 "select to_char(lower(valid), 'YYYY-MM-DD\"T\"HH24:MI') from list_price where plan_id = $1 and market = $2 "
@@ -417,26 +434,39 @@ class Changes:
             if later is not None:
                 raise Refused("OVERLAP", f"The price list already holds a {content.plan} price in {content.market} from {later}: "
                                          "the new price would overlap it (§4.1).", {"starts": later})
+            pending = await clashes.pending_list_price(tx, content, change.id, ("approved", "scheduled"))
+            if pending is not None:
+                raise Refused("OVERLAP", f"{pending.title} (#{pending.change_id}, {pending.state}) already changes this price: "
+                                         "only one of them can be scheduled.", {"change": pending.change_id})
         else:
             ended = [p.market for p in content.periods
                      if p.ends is not None and to_instant(p.ends, ref.markets[p.market].zone) <= now]
             if ended:
                 raise Refused("INVALID", f"The offer's period has already ended in {', '.join(ended)}: save a version with new dates.",
                               {"markets": ",".join(ended)})
+            clash = await clashes.first_clash(tx, content, change.id, ("approved", "scheduled", "active"), ref, now)
+            if clash is not None:
+                raise Refused("INVALID", clash.words(ref.markets[clash.market].name, content.group)
+                              + " Cancel one of them, or save a version with other dates.", clash.facts())
         await self._move(tx, change, "scheduled", now)
         await self._event(tx, call, now, "change.scheduled", change,
                           {"version": change.current_version, "from": "approved", "to": "scheduled", "starts": starts})
         return changes_pb2.ScheduleChangeResponse(change=await records.load_change(tx, change.id))
 
     async def cancel(self, tx: Connection, call: Call, request: changes_pb2.CancelChangeRequest) -> changes_pb2.CancelChangeResponse:
+        # Its launch first, then the change: the order a launch's steps take them in.
+        await tx.execute("select id from launch where change_id = $1 for update", request.change_id)
         change = await records.lock_change(tx, request.change_id)
         require_role(call, policy.CANCELLERS[change.kind], f"cancel {policy.KIND_NAMES[change.kind]}")
         require_state(change, "scheduled", doing="cancelled")
         reason = reason_text(request.reason, "you cancel it")
         now = self.clock.now()
         await self._move(tx, change, "cancelled", now, reason)
-        await self._event(tx, call, now, "change.cancelled", change,
-                          {"version": change.current_version, "from": "scheduled", "to": "cancelled"}, reason=reason)
+        event = await self._event(tx, call, now, "change.cancelled", change,
+                                  {"version": change.current_version, "from": "scheduled", "to": "cancelled"}, reason=reason)
+        # A launch under way that has not published stops with it (§7.5).
+        await launches.withdraw(tx, change.id, actor=call.actor, role=call.role, reason=reason, now=now,
+                                request_id=call.request_id, events=(event,))
         return changes_pb2.CancelChangeResponse(change=await records.load_change(tx, change.id))
 
     async def suspend(self, tx: Connection, call: Call, request: changes_pb2.SuspendChangeRequest) -> changes_pb2.SuspendChangeResponse:
@@ -455,12 +485,6 @@ class Changes:
         await self.publisher.publish(tx, now=now, actor=call.actor, role=call.role, request_id=call.request_id,
                                      cause={"suspended": change.id})
         return changes_pb2.SuspendChangeResponse(change=await records.load_change(tx, change.id))
-
-
-def starts_of(content: Content) -> list[tuple[str, datetime]]:
-    if isinstance(content, ListPrice):
-        return [(content.market, content.starts)] if content.market and content.starts else []
-    return [(p.market, p.starts) for p in content.periods if p.starts is not None]
 
 
 def encode_cursor(updated_at: str, change_id: int) -> str:

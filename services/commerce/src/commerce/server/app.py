@@ -1,11 +1,19 @@
 """Starting and stopping the engine's server.
 
-serve() starts the server, the health checks and the activation timer, and
+serve() starts the server, the health checks and the engine's jobs, and
 waits for a stop: Ctrl+C, a termination signal, or (for a supervisor that
 started it with COMMERCE_STOP_ON_STDIN_CLOSE=1) its standard input closing.
 Then it stops in order: health says NOT_SERVING, no new calls are taken,
 the running ones get the grace period to finish, the timers stop, the
 database pool closes, and the last log line says so.
+
+The jobs (the launches, the end of offers, the outbox, the pruning of
+idempotency keys) run once at the start, which resumes whatever a stop left
+halfway, then every COMMERCE_ACTIVATION_INTERVAL_SECONDS, or at once when a
+call leaves work for them. Their log says each change of state once: a
+launch that waits for its next attempt, or that was refused, writes nothing
+more until something happens to it, and a pass that keeps failing for the
+same reason says so once, then once more when it works again.
 """
 
 from __future__ import annotations
@@ -14,17 +22,19 @@ import asyncio
 import signal
 import sys
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import grpc
 
 from commerce.adapters.asyncpg_database import AsyncpgDatabase
 from commerce.engine.engine import Engine
+from commerce.engine.launches import Probe, run_id
 from commerce.server.config import Config
 from commerce.server.grpc_server import Health, generic_handlers, health_server
 from commerce.server.logs import JsonLog
 
 MAX_MESSAGE = 4 * 1024 * 1024
+PRUNE_EVERY = timedelta(hours=1)
 
 
 class SystemClock:
@@ -56,16 +66,63 @@ def _stop_requests(loop: asyncio.AbstractEventLoop, stop: asyncio.Event, config:
         threading.Thread(target=watch_stdin, name="stdin-watch", daemon=True).start()
 
 
-async def _activation_timer(engine: Engine, interval: float, log: JsonLog) -> None:
-    while True:
-        await asyncio.sleep(interval)
+class Jobs:
+    """The engine's jobs, one pass at a time, with a log line for each change of state."""
+
+    def __init__(self, engine: Engine, log: JsonLog) -> None:
+        self.engine = engine
+        self.log = log
+        self.pruned_at: datetime | None = None
+        self.failing: str | None = None  # the error the last pass failed with
+        self.ending: dict[int, str] = {}  # the error an offer's end last failed with
+
+    async def run_pass(self) -> None:
+        engine, log = self.engine, self.log
         try:
-            for outcome in [*await engine.activate_due(), *await engine.end_due()]:
-                level = "warning" if outcome.action == "failed" else "info"
-                log(level, "activation", change=outcome.change_id, action=outcome.action, snapshot=outcome.snapshot_id,
-                    error=outcome.error)
-        except Exception as error:  # the next tick tries again; stage 6 brings retries and alarms
-            log("warning", "activation_pass_failed", error=f"{type(error).__name__}: {error}")
+            for happened in await engine.run_launches():
+                log(happened.level, happened.event, **{"launch": happened.launch, "run": run_id(happened.launch),
+                                                       "change": happened.change, **happened.detail})
+            for outcome in await engine.end_due():
+                if outcome.action == "ended":
+                    self.ending.pop(outcome.change_id, None)
+                    log("info", "offer_ended", change=outcome.change_id, snapshot=outcome.snapshot_id)
+                elif outcome.action == "failed" and self.ending.get(outcome.change_id) != outcome.error:
+                    self.ending[outcome.change_id] = outcome.error or ""
+                    log("warning", "offer_end_failed", change=outcome.change_id, error=outcome.error)
+            for delivery in await engine.deliver_outbox():
+                if delivery.delivered:
+                    log("info", "outbox_delivered", **{**delivery.facts, "message": delivery.message_id, "topic": delivery.topic,
+                                                       "consumer": delivery.consumer, "attempts": delivery.attempts})
+                else:
+                    log("warning", "outbox_delivery_failed", message=delivery.message_id, topic=delivery.topic,
+                        consumer=delivery.consumer, attempts=delivery.attempts, error=delivery.error)
+            now = engine.clock.now()
+            if self.pruned_at is None or now - self.pruned_at >= PRUNE_EVERY:
+                pruned = await engine.prune_idempotency_keys()
+                self.pruned_at = now
+                if pruned:
+                    log("info", "idempotency_keys_pruned", keys=pruned)
+            if self.failing is not None:
+                log("info", "jobs_working_again", after=self.failing)
+                self.failing = None
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # the next pass tries again; a launch resumes where it stopped
+            text = f"{type(error).__name__}: {error}"
+            if text != self.failing:
+                log("warning", "jobs_pass_failed", error=text)
+            self.failing = text
+
+
+async def _jobs(engine: Engine, interval: float, log: JsonLog) -> None:
+    jobs = Jobs(engine, log)
+    while True:
+        engine.wake.clear()
+        await jobs.run_pass()
+        try:
+            await asyncio.wait_for(engine.wake.wait(), interval)
+        except TimeoutError:
+            pass
 
 
 class Running:
@@ -101,11 +158,13 @@ async def start(engine: Engine, config: Config, log: JsonLog) -> Running | None:
     return Running(server, checks, port)
 
 
-async def serve(config: Config, *, clock=None, log: JsonLog | None = None) -> int:
+async def serve(config: Config, *, clock=None, log: JsonLog | None = None, probe: Probe | None = None) -> int:
+    """The engine's server, until it is told to stop. The probe is the fault-injection tests' own
+    (launches.py): the entry point of the server passes none, and no setting turns one on."""
     clock = clock or SystemClock()
     log = log or JsonLog(clock.now)
     database = await AsyncpgDatabase.connect(config.database_url, max_size=config.pool_size)
-    engine = Engine(database, clock)
+    engine = Engine(database, clock, probe=probe)
     running = await start(engine, config, log)
     if running is None:
         await database.close()
@@ -119,7 +178,7 @@ async def serve(config: Config, *, clock=None, log: JsonLog | None = None) -> in
     _stop_requests(loop, stop, config, log)
     tasks = [asyncio.create_task(running.health.run(config.health_interval), name="health")]
     if config.activation_interval > 0:
-        tasks.append(asyncio.create_task(_activation_timer(engine, config.activation_interval, log), name="activation"))
+        tasks.append(asyncio.create_task(_jobs(engine, config.activation_interval, log), name="jobs"))
     try:
         await stop.wait()
     finally:

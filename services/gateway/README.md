@@ -389,22 +389,23 @@ same change, and the same key for another request is refused. Last, on the
 site, the demo's verified student in Italy signs in, asks for the pass's quote
 and confirms it: €2.99 charged on 26 October, then on 26 November and 26
 December, the list price of €5.79 from 26 January 2027, the same in their
-account, the first month's payment succeeded with a receipt that says no
-money moved (read again from the account while it is pending, with an engine
-that charges after the confirmation), and in the log a
-`subscription.confirmed` written by the subscriber with the site's request
-id, the chain still whole.
+account, the first month's payment pending at the confirmation and settled
+by the provider's event shortly after (the account then has the receipt,
+which says no money moved), and in the log a `subscription.confirmed`
+written by the subscriber with the site's request id, the chain still whole.
 
 The engine reads the machine's clock when it runs for real, and nothing in
 it moves time. The test starts the same `serve()` through a launcher of its
 own (`services/commerce/tests/clocked_server.py`) that hands it a clock the
 test moves on standard input: from 24 October to past 09:00 in Rome on 26
 October, the morning after the clocks go back. The suite reports how long the
-site takes to show the offer once the clock is past the start: one tick of
-the engine's activation timer, 0.5 s in the test (5 s by default). With a
-clock that runs on its own, activation comes a minute before the start
-instead, and the offer appears at the start exactly. Times measured while
-other work ran on the machine: they say the order of magnitude, nothing more.
+site takes to show the offer once the clock is past the start: the passes of
+the engine's jobs, 0.5 s apart in the test (5 s by default), in which the
+change's launch runs its steps up to the publication; the audit log names
+the launch's run (`launch-12`) as the activation's request id. With a clock
+that runs on its own, the launch begins a minute before the start instead,
+and the offer appears at the start. Times measured while other work ran on
+the machine: they say the order of magnitude, nothing more.
 
 The engine, the gateway and the database are stopped and dropped at the end,
 also when a step fails. The suite needs `CHECK_ENGINE_PORT` (4612 by

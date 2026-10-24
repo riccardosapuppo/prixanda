@@ -1,4 +1,4 @@
-"""The invariants of Encore's data that no single constraint can hold.
+"""The invariants of the generated data that no single constraint can hold.
 
     python -m commerce.invariants --url <URL> [--anchor <seq>:<hash>]
 

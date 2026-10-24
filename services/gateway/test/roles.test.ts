@@ -21,13 +21,17 @@ import { type Harness, startHarness } from "./support/harness.ts";
 
 const BOOK = join(import.meta.dirname, "..", "..", "..", "docs", "business.md");
 
-/** §12.1, as docs/business.md writes it since 24 October 2026 (the commercial lead reads revenue: the coordinator's 80046cb). */
+/**
+ * §12.1, as docs/business.md writes it since stage 6 of the engine: the
+ * commercial lead reads revenue, and the on-call engineer retries or cancels
+ * a launch that stopped.
+ */
 const SECTION_12 = [
   "| Marketing | create and edit campaigns, run simulations, submit | approve |",
   "| Commercial lead | own the price list and commercial rules, create price changes, approve campaigns within the thresholds, read revenue | approve own versions; sign for finance |",
   "| Finance | approve price changes and anything over a finance condition (§7.3); read revenue and unearned value | approve own versions |",
   "| Catalog manager | define plans and entitlements | approve own versions; change prices |",
-  "| On-call engineer | suspend an active change and roll back a launch | create or approve anything |",
+  "| On-call engineer | suspend an active change; retry or cancel a launch that stopped (roll back a launch) | create or approve anything |",
   "| Auditor | read and export the audit log | change anything |",
 ];
 

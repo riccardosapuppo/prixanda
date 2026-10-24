@@ -57,7 +57,7 @@ enum ChangeState {
 
 enum Segment {
   SEGMENT_UNSPECIFIED = 0;
-  // People who have never paid for Encore.
+  // People who have never paid for the music service.
   SEGMENT_NEVER_PAID = 1;
   // People on the free plan now.
   SEGMENT_FREE_LISTENERS = 2;

@@ -23,7 +23,7 @@ class Config:
     host: str = "127.0.0.1"
     port: int = 4611
     pool_size: int = 10
-    activation_interval: float = 5.0  # seconds; 0 switches the timer off
+    activation_interval: float = 5.0  # seconds between passes of the jobs (launches, outbox, pruning); 0: none
     health_interval: float = 5.0
     shutdown_grace: float = 10.0
     stop_on_stdin_close: bool = False

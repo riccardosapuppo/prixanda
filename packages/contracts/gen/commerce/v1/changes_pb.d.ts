@@ -1323,7 +1323,7 @@ export enum Segment {
   UNSPECIFIED = 0,
 
   /**
-   * People who have never paid for Encore.
+   * People who have never paid for the music service.
    *
    * @generated from enum value: SEGMENT_NEVER_PAID = 1;
    */

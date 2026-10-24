@@ -1,7 +1,7 @@
 [project]
 name = "commerce"
 version = "0.1.0"
-description = "The commerce engine behind Box Office: price list, offers, approvals and the audit log, kept by PostgreSQL."
+description = "The commerce engine of the platform: price list, offers, approvals and the audit log, kept by PostgreSQL."
 requires-python = ">=3.13"
 license = "MIT"
 

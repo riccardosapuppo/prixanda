@@ -9,8 +9,10 @@ from datetime import UTC, datetime
 import pytest
 
 from commerce.engine.errors import InvalidArgument, NotFound
-from commerce.v1 import changes_pb2, common_pb2, quotes_pb2
-from engine_support import FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, nordflur, scheduled, student_autumn
+from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, quotes_pb2
+from engine_support import (
+    FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, nordflur, past_validation_by_hand, scheduled, student_autumn,
+)
 
 REFUSAL = common_pb2.RefusalCode
 
@@ -134,3 +136,17 @@ async def test_quote_errors(world):
     with pytest.raises(NotFound):
         await quote(world, plan="student", market="IT", subscriber_id=4_242)
     assert await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="duo", market="DE"), LEAD)
+
+
+async def test_an_offer_that_comes_to_nothing_is_not_on_sale(world):
+    # 99.99% off 5,79 € is 0,00 €. Validation blocks such a version; this one got past it by hand, and went live.
+    change = await past_validation_by_hand(world, student_autumn(
+        prices=[changes_pb2.OfferPrice(market="IT", percent_off_bp=9_999)]), MARKETING)
+    await world.owner.execute("update change set state = 'scheduled' where id = $1", change.id)
+    world.clock.at = datetime(2026, 10, 26, 7, 59, 30, tzinfo=UTC)
+    await world.engine.run_launches()
+    assert await world.owner.fetchval("select state from change where id = $1", change.id) == "active"
+    world.clock.at = datetime(2026, 10, 26, 8, 0, tzinfo=UTC)
+    assert list((await world.call("ListOffers", catalog_pb2.ListOffersRequest(market="IT"), PUBLIC)).offers) == []
+    refused = await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="student", market="IT", offer_id=change.id), PUBLIC)
+    assert refused.refusal.code == REFUSAL.REFUSAL_CODE_QUOTE_EXPIRED and "€0.00" in refused.refusal.reason

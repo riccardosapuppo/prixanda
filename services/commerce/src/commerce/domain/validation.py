@@ -10,7 +10,8 @@ Checks, by the name a finding carries:
   price      the version sells something, at a price below the list price
   floor      an offer price, or a list price, below the market's floor (§5.4)
   conflict   another offer in the same non-combinability group reaches the
-             same people in the same period (§6.1, §10.3)
+             same people in the same period (§6.1, §10.3); for listeners of
+             two different artists, the people in both are counted (§6.4)
   overlap    another price for the same plan and market (§4.1)
   dates      a start in the future, before the end; how long the offer lasts
   time_zone  a local time the clocks skip or repeat (§3.7)
@@ -20,7 +21,10 @@ Checks, by the name a finding carries:
 
 The simulated conditions (§7.3, conditions 3 and 4) use the book's default
 assumptions, never values the author typed: otherwise an author could type
-an optimistic retention and avoid finance's signature.
+an optimistic retention and avoid finance's signature. The horizon covers
+the whole offer, however long it lasts (§6.6), and a campaign that cannot be
+simulated meets both conditions: a missing simulation never reads as a
+condition not met.
 """
 
 from __future__ import annotations
@@ -80,6 +84,10 @@ class Neighbour:
     title: str
     state: str
     content: Content
+    # People in both audiences, counted in the data on the day of the check,
+    # in each market where the clash turns on it (see `needs_count`). A market
+    # missing here was not counted, and that is a clash.
+    shared: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -107,8 +115,15 @@ class Report:
     simulations: Mapping[str, CampaignResult] = field(default_factory=dict)
 
 
+def on_sale(price: Money, list_price: Money) -> bool:
+    """An offer is sold at a price above zero and below the list price in force (§6.1, §6.2):
+    the catalog shows it, a quote gives it, a confirmation takes it, only then."""
+    return price.amount > 0 and price < list_price
+
+
 def resolve_price(price: OfferPrice, list_price: Money) -> Money:
-    """A fixed amount, or the list price less a percentage, rounded half up (§6.1)."""
+    """A fixed amount, or the list price less a percentage, rounded half up (§6.1). A large
+    percentage can come to nothing (99.99% off 5,79 € is 0,00 €): on_sale() says whether it sells."""
     if price.fixed is not None:
         return price.fixed
     if price.percent_off_bp is None:
@@ -122,9 +137,11 @@ SEGMENTS_THAT_MEET = {
 
 
 def audiences_overlap(a: Audience, b: Audience) -> bool:
-    """Whether some person can be in both audiences. A student check or a
-    listening threshold narrows an audience without moving it elsewhere; two
-    listening rules aim at different people only through different artists."""
+    """Whether the definitions let some person be in both audiences. A student
+    check or a listening threshold narrows an audience without moving it
+    elsewhere, and one person can listen to two artists: listening rules never
+    keep two audiences apart. Whether anyone is in both audiences of two
+    different artists' listeners is a question for the data (`needs_count`)."""
     if a.segment is None or b.segment is None:
         return False
     if "anyone" not in (a.segment, b.segment):
@@ -133,9 +150,12 @@ def audiences_overlap(a: Audience, b: Audience) -> bool:
                 return False
         elif frozenset({a.segment, b.segment}) not in SEGMENTS_THAT_MEET:
             return False
-    if a.listening is not None and b.listening is not None and a.listening.artist_id != b.listening.artist_id:
-        return False
     return True
+
+
+def listening_apart(a: Audience, b: Audience) -> bool:
+    """Both audiences ask for listening to an artist, a different one each."""
+    return a.listening is not None and b.listening is not None and a.listening.artist_id != b.listening.artist_id
 
 
 def periods_overlap(a: OfferPeriod, b: OfferPeriod) -> bool:
@@ -145,6 +165,52 @@ def periods_overlap(a: OfferPeriod, b: OfferPeriod) -> bool:
     a_before_b_ends = b.ends is None or a.starts < b.ends
     b_before_a_ends = a.ends is None or b.starts < a.ends
     return a_before_b_ends and b_before_a_ends
+
+
+def _may_clash(offer: Offer, other: Offer, market: str) -> bool:
+    """One group, one market, periods that overlap, audiences whose definitions can hold one person."""
+    mine, theirs = offer.period_in(market), other.period_in(market)
+    return (mine is not None and theirs is not None and bool(offer.group) and offer.group == other.group
+            and audiences_overlap(offer.audience, other.audience) and periods_overlap(mine, theirs))
+
+
+def needs_count(offer: Offer, other: Offer, market: str) -> bool:
+    """Whether a clash in this market turns on how many people are in both
+    audiences: all else says the offers clash, and both audiences are
+    listeners of different artists, so only the data can say if anyone is in
+    both. The engine counts them for these markets, and only these."""
+    return listening_apart(offer.audience, other.audience) and _may_clash(offer, other, market)
+
+
+def clashes(offer: Offer, other: Offer, market: str, shared: int | None = None) -> bool:
+    """Whether two offers of one non-combinability group reach the same people
+    in the same period of one market: they never stack (§6.1, §10.3), so only
+    one of them may go live. Validation, scheduling and activation all ask.
+
+    When the clash turns on a count (`needs_count`), `shared` is how many people
+    the data holds in both audiences on the day of the check: more than zero is
+    a clash, and so is a count that could not be made (None) (§6.4)."""
+    if not _may_clash(offer, other, market):
+        return False
+    return not listening_apart(offer.audience, other.audience) or shared is None or shared > 0
+
+
+def people(count: int) -> str:
+    return f"{count:,} person" if count == 1 else f"{count:,} people"
+
+
+def clash_words(market_name: str, title: str, change_id: int, state: str, group: str | None, *,
+                counted: bool = False, shared: int | None = None) -> str:
+    """Why the two offers clash. `counted` says the clash turned on the people
+    counted in both audiences, `shared` how many they were (None: not counted)."""
+    other = f"{title} (#{change_id}, {state.replace('_', ' ')})"
+    if not counted:
+        return f"{market_name}: {other} reaches the same people in the same period, in the same group {group}: they never stack."
+    if shared is None:
+        found = "who is in both audiences could not be counted, which counts as a clash"
+    else:
+        found = f"{people(shared)} {'is' if shared == 1 else 'are'} in both audiences today"
+    return f"{market_name}: {other} runs in the same period, in the same group {group}, and {found}: they never stack."
 
 
 class _Findings:
@@ -215,6 +281,9 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
 
     below_floor: list[str] = []
     simulations: dict[str, CampaignResult] = {}
+    # Why a market could not be simulated; a simulation that is missing never reads as a condition not met.
+    unsimulated: list[str] = [] if offer.prices else ["no market is priced"]
+    horizon = book.horizon_for(max(offer.months_at_offer_price, 1))
     per_market: dict[str, dict[str, object]] = {}
     clauses: list[str] = []
     eligible_total = 0
@@ -230,7 +299,12 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
                 found.add("price", BLOCKING, code, f"{market.name}: no list price of {plan.name} is in force at the start.")
         else:
             offer_price = resolve_price(price, market.list_price)
-            if offer_price >= market.list_price:
+            if offer_price.amount <= 0:
+                found.add("price", BLOCKING, code,
+                          f"{market.name}: the offer comes to {format_money(offer_price)} off the list price in force, "
+                          f"{format_money(market.list_price)}: an offer has a price above zero.",
+                          offer_price=offer_price.amount, list_price=market.list_price.amount)
+            elif offer_price >= market.list_price:
                 found.add("price", BLOCKING, code,
                           f"{market.name}: an offer costs less than the list price in force, {format_money(market.list_price)}.",
                           offer_price=offer_price.amount, list_price=market.list_price.amount)
@@ -259,23 +333,29 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
         for other in ctx.neighbours:
             if not isinstance(other.content, Offer) or other.state not in PENDING_OR_LIVE:
                 continue
-            theirs = other.content.period_in(code)
-            if (period is not None and theirs is not None and offer.group and other.content.group == offer.group
-                    and audiences_overlap(audience, other.content.audience) and periods_overlap(period, theirs)):
+            counted = needs_count(offer, other.content, code)
+            shared = other.shared.get(code) if counted else None
+            if clashes(offer, other.content, code, shared):
                 conflicts.append(f"{other.title} (#{other.change_id})")
                 found.add("conflict", BLOCKING, code,
-                          f"{market.name}: {other.title} (#{other.change_id}, {other.state.replace('_', ' ')}) reaches "
-                          f"the same people in the same period, in the same group {offer.group}: they never stack.",
-                          change=other.change_id)
+                          clash_words(market.name, other.title, other.change_id, other.state, offer.group,
+                                      counted=counted, shared=shared),
+                          change=other.change_id, **({} if shared is None else {"shared": shared}))
 
-        simulation = None
-        if (plan is not None and market.list_price is not None and offer_price is not None
-                and offer_price < market.list_price and offer.months_at_offer_price >= 1
-                and book.horizon_months >= offer.months_at_offer_price):
-            simulation = simulate(Campaign(terms, market.list_price.amount, offer_price.amount, offer.months_at_offer_price,
-                                           book.horizon_months, market.eligible, book.take_up_bp, book.incremental_bp,
-                                           book.retention_bp))
-            simulations[code] = simulation
+        if plan is None:
+            unsimulated.append("no plan chosen")
+        elif market.list_price is None:
+            unsimulated.append(f"{market.name}: no list price in force")
+        elif offer_price is None or offer_price >= market.list_price:
+            unsimulated.append(f"{market.name}: the offer price is not below the list price")
+        elif offer_price.amount <= 0:
+            unsimulated.append(f"{market.name}: the offer comes to {format_money(offer_price)}")
+        elif offer.months_at_offer_price < 1:
+            unsimulated.append("no months at the offer price")
+        else:
+            simulations[code] = simulate(Campaign(
+                terms, market.list_price.amount, offer_price.amount, offer.months_at_offer_price, horizon,
+                market.eligible, book.take_up_bp, book.incremental_bp, book.retention_bp))
         per_market[code] = {
             "eligible": market.eligible,
             "list_price": None if market.list_price is None else market.list_price.amount,
@@ -301,7 +381,8 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
             contribution += rate.to_base(Money(result.contribution, currency))
     no_takers = [ctx.markets[code].name for code, result in simulations.items() if result.takers == 0]
     conditions = finance_conditions(book, sets_list_price=False, below_floor=below_floor, discount_and_top_up=cost,
-                                    contribution=contribution, horizon_months=book.horizon_months, no_takers=no_takers)
+                                    contribution=contribution, horizon_months=horizon, no_takers=no_takers,
+                                    unsimulated=list(dict.fromkeys(unsimulated)))
     signatures = signatures_needed(conditions)
     _signature_finding(found, signatures)
     sentence = " ".join(clauses) if clauses else f"{offer.title}: not priced in any market yet."

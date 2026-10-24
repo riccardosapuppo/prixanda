@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# ISO 4217 minor units of the currencies the engine can write. Encore sells
+# ISO 4217 minor units of the currencies the engine can write. The music service sells
 # in euros and pounds; the yen is here because the engine is also tested on
 # a currency without decimals, so that nothing assumes two (§3.4).
 MINOR_UNITS: dict[str, int] = {"EUR": 2, "GBP": 2, "JPY": 0}
@@ -20,7 +20,7 @@ SYMBOLS: dict[str, str] = {"EUR": "€", "GBP": "£", "JPY": "¥"}
 # Shares and rates are integers in basis points: 2200 is 22%.
 BASIS_POINTS = 10_000
 
-# Box Office writes a negative amount with a real minus sign.
+# The console writes a negative amount with a real minus sign.
 MINUS = "−"
 
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
@@ -100,7 +100,7 @@ class Money:
 
 
 def format_money(money: Money) -> str:
-    """The way Box Office writes every amount (en-GB): €5.79, £9.49, −€1,877.51, ¥1,000."""
+    """The way the console writes every amount (en-GB): €5.79, £9.49, −€1,877.51, ¥1,000."""
     if money.currency not in MINOR_UNITS:
         raise ValueError(f"the engine does not know how many minor units {money.currency} has")
     digits = MINOR_UNITS[money.currency]

@@ -173,6 +173,8 @@ const state = {
   fingerprints: [] as string[],
   requestIds: {} as Record<string, string>,
   activationMs: Number.NaN,
+  /** The engine's launch that published the pass, as its log names it: launch-12. */
+  launchRun: "",
   auditEvents: 0,
   /** What the student of step h pays, as the engine confirmed it and the log has it. */
   subscription: null as null | { price: string; months: number; fullPrice: string; fullPriceFrom: string; payment: string; logged: boolean },
@@ -328,8 +330,14 @@ describe("the Student Autumn Pass through the engine and the gateway (§14.1)", 
     state.activationMs = Math.round(performance.now() - moved);
     const active = await people.marketing.graphql(`{ change(id: "${state.changeId}") { state } }`);
     assert.equal(active.body.data.change.state, "ACTIVE");
-    assert.ok(engine.log.some((entry) => entry["event"] === "activation" && entry["action"] === "activated" && String(entry["change"]) === state.changeId),
-      "the engine's log says it activated the change");
+    // The engine's log says so: its launch (stage 6) did the publish step for this change. The line is
+    // written when the engine's pass ends, a moment after the catalog went live.
+    const published = () => engine?.log.find((entry) => entry["event"] === "launch_step_done" && entry["step"] === "publish"
+      && String(entry["change"]) === state.changeId);
+    const logged = performance.now();
+    while (published() === undefined && performance.now() - logged < 5_000) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(published(), "the engine's log says its launch published the change");
+    state.launchRun = String(published()?.["run"] ?? "");
   });
 
   test("e. the site: the pass in Italy at €2.99 with €5.79 struck through, and a quote of €2.99 for 3 months, then €5.79", async () => {
@@ -344,11 +352,9 @@ describe("the Student Autumn Pass through the engine and the gateway (§14.1)", 
       { plan: "student", title: "Student Autumn Pass", price: { amountMinor: "299", currency: "EUR" }, listPrice: { amountMinor: "579", currency: "EUR" }, months: 3, student: true, until: { local: "2026-11-30T00:00", utc: "2026-11-29T23:00:00Z" } },
     );
     assert.equal(offer.audience, "Verified students in Italy who have never had a paid plan");
-    // Where the price goes (§1.2, §5). The engine of stage 5 sends no breakdown with its offers, and the site reads null;
-    // from stage 6, the §14.1 numbers: of the artists' €3.00, €1.47 from the subscriber and €1.53 from the service.
-    if (offer.breakdown !== null) {
-      assert.deepEqual(offer.breakdown, { price: EUR("299"), net: EUR("245"), artists: EUR("300"), topUp: EUR("153") });
-    }
+    // Where the price goes (§1.2, §5), the §14.1 numbers: of the artists' €3.00, €1.47 comes from the subscriber
+    // and €1.53 from the music service. (An engine before stage 6 sent no breakdown, and the site read null.)
+    assert.deepEqual(offer.breakdown, { price: EUR("299"), net: EUR("245"), artists: EUR("300"), topUp: EUR("153") });
     const catalog = await site.graphql(`{ markets { code vatBasisPoints artistsMinimum } plans(market: "IT") { code ${breakdown} } }`);
     assert.equal(catalog.body.errors, undefined, catalog.text);
     assert.deepEqual(catalog.body.data.markets.find((market: { code: string }) => market.code === "IT"), { code: "IT", vatBasisPoints: 2200, artistsMinimum: EUR("300") });
@@ -382,9 +388,11 @@ describe("the Student Autumn Pass through the engine and the gateway (§14.1)", 
       const step = sent[event.action];
       if (step) assert.equal(event.requestId, state.requestIds[step], `${event.action} carries the console's request id`);
     }
+    // The activation is the engine's own job: its launch's run identifier stands for a request id.
     const activation = events.at(-1);
     assert.deepEqual({ actor: activation?.actor, role: activation?.actorRole }, { actor: "activation", role: "SYSTEM" });
-    assert.match(activation?.requestId ?? "", /^activation-/);
+    assert.match(activation?.requestId ?? "", /^launch-\d+$/);
+    assert.equal(activation?.requestId, state.launchRun, "the run the engine's log named");
     const actors = events.slice(0, -1).map((event) => `${event.actor} ${event.actorRole}`);
     assert.deepEqual(actors, ["marketing-1 MARKETING", "marketing-1 MARKETING", "marketing-1 MARKETING", "marketing-1 MARKETING", "finance-1 FINANCE", "marketing-1 MARKETING"]);
     state.auditEvents = events.length;
@@ -443,11 +451,11 @@ describe("the Student Autumn Pass through the engine and the gateway (§14.1)", 
     const account = await site.graphql(`{ me { id account { subscription { ${SUBSCRIPTION} } studentVerification { valid } } } }`);
     assert.deepEqual(account.body.data.me, { id: student.id, account: { subscription: confirmation.subscription, studentVerification: { valid: true } } });
 
-    // The first month's payment. An engine that charges after the confirmation
-    // (stage 6) answers it PENDING and its provider settles it shortly after,
-    // so the site reads the account again; the engine of stage 5 charged at
-    // the confirmation, and the gateway reads its receipt as a payment that
-    // succeeded then.
+    // The first month's payment: asked of the provider after the confirmation,
+    // through the engine's outbox (stage 6), so it comes back PENDING; the
+    // provider's event settles it shortly after, and the site reads the account
+    // again until it does.
+    assert.deepEqual({ state: confirmation.payment.state, receipt: confirmation.payment.receipt }, { state: "PENDING", receipt: null });
     let payment = confirmation.payment;
     const asked = performance.now();
     while (payment?.state === "PENDING") {

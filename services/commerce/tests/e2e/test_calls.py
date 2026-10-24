@@ -11,11 +11,12 @@ import grpc
 
 from commerce.engine.engine import METHODS
 from commerce.v1 import (
-    audit_pb2, catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2,
+    audit_pb2, catalog_pb2, changes_pb2, common_pb2, launches_pb2, overview_pb2, quotes_pb2, simulation_pb2,
+    subscriptions_pb2,
 )
 from engine_support import (
-    AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, approved, create, fingerprint, scheduled, student_autumn, submitted,
-    validated,
+    AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, approved, create, family_rise, fingerprint, scheduled,
+    student_autumn, submitted, validated,
 )
 from wire_support import SEEN, wire  # noqa: F401  (the fixture)
 
@@ -219,7 +220,7 @@ async def test_subscriber_calls(wire):
     confirm = subscriptions_pb2.ConfirmQuoteRequest
     done = await wire.call("ConfirmQuote", confirm(quote_id=quote.quote_id, subscriber_id=401), PUBLIC,
                            request_id="site-confirm-0401")
-    assert done.code is OK and done.response.confirmation.receipt.demonstration
+    assert done.code is OK and done.response.confirmation.payment.state == subscriptions_pb2.PAYMENT_STATE_PENDING
     assert done.response.confirmation.subscription.price.amount_minor == 1_099
     [event] = await wire.world.events("subscription.confirmed")
     assert (event["request_id"], event["actor"], event["actor_role"]) == ("site-confirm-0401", "subscriber-401", "subscriber")
@@ -232,10 +233,55 @@ async def test_subscriber_calls(wire):
     malformed = await wire.call("ConfirmQuote", confirm(quote_id="nonsense", subscriber_id=401), PUBLIC)
     assert malformed.code is CODE.INVALID_ARGUMENT
 
+    await wire.world.engine.deliver_outbox()  # the server's jobs would, right after the confirmation
     account = await wire.call("GetAccount", subscriptions_pb2.GetAccountRequest(subscriber_id=401), PUBLIC)
     assert account.code is OK and account.response.account.subscription == done.response.confirmation.subscription
+    assert account.response.account.payment.receipt.demonstration
+    [settled] = await wire.world.events("payment.succeeded")
+    assert settled["request_id"] == "site-confirm-0401"
     nobody = await wire.call("GetAccount", subscriptions_pb2.GetAccountRequest(subscriber_id=9_999), PUBLIC)
     assert nobody.code is CODE.NOT_FOUND
+
+
+async def test_launch_service_calls(wire):
+    world = wire.world
+    change = await scheduled(world, family_rise(), LEAD, FINANCE)
+    # A later price slipped into the price list by hand: the launch is refused at its check.
+    await world.owner.execute("update list_price set valid = tsrange(lower(valid), '2026-12-15') "
+                              "where plan_id = 'family' and market = 'DE'")
+    await world.owner.execute("insert into list_price (plan_id, market, currency, amount_minor, valid) "
+                              "values ('family', 'DE', 'EUR', 1949, tsrange('2026-12-15', null))")
+    world.clock.at = datetime(2026, 11, 30, 23, 0, tzinfo=UTC)
+    await world.engine.run_launches()
+    state = launches_pb2.LaunchState
+    listed = await wire.call("ListLaunches", launches_pb2.ListLaunchesRequest(), AUDITOR)
+    assert listed.code is OK
+    assert [(l.change_id, l.state, l.run) for l in listed.response.launches] == [
+        (change.id, state.LAUNCH_STATE_REFUSED, f"launch-{listed.response.launches[0].launch_id}")]
+    launch_id = listed.response.launches[0].launch_id
+    bad_page = launches_pb2.ListLaunchesRequest(page=common_pb2.PageRequest(after="x"))
+    assert (await wire.call("ListLaunches", bad_page, AUDITOR)).code is CODE.INVALID_ARGUMENT
+
+    got = await wire.call("GetLaunch", launches_pb2.GetLaunchRequest(launch_id=launch_id), MARKETING)
+    assert got.code is OK and [s.name for s in got.response.launch.steps] == ["check", "prepare", "publish", "notify", "verify"]
+    assert [i.kind for i in got.response.launch.incidents] == ["refused"]
+    assert (await wire.call("GetLaunch", launches_pb2.GetLaunchRequest(launch_id=999), MARKETING)).code is CODE.NOT_FOUND
+
+    retry = launches_pb2.RetryLaunchRequest
+    assert refused(await wire.call("RetryLaunch", retry(launch_id=launch_id), MARKETING), REFUSAL.REFUSAL_CODE_ROLE_NOT_ALLOWED)
+    assert (await wire.call("RetryLaunch", retry(launch_id=999), ON_CALL)).code is CODE.NOT_FOUND
+    retried = await wire.call("RetryLaunch", retry(launch_id=launch_id, reason="Checking the later price again."), ON_CALL)
+    assert retried.code is OK and retried.response.launch.state == state.LAUNCH_STATE_RUNNING
+    await world.engine.run_launches()  # the later price is still there: refused again
+
+    cancel = launches_pb2.CancelLaunchRequest
+    assert refused(await wire.call("CancelLaunch", cancel(launch_id=launch_id, reason=""), ON_CALL),
+                   REFUSAL.REFUSAL_CODE_REASON_REQUIRED)
+    assert (await wire.call("CancelLaunch", cancel(launch_id=999, reason="x"), ON_CALL)).code is CODE.NOT_FOUND
+    cancelled = await wire.call("CancelLaunch", cancel(launch_id=launch_id, reason="The price list needs a fix first."),
+                                ON_CALL)
+    assert cancelled.code is OK and cancelled.response.launch.state == state.LAUNCH_STATE_CANCELLED
+    assert await world.owner.fetchval("select state from change where id = $1", change.id) == "cancelled"
 
 
 def test_every_call_of_the_contract_was_seen_answering_refusing_and_failing():
@@ -250,5 +296,5 @@ def test_every_call_of_the_contract_was_seen_answering_refusing_and_failing():
             gaps.append(f"{method.name}: never seen {', '.join(sorted(missing))}")
         if not seen - {"answer", "refusal"}:
             gaps.append(f"{method.name}: never seen failing with a status code")
-    assert len(METHODS) == 27
+    assert len(METHODS) == 31
     assert not gaps, gaps

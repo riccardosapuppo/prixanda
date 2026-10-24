@@ -3,9 +3,10 @@
 A transaction holds one connection of the pool until it ends. A statement
 PostgreSQL refuses becomes DatabaseError with its SQLSTATE and constraint; a
 database that cannot be reached, or that stops answering, becomes
-DatabaseUnavailable. The pool sets a statement timeout and an idle-in-
-transaction timeout on every connection, so that no call can hold the
-database for ever.
+DatabaseUnavailable, and so does a connection closed under the engine (a
+server that restarted, a connection cut). The pool sets a statement timeout
+and an idle-in-transaction timeout on every connection, so that no call can
+hold the database for ever.
 """
 
 from __future__ import annotations
@@ -23,6 +24,12 @@ from commerce.engine.database import DatabaseError, DatabaseUnavailable, Row
 # (57P01 to 57P03), too many connections (53300) and a statement cancelled by
 # the timeout (57014): the database is not there to answer.
 _UNAVAILABLE_STATES = ("57P01", "57P02", "57P03", "53300", "57014")
+_WHY = {
+    "08003": "the connection to the database was lost", "08006": "the connection to the database was lost",
+    "57P01": "the database ended the connection", "57P02": "the database ended the connection",
+    "57P03": "the database is starting or stopping", "53300": "the database has no connection to spare",
+    "57014": "a statement took too long and was cancelled",
+}
 ISOLATION = {"read_committed": "read_committed", "repeatable_read": "repeatable_read", "serializable": "serializable"}
 
 
@@ -30,11 +37,23 @@ def translate(error: BaseException) -> Exception:
     if isinstance(error, asyncpg.PostgresError):
         state = error.sqlstate or ""
         if state.startswith("08") or state in _UNAVAILABLE_STATES:
-            return DatabaseUnavailable(f"the database is not answering ({state})")
+            return DatabaseUnavailable(f"{_WHY.get(state, 'the database is not answering')} ({state})")
         return DatabaseError(state, str(error), getattr(error, "constraint_name", None))
     if isinstance(error, (OSError, asyncio.TimeoutError)):
         return DatabaseUnavailable(f"the database cannot be reached ({type(error).__name__})")
+    if isinstance(error, asyncpg.InterfaceError) and "closed" in str(error):
+        return DatabaseUnavailable("the connection to the database was closed")
     return error  # anything else is a bug, and stays what it is
+
+
+_FAULTS = (asyncpg.PostgresError, asyncpg.InterfaceError, OSError, asyncio.TimeoutError)
+
+
+def _raise(error: BaseException) -> None:
+    translated = translate(error)
+    if translated is error:
+        raise error
+    raise translated from error
 
 
 class _Connection:
@@ -44,8 +63,8 @@ class _Connection:
     async def _run(self, method: str, sql: str, args: tuple) -> Any:
         try:
             return await getattr(self._connection, method)(sql, *args)
-        except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as error:
-            raise translate(error) from error
+        except _FAULTS as error:
+            _raise(error)
 
     async def fetch(self, sql: str, *args: Any) -> list[Row]:
         return [dict(row) for row in await self._run("fetch", sql, args)]
@@ -65,21 +84,21 @@ class _Connection:
         nested = self._connection.transaction()
         try:
             await nested.start()
-        except (asyncpg.PostgresError, OSError) as error:
-            raise translate(error) from error
+        except _FAULTS as error:
+            _raise(error)
         try:
             yield
         except BaseException:
             try:
                 await nested.rollback()
-            except (asyncpg.PostgresError, OSError) as error:
-                raise translate(error) from error
+            except _FAULTS as error:
+                _raise(error)
             raise
         else:
             try:
                 await nested.commit()
-            except (asyncpg.PostgresError, OSError) as error:
-                raise translate(error) from error
+            except _FAULTS as error:
+                _raise(error)
 
 
 class AsyncpgDatabase:
@@ -109,27 +128,27 @@ class AsyncpgDatabase:
     async def transaction(self, *, readonly: bool = False, isolation: str = "read_committed") -> AsyncIterator[_Connection]:
         try:
             connection = await self._pool.acquire(timeout=self._acquire_timeout)
-        except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as error:
-            raise translate(error) from error
+        except _FAULTS as error:
+            _raise(error)
         try:
             transaction = connection.transaction(isolation=ISOLATION[isolation], readonly=readonly)
             try:
                 await transaction.start()
-            except (asyncpg.PostgresError, OSError) as error:
-                raise translate(error) from error
+            except _FAULTS as error:
+                _raise(error)
             try:
                 yield _Connection(connection)
             except BaseException:
                 try:
                     await transaction.rollback()
-                except (asyncpg.PostgresError, OSError, asyncpg.InterfaceError):
+                except _FAULTS:
                     pass  # the error that brought us here is the one worth reporting
                 raise
             else:
                 try:
                     await transaction.commit()
-                except (asyncpg.PostgresError, OSError) as error:
-                    raise translate(error) from error
+                except _FAULTS as error:
+                    _raise(error)
         finally:
             await self._pool.release(connection)
 

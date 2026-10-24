@@ -1,4 +1,4 @@
-// What Encore sells: markets, plans and what they include, the price list,
+// What the music service sells: markets, plans and what they include, the price list,
 // and the offers in force that the site may show (business book §2 to §5).
 syntax = "proto3";
 
@@ -53,7 +53,7 @@ message PriceBreakdown {
   Money net = 3;
   // The pool share of the net amount, never less than the minimum.
   Money artists = 4;
-  // The part of `artists` that Encore adds from its margin to reach the minimum.
+  // The part of `artists` that the music service adds from its margin to reach the minimum.
   Money top_up = 5;
   Money payment_costs = 6;
   Money encore_keeps = 7;
@@ -91,7 +91,7 @@ message PriceListEntry {
   int64 change_id = 7 [jstype = JS_STRING];
   // Below the market's floor: allowed only as a standing exception approved by finance (§5.5).
   bool below_floor = 8;
-  // What the minimum costs Encore per subscription per month at this price.
+  // What the minimum costs the music service per subscription per month at this price.
   Money top_up = 9;
 }
 

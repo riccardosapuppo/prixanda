@@ -1,9 +1,9 @@
-# The Encore business book
+# The Rione business book
 
-Box Office is a subscription and pricing operations platform: it decides what
+Plancia is a subscription and pricing operations platform: it decides what
 a subscription business sells, to whom, at what price, from when, and with
 whose sign-off, and publishes those decisions safely. This book describes the
-business the platform is explored through. Encore is a subscription music
+business the platform is explored through. Rione is a subscription music
 service for independent music, and it is fictional: the company, its people,
 artists, releases, subscribers and numbers are invented, and every figure
 the product shows comes from a deterministic data generator. The rules the
@@ -11,18 +11,18 @@ book states are the ones the platform really applies: they are what the code
 and the tests are measured against.
 
 Three things are kept apart throughout: what a law requires, with its source,
-territory and date; what Encore, a fictional company, decides as a commercial
+territory and date; what Rione, a fictional company, decides as a commercial
 policy; and what the browser sandbox simplifies. A rule of the first kind is
 never presented as general legal compliance.
 
 Every feature of the product points to a paragraph of this book (written as
 § and a number). A feature that answers no paragraph is not built.
 
-*Encore and Box Office are working names, pending the owner's decision.*
+*Rione and Plancia are provisional names: the definitive ones are chosen and verified before publication.*
 
-## 1. What Encore is
+## 1. What Rione is
 
-§1.1 **The service.** Encore streams music from independent labels and
+§1.1 **The service.** Rione streams music from independent labels and
 self-released artists in four markets: Italy, France, Germany and the United
 Kingdom. Next to the music it publishes editorial work: release notes, short
 stories about the people behind a record, and curated listening sessions.
@@ -30,12 +30,12 @@ The product in this repository does not play audio: it covers how the
 service is sold and governed.
 
 §1.2 **The promise to artists.** For every paying subscription, every month,
-Encore pays into the artists' pool at least a guaranteed minimum (§5.3),
+Rione pays into the artists' pool at least a guaranteed minimum (§5.3),
 whatever discount the subscriber is on. This promise is the reason every
 price has a floor, and the reason a promotion below that floor needs
 finance's signature (§7.3).
 
-§1.3 **Who uses Box Office.** Six roles (§12) run Encore's commercial side.
+§1.3 **Who uses Plancia.** Six roles (§12) run Rione's commercial side.
 They need to launch offers quickly without breaking three things: revenue,
 the trust of subscribers (no surprise charges, no unclear price rises), and
 the promise to artists.
@@ -73,7 +73,7 @@ in the United Kingdom, Consumer Contracts Regulations 2013, Schedule 2). For
 electronically supplied services sold to consumers, VAT is due in the
 customer's country (VAT Directive 2006/112/EC, art. 58(1)(c) and Annex II,
 which lists the supply of music; United Kingdom: VAT Act 1994, Schedule 4A,
-para. 15). Encore assumes the customer-country rule always applies; the
+para. 15). Rione assumes the customer-country rule always applies; the
 exception of art. 59c of the Directive (a supplier established in a single
 EU Member State with cross-border sales up to EUR 10,000 a year) is not
 modelled.
@@ -93,7 +93,7 @@ Kingdom presents its Budget on 28 October 2026.
 currency's minor unit (cents, pence), stored with its currency. Divisions
 round half up to the minor unit, and the rule is written in one place. The
 engine is also tested on a currency without decimals (Japanese yen), which
-Encore does not sell in, so that nothing assumes two decimals.
+Rione does not sell in, so that nothing assumes two decimals.
 
 §3.5 **Net of VAT.** For a price `P` including VAT and a rate `v` in basis
 points (2200 is 22%), the net amount is
@@ -108,7 +108,7 @@ amounts are converted at a declared rate stored with each report. The
 reference rate used in this book and in the generated data is the ECB euro
 foreign exchange reference rate of 23 October 2026: 1 EUR = 0.83728 GBP
 (1 GBP is about 1.194344 EUR). The ECB publishes these rates for information
-purposes only; using it is a reporting choice of Encore, not a legal
+purposes only; using it is a reporting choice of Rione, not a legal
 requirement. Example: £9.49 is reported as €11.33.
 
 §3.7 **Local time.** Anything scheduled for a market (an offer starting, a
@@ -147,23 +147,35 @@ subscribe.
 §4.5 **The price is always the engine's.** A browser never sends a price.
 The site asks the engine for a quote (plan, market, offer), shows it, and
 confirms the quote by its identifier; the engine charges what it quoted. A
-quote expires; a quote for an offer that ended is refused.
+quote expires; a quote for an offer that ended is refused. The engine
+decides a confirmation at the moment it holds what it decides on: the quote
+must not have expired by then, and the offer must still be active and cost
+less than the list price in force at that moment.
+
+The subscription starts when the quote is confirmed, and its first month is
+charged after the confirmation is recorded, never inside it: the payment
+provider is asked through the outbox (§7.5), and its answers settle the
+payment. Each answer counts once, however often and in whatever order it
+arrives; the receipt is issued when the payment succeeds. If the provider
+declines the charge, the paid subscription ends at the end of that day and
+the listener is back on the free plan the next day. The provider is
+simulated and accepts every charge (§15).
 
 ## 5. The artists' economics
 
 §5.1 **Net revenue.** Revenue is counted net of VAT (§3.5), per paying
 subscription and per month.
 
-§5.2 **The artists' pool.** Encore pays rights holders a share `s` of net
+§5.2 **The artists' pool.** Rione pays rights holders a share `s` of net
 subscription revenue. In this book and in the generated data `s` is 60%
-(an assumption, editable in Box Office's settings):
+(an assumption, editable in Plancia's settings):
 
     pool(N) = round_half_up(N × s)
 
 §5.3 **The guaranteed minimum.** For every paying subscription, every month,
 the artists' pool receives at least `G`: €3.00 in the euro markets and £2.60
 in the United Kingdom. When the share of a subscription's net revenue is
-below `G`, Encore tops it up from its own margin:
+below `G`, Rione tops it up from its own margin:
 
     top_up(N) = max(0, G − pool(N))
     owed_to_artists(N) = pool(N) + top_up(N) = max(pool(N), G)
@@ -183,9 +195,9 @@ the formulas above, so rounding is included:
 | United Kingdom | £5.19 |
 
 §5.5 **A standing exception.** The Italian Student price (€5.79) is below
-the Italian floor. Its net amount is €4.75, its pool €2.85, so Encore adds
+the Italian floor. Its net amount is €4.75, its pool €2.85, so Rione adds
 €0.15 per Student subscription per month. This was a deliberate acquisition
-choice, approved by finance as a standing exception; Box Office shows its
+choice, approved by finance as a standing exception; Plancia shows its
 running cost on the price list.
 
 §5.6 **Payment costs.** Collecting money costs a share `f` of gross receipts
@@ -235,6 +247,22 @@ validation, which checks:
 - that every market has its page text;
 - and which signatures the version needs (§7.3).
 
+Two offers conflict when they are in the same non-combinability group, sold
+in the same market in periods that overlap, to audiences that can hold the
+same person. The definitions answer that last question (people who never
+paid and Free listeners can be the same people; subscribers of two different
+plans cannot; a student check or a listening threshold only narrows an
+audience), except when both audiences ask for listening to an artist, a
+different one each. The same person can listen to both, so the engine counts
+in the data how many people are in both audiences, in that market, on the
+day of the check. More than zero is a conflict, and the number is in the
+validation's report and in the refusal; a count that cannot be made is a
+conflict too. Scheduling and activation check the conflict again, and count
+again. Someone who comes to be in both audiences once both campaigns are
+live is still protected one by one: a subscriber holds at most one offer of
+a group, and confirming a quote for a second one is refused with
+NOT_COMBINABLE (§10.3).
+
 §6.5 **The difference, in business words.** Before anyone approves, Box
 Office states the change as a sentence, in this shape: "Italy, Student: from
 €5.79 to €2.99 for 3 months, new subscribers only; N eligible; conflicts:
@@ -242,9 +270,11 @@ none." N, the number of eligible people, is counted in the data when the
 sentence is written, never typed by the author.
 
 §6.6 **The simulation of a campaign.** A campaign is compared with not
-running it, over a horizon of `H` months. The assumptions are visible and
-editable, and each one carries its source (a default from this book, or a
-value someone typed, with their role and the time):
+running it, over a horizon of `H` months. An offer that lasts longer than
+`H` months is simulated over its own months and then `H` months after them,
+so that the simulation always covers the whole offer. The assumptions are
+visible and editable, and each one carries its source (a default from this
+book, or a value someone typed, with their role and the time):
 
 - `E`: the eligible audience (from the data);
 - `u`: take-up, the share of `E` that takes the offer;
@@ -272,7 +302,7 @@ With `T = round(E × u)` takers, `R = round(T × r)` stayers and
 It also reports two costs that finance asks about by name:
 
     discount_cost = C × d × (N(P_l) − N(P_o))     revenue given up on people who would have paid
-    top_up_cost   = T × d × top_up(N(P_o))        what the artists' minimum costs Encore
+    top_up_cost   = T × d × top_up(N(P_o))        what the artists' minimum costs Rione
 
 The simulation states its assumptions next to its results. It does not
 learn anything from data and makes no forecast beyond these formulas.
@@ -324,7 +354,10 @@ round to zero (an audience too small for the assumptions: 1 eligible person
 at 12% take-up is 0 takers). The simulation then shows no effect either way,
 not even a loss, and an effect that cannot be shown is finance's to sign;
 the author writes why, as for a negative contribution. This is a prudent
-choice of this book, not a rule from elsewhere.
+choice of this book, not a rule from elsewhere. For the same reason, when a
+campaign cannot be simulated at all (no list price in force to compare
+with, for example), conditions 3 and 4 both count as met: a simulation that
+is missing never reads as a condition not met.
 
 Otherwise the commercial lead or finance may approve.
 
@@ -332,7 +365,7 @@ Otherwise the commercial lead or finance may approve.
 and one person cannot give two of the signatures a version needs. These
 rules are enforced by the engine and again by the database, so a bug in one
 layer does not open the door. Identities come from the server's session,
-never from a field in a request. Box Office is designed around SOX-style
+never from a field in a request. Plancia is designed around SOX-style
 separation of duties and auditable approval controls; it is not certified
 against any standard.
 
@@ -342,12 +375,28 @@ single transaction, so the site shows an offer if and only if its prices are
 in force. If activation fails halfway, nothing half-done is visible, and the
 job resumes from where it stopped.
 
+The job is a launch of five steps, each recorded with its times, attempts
+and errors: check that the change is still the approved version and that
+nothing stands in its way (a clash, §6.4, or a later price, §4.1); prepare
+the new catalog; publish it, in the one transaction that also makes the
+change active; tell the site, through an outbox that delivers the notice at
+least once to a site that takes it once; and verify what the site now
+shows. A step that fails is tried again after 5, 15, 45 and 135 seconds, and
+a step that is done is never done again, so a launch publishes once however
+often it resumes. After five failures in a row the launch fails; a check
+that finds a clash or a later price refuses it at once. A failed or refused
+launch opens an incident, and so does a scheduled change that is not live
+five minutes after its start; the console's home counts them among today's
+incidents. The on-call engineer retries the launch or cancels it, with the
+change (§12); what to do, step by step, is in the runbook
+(docs/runbook.md).
+
 ## 8. Price changes for existing subscribers
 
-§8.1 **Two separate questions.** For each market Box Office keeps a policy
+§8.1 **Two separate questions.** For each market Plancia keeps a policy
 with two parts that are never mixed: what the law requires before an
 existing subscriber pays more (the legal basis, with its source), and what
-Encore decides to do when a subscriber does not accept (a commercial choice,
+Rione decides to do when a subscriber does not accept (a commercial choice,
 configurable).
 
 §8.2 **Germany.** In two judgments of 15 November 2023, the Kammergericht
@@ -365,12 +414,12 @@ the Bundesgerichtshof also held a subscription's price-change terms invalid
 because they did not make clear what rights the customer had when the price
 rose.
 
-Encore therefore asks existing subscribers in Germany for their active
+Rione therefore asks existing subscribers in Germany for their active
 consent before a price increase applies, and the request states plainly
 what happens if they do not consent. Silence is never taken as consent.
 What happens next is a commercial decision, configured per market, not a
 legal consequence: the court noted that, without consent, the provider is
-free to end the contract. Encore's current choice is to move the account to
+free to end the contract. Rione's current choice is to move the account to
 the Free plan at the consent deadline, keeping playlists and library; ending
 the paid subscription at the end of the billing period, or keeping the old
 price until a stated date, are the other options.
@@ -382,7 +431,7 @@ reason stated in the contract, and a term letting the trader raise the price
 without the consumer being able to withdraw when the final price is
 excessively high compared with the agreed one. The Code's exception allowing
 changes to indefinite-duration contracts with notice and a right to withdraw
-(art. 33(3)) covers financial services only. Encore therefore states in its
+(art. 33(3)) covers financial services only. Rione therefore states in its
 terms the reasons that can justify a price change, gives advance notice, and
 lets the customer withdraw before the new price applies. The Code sets no
 notice period for this sector: the notice length, the list of reasons and
@@ -393,7 +442,7 @@ unilaterally the price of the service is prohibited in consumer contracts
 (Consumer Code, art. R. 212-1, 3°). For contracts of indefinite duration,
 the Code allows a term letting the trader change the price if the consumer
 is informed within a reasonable time, so as to be able to terminate the
-contract (art. R. 212-4). Encore therefore applies price increases to French
+contract (art. R. 212-4). Rione therefore applies price increases to French
 rolling subscriptions only after advance notice, with the option to
 terminate before the new price applies. The length of the notice is company
 policy.
@@ -406,17 +455,17 @@ is indicative and non-exhaustive (section 63). The CMA's guidance on unfair
 contract terms (CMA37, 22 July 2026) says a price-variation term is more
 likely to be fair when, among other conditions, the consumer gets
 sufficient and effective advance notice and is genuinely free to exit.
-Encore therefore applies UK price increases only after advance notice, with
+Rione therefore applies UK price increases only after advance notice, with
 the option to cancel before the new price applies. This is not presented as
 a legal safe harbour; the notice length is company policy.
 
-§8.6 **Policy only, no source imposes it.** Box Office presents these as
-Encore's settings, never as law: what happens to German subscribers who do
+§8.6 **Policy only, no source imposes it.** Plancia presents these as
+Rione's settings, never as law: what happens to German subscribers who do
 not consent; the length of the notice in Italy, France and the United
 Kingdom (30 days in the generated data); the list of justified reasons in
 Italy; reductions when costs fall, caps and frequency of increases; moving
 non-accepting subscribers to the Free plan outside Germany; the notice when
-Encore itself ends a rolling subscription.
+Rione itself ends a rolling subscription.
 
 §8.7 **What the simulation of a migration shows.** Who pays what and from
 when (new subscribers from the start date, existing ones from their own
@@ -490,7 +539,7 @@ verify the chain. Nobody can change it through Plancia.
 | Commercial lead | own the price list and commercial rules, create price changes, approve campaigns within the thresholds, read revenue | approve own versions; sign for finance |
 | Finance | approve price changes and anything over a finance condition (§7.3); read revenue and unearned value | approve own versions |
 | Catalog manager | define plans and entitlements | approve own versions; change prices |
-| On-call engineer | suspend an active change and roll back a launch | create or approve anything |
+| On-call engineer | suspend an active change; retry or cancel a launch that stopped (roll back a launch) | create or approve anything |
 | Auditor | read and export the audit log | change anything |
 
 §12.2 Every role reads the changes, the home and the audit log. Revenue is
@@ -545,18 +594,21 @@ verification expires after 12 months; incompatible discounts do not stack
 (§10).
 
 §14.6 **Safe launch (reliability).** A fault is caused during an
-activation. Box Office never leaves half a configuration live, recovers on
+activation. Plancia never leaves half a configuration live, recovers on
 its own and shows what happened, step by step. In the full system the
 faults are real (the engine stopped, the database connection cut at every
-step); in the browser demo the fault is simulated and says so.
+step); in the browser demo the fault is simulated and says so. The checks
+inject both faults in each of the five steps of an offer's launch, and in
+the publish step of a list price's, and count the partial activations they
+leave behind: there must be none.
 
 §14.7 **A second company, in tests only.** A fictional software company
-with seat-based plans goes through the same flows. It shows that Box Office
+with seat-based plans goes through the same flows. It shows that Plancia
 is not wired to music and could serve other subscription businesses. Taking
-real payments would stay with a payment provider; Box Office governs
+real payments would stay with a payment provider; Plancia governs
 decisions, approvals and publication.
 
-## 15. What Encore does not do
+## 15. What Rione does not do
 
 Real payments (the provider is simulated behind an interface, and a real one
 would plug in there); real authentication (people enter with a role, but

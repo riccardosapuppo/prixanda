@@ -81,7 +81,7 @@ message GetOverviewResponse {
   Money monthly_revenue_eur = 7;
   // "1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026)".
   string exchange_rate_note = 8;
-  // What Encore adds this month to reach the artists' minimum (§5.5).
+  // What the music service adds this month to reach the artists' minimum (§5.5).
   Money monthly_top_ups = 9;
 }
 

@@ -4,7 +4,8 @@
   COMMERCE_INTERNAL_TOKEN               the token the gateway sends (a secret, at least 32 characters)
   COMMERCE_ENGINE_HOST, _PORT           where to listen: 127.0.0.1 and 4611 unless set
   COMMERCE_DB_POOL_SIZE                 connections to the database, 10 unless set
-  COMMERCE_ACTIVATION_INTERVAL_SECONDS  how often the minimal activation runs, 5 unless set; 0 is off
+  COMMERCE_ACTIVATION_INTERVAL_SECONDS  how often the engine's jobs run (launches, the outbox, the end of offers,
+                                        the pruning of idempotency keys), 5 unless set; 0 is off
   COMMERCE_HEALTH_INTERVAL_SECONDS      how often health asks the database, 5 unless set
   COMMERCE_SHUTDOWN_GRACE_SECONDS       how long running calls may finish when it stops, 10 unless set
   COMMERCE_STOP_ON_STDIN_CLOSE=1        stop when standard input closes (for a supervisor)
