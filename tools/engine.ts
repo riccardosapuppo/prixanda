@@ -39,6 +39,11 @@ async function main(): Promise<number> {
       return 1;
     }
   }
+  const demo = await cluster.sql<{ n: number }>(DATABASE, "select count(*)::int as n from demo_listener");
+  if (demo[0]?.n === 0) {
+    say("this database was generated before the demo's listeners existed: the site's entrance will be empty;"
+      + " npm run db -- delete, then npm run engine, generates it again");
+  }
   const { token, from } = await internalToken();
   await assertFree(PORTS.engine, "the engine");
   say(`database on 127.0.0.1:${cluster.port}; internal token from ${from}; engine on 127.0.0.1:${PORTS.engine}`);
