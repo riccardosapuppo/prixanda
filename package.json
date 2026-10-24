@@ -13,6 +13,7 @@
   "scripts": {
     "setup": "node tools/setup.ts",
     "db": "node tools/db.ts",
+    "engine": "node tools/engine.ts",
     "check": "node tools/check.ts",
     "typecheck": "tsc -p tsconfig.json",
     "proto": "node tools/proto.ts"
