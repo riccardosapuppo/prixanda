@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from commerce.domain.economics import Book
@@ -229,6 +230,13 @@ class Engine:
         """A pass of the launches: opens those due, raises the alarm on late ones, moves the others on."""
         try:
             return await self.launches.run_pass()
+        except DatabaseUnavailable as error:
+            raise Unavailable(str(error)) from error
+
+    async def next_launch_due(self) -> datetime | None:
+        """When a launch next has work (launches.py): the browser's demo skips its clock to it."""
+        try:
+            return await self.launches.next_due()
         except DatabaseUnavailable as error:
             raise Unavailable(str(error)) from error
 

@@ -78,6 +78,10 @@ PURPOSES = {
     "verify": "The live catalog, or the price list, shows the change as approved.",
 }
 LEAD = timedelta(minutes=1)
+# The scheduled changes whose launch has not opened yet.
+_UNOPENED = ("select c.id, c.kind, c.current_version, v.content::text as content from change c "
+             "join change_version v on v.change_id = c.id and v.version = c.current_version "
+             "where c.state = 'scheduled' and not exists (select from launch l where l.change_id = c.id) order by c.id")
 LATE_AFTER = timedelta(minutes=5)
 MAX_FAILURES = 5
 WAITS = (5, 15, 45, 135)  # seconds after the 1st, 2nd, 3rd and 4th failure in a row
@@ -262,10 +266,7 @@ class Launches:
         now = self.clock.now()
         async with self.db.transaction(readonly=True) as tx:
             ref = await reference.load(tx, now)
-            rows = await tx.fetch(
-                "select c.id, c.kind, c.current_version, v.content::text as content from change c "
-                "join change_version v on v.change_id = c.id and v.version = c.current_version "
-                "where c.state = 'scheduled' and not exists (select from launch l where l.change_id = c.id) order by c.id")
+            rows = await tx.fetch(_UNOPENED)
         happened = []
         for row in rows:
             content = from_json(json.loads(row["content"]))
@@ -317,6 +318,25 @@ class Launches:
                 if opened is not None:
                     happened.append(opened)
         return happened
+
+    async def next_due(self) -> datetime | None:
+        """When a launch next has work: the opening of a scheduled change's launch (its first start less LEAD), or
+        the next attempt of a launch under way. It can be now, or already past when no pass ran since. None when no
+        launch waits for a moment of its own (a refused or failed one waits for a person). The browser's demo skips
+        its clock to it (stage 8)."""
+        now = self.clock.now()
+        async with self.db.transaction(readonly=True, isolation="repeatable_read") as tx:
+            ref = await reference.load(tx, now)
+            rows = await tx.fetch(_UNOPENED)
+            retry = await tx.fetchval(f"select {utc_text('min(coalesce(retry_at, $1::text::timestamptz))')} from launch "
+                                      "where state = 'running'", format_instant(now))
+        moments = [parse_instant(retry)] if retry else []
+        for row in rows:
+            content = from_json(json.loads(row["content"]))
+            starts = [to_instant(moment, ref.markets[market].zone) for market, moment in records.starts_of(content)]
+            if starts:
+                moments.append(min(starts) - LEAD)
+        return min(moments, default=None)
 
     async def _runnable(self) -> list[int]:
         async with self.db.transaction(readonly=True) as tx:
