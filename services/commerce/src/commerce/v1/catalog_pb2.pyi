@@ -136,7 +136,7 @@ class GetPriceListResponse(_message.Message):
     def __init__(self, entries: _Optional[_Iterable[_Union[PriceListEntry, _Mapping]]] = ...) -> None: ...
 
 class PublishedOffer(_message.Message):
-    __slots__ = ("offer_id", "version", "market", "plan", "title", "text", "terms", "price", "list_price", "months_at_offer_price", "takeable_until", "audience", "needs_student_check")
+    __slots__ = ("offer_id", "version", "market", "plan", "title", "text", "terms", "price", "list_price", "months_at_offer_price", "takeable_until", "audience", "needs_student_check", "breakdown")
     OFFER_ID_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     MARKET_FIELD_NUMBER: _ClassVar[int]
@@ -150,6 +150,7 @@ class PublishedOffer(_message.Message):
     TAKEABLE_UNTIL_FIELD_NUMBER: _ClassVar[int]
     AUDIENCE_FIELD_NUMBER: _ClassVar[int]
     NEEDS_STUDENT_CHECK_FIELD_NUMBER: _ClassVar[int]
+    BREAKDOWN_FIELD_NUMBER: _ClassVar[int]
     offer_id: int
     version: int
     market: str
@@ -163,7 +164,8 @@ class PublishedOffer(_message.Message):
     takeable_until: _common_pb2.LocalTime
     audience: str
     needs_student_check: bool
-    def __init__(self, offer_id: _Optional[int] = ..., version: _Optional[int] = ..., market: _Optional[str] = ..., plan: _Optional[str] = ..., title: _Optional[str] = ..., text: _Optional[str] = ..., terms: _Optional[str] = ..., price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., list_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., months_at_offer_price: _Optional[int] = ..., takeable_until: _Optional[_Union[_common_pb2.LocalTime, _Mapping]] = ..., audience: _Optional[str] = ..., needs_student_check: bool = ...) -> None: ...
+    breakdown: PriceBreakdown
+    def __init__(self, offer_id: _Optional[int] = ..., version: _Optional[int] = ..., market: _Optional[str] = ..., plan: _Optional[str] = ..., title: _Optional[str] = ..., text: _Optional[str] = ..., terms: _Optional[str] = ..., price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., list_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., months_at_offer_price: _Optional[int] = ..., takeable_until: _Optional[_Union[_common_pb2.LocalTime, _Mapping]] = ..., audience: _Optional[str] = ..., needs_student_check: bool = ..., breakdown: _Optional[_Union[PriceBreakdown, _Mapping]] = ...) -> None: ...
 
 class ListOffersRequest(_message.Message):
     __slots__ = ("market", "at")
