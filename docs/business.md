@@ -235,6 +235,22 @@ validation, which checks:
 - that every market has its page text;
 - and which signatures the version needs (§7.3).
 
+Two offers conflict when they are in the same non-combinability group, sold
+in the same market in periods that overlap, to audiences that can hold the
+same person. The definitions answer that last question (people who never
+paid and Free listeners can be the same people; subscribers of two different
+plans cannot; a student check or a listening threshold only narrows an
+audience), except when both audiences ask for listening to an artist, a
+different one each. The same person can listen to both, so the engine counts
+in the data how many people are in both audiences, in that market, on the
+day of the check. More than zero is a conflict, and the number is in the
+validation's report and in the refusal; a count that cannot be made is a
+conflict too. Scheduling and activation check the conflict again, and count
+again. Someone who comes to be in both audiences once both campaigns are
+live is still protected one by one: a subscriber holds at most one offer of
+a group, and confirming a quote for a second one is refused with
+NOT_COMBINABLE (§10.3).
+
 §6.5 **The difference, in business words.** Before anyone approves, Box
 Office states the change as a sentence, in this shape: "Italy, Student: from
 €5.79 to €2.99 for 3 months, new subscribers only; N eligible; conflicts:

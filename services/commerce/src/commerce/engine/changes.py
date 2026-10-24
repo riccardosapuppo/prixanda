@@ -25,7 +25,7 @@ from commerce.domain.localtime import AmbiguousLocalTime, format_instant, format
 from commerce.domain.money import Money
 from commerce.domain.offers import Content, ListPrice, Offer, from_json, local_times, shape_problems, to_json
 from commerce.domain.validation import (
-    BLOCKING, PENDING_OR_LIVE, Context, MarketFacts, Neighbour, clash_words, report_to_json, validate,
+    BLOCKING, PENDING_OR_LIVE, Context, MarketFacts, Neighbour, report_to_json, validate,
 )
 from commerce.engine import clashes, contract, eligibility, records, reference
 from commerce.engine.call import Call, Clock
@@ -244,7 +244,13 @@ class Changes:
             "join change_version v on v.change_id = c.id and v.version = c.current_version "
             "where c.kind = $1 and c.id <> $2 and c.state in (select jsonb_array_elements_text($3::text::jsonb))",
             change.kind, change.id, json.dumps(list(PENDING_OR_LIVE)))
-        neighbours = tuple(Neighbour(r["id"], r["title"], r["state"], from_json(json.loads(r["content"]))) for r in rows)
+        neighbours = []
+        days = clashes.market_days(ref, content, now) if isinstance(content, Offer) else {}
+        for r in rows:
+            other = from_json(json.loads(r["content"]))
+            shared = (await clashes.shared_people(tx, content, other, days)
+                      if isinstance(content, Offer) and isinstance(other, Offer) else {})
+            neighbours.append(Neighbour(r["id"], r["title"], r["state"], other, shared))
         later: tuple = ()
         if isinstance(content, ListPrice) and content.plan and content.market and content.starts:
             market = ref.markets[content.market]
@@ -256,7 +262,7 @@ class Changes:
                     content.plan, content.market, format_local(content.starts)))
         artist_ids = {content.audience.listening.artist_id} if isinstance(content, Offer) and content.audience.listening else set()
         return Context(now=now, book=self.book, markets=facts, plans=ref.plans,
-                       artists=await reference.artist_names(tx, artist_ids), neighbours=neighbours, later_prices=later)
+                       artists=await reference.artist_names(tx, artist_ids), neighbours=tuple(neighbours), later_prices=later)
 
     async def validate(self, tx: Connection, call: Call, request: changes_pb2.ValidateChangeRequest) -> changes_pb2.ValidateChangeResponse:
         change = await records.lock_change(tx, request.change_id)
@@ -278,9 +284,14 @@ class Changes:
             await tx.execute("update change set updated_at = $2::text::timestamptz where id = $1", change.id, format_instant(now))
             blocking = [f for f in report.findings if f.severity == BLOCKING]
             plural = "s" if len(blocking) != 1 else ""
+            facts: dict[str, object] = {"blocking": len(blocking), "checks": ",".join(sorted({f.check for f in blocking})),
+                                        "version": change.current_version}
+            # The most people one clash found in both audiences; the report has each clash's own count.
+            shared = [int(f.facts["shared"]) for f in blocking if f.check == "conflict" and "shared" in f.facts]
+            if shared:
+                facts["shared"] = max(shared)
             refused = Refused("INVALID", f"Validation found {len(blocking)} blocking problem{plural}: {blocking[0].message}",
-                              {"blocking": len(blocking), "checks": ",".join(sorted({f.check for f in blocking})),
-                               "version": change.current_version})
+                              facts)
             return changes_pb2.ValidateChangeResponse(refusal=contract.refusal(refused))
         await self._move(tx, change, "validated", now)
         await self._event(tx, call, now, "change.validated", change, {
@@ -433,12 +444,10 @@ class Changes:
             if ended:
                 raise Refused("INVALID", f"The offer's period has already ended in {', '.join(ended)}: save a version with new dates.",
                               {"markets": ",".join(ended)})
-            clash = await clashes.first_clash(tx, content, change.id, ("approved", "scheduled", "active"))
+            clash = await clashes.first_clash(tx, content, change.id, ("approved", "scheduled", "active"), ref, now)
             if clash is not None:
-                other = clash.other
-                raise Refused("INVALID", clash_words(ref.markets[clash.market].name, other.title, other.change_id, other.state,
-                                                     content.group) + " Cancel one of them, or save a version with other dates.",
-                              {"check": "conflict", "market": clash.market, "change": other.change_id})
+                raise Refused("INVALID", clash.words(ref.markets[clash.market].name, content.group)
+                              + " Cancel one of them, or save a version with other dates.", clash.facts())
         await self._move(tx, change, "scheduled", now)
         await self._event(tx, call, now, "change.scheduled", change,
                           {"version": change.current_version, "from": "approved", "to": "scheduled", "starts": starts})

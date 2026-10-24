@@ -201,8 +201,48 @@ def test_who_can_be_in_two_audiences():
     fans_of_7 = Audience("free_listeners", listening=ListeningRule(7, 3_600, 30))
     assert audiences_overlap(never, free) and audiences_overlap(anyone, duo) and audiences_overlap(duo, duo)
     assert not audiences_overlap(duo, family) and not audiences_overlap(never, duo) and not audiences_overlap(free, family)
-    assert audiences_overlap(fans_of_4, free) and not audiences_overlap(fans_of_4, fans_of_7)
+    assert audiences_overlap(fans_of_4, free)
+    assert audiences_overlap(fans_of_4, fans_of_7)  # one person can listen to both artists
     assert not audiences_overlap(Audience(None), anyone)
+
+
+def release(artist: int, title: str = "Nordflur release") -> Offer:
+    return Offer(
+        title=title, plan="individual", audience=Audience("free_listeners", None, False, ListeningRule(artist, 3_600, 30)),
+        prices=(OfferPrice("DE", Money(199, "EUR")),), months_at_offer_price=2,
+        periods=(OfferPeriod("DE", local("2026-11-06T00:00"), local("2026-12-06T00:00")),),
+        group="release-offers", redemption_cap=0,
+        pages=(OfferPage("DE", title, "Two months of Individual.", "Free listeners only.", ""),),
+    )
+
+
+def released(*neighbours: Neighbour):
+    ctx = replace(context(DE=market("DE", list_price=1_099, eligible=3_840)), neighbours=neighbours)
+    return validate(release(4), ctx)
+
+
+def test_campaigns_for_listeners_of_different_artists_clash_when_someone_is_in_both():
+    report = released(Neighbour(12, "Abraum release", "approved", release(7, "Abraum release"), {"DE": 2}))
+    [conflict] = [f for f in report.findings if f.check == "conflict"]
+    assert not report.valid and conflict.facts == {"change": "12", "shared": "2"}
+    assert "2 people are in both audiences" in conflict.message and "Abraum release (#12, approved)" in conflict.message
+
+
+def test_campaigns_for_listeners_of_different_artists_with_nobody_in_both_do_not_clash():
+    report = released(Neighbour(12, "Abraum release", "approved", release(7, "Abraum release"), {"DE": 0}))
+    assert report.valid and "conflicts: none." in report.sentence
+
+
+def test_a_count_that_could_not_be_made_is_a_clash():
+    report = released(Neighbour(12, "Abraum release", "approved", release(7, "Abraum release")))
+    [conflict] = [f for f in report.findings if f.check == "conflict"]
+    assert not report.valid and conflict.facts == {"change": "12"} and "could not be counted" in conflict.message
+
+
+def test_listeners_of_one_artist_clash_without_a_count():
+    report = released(Neighbour(12, "Nordflur, second week", "approved", release(4, "Nordflur, second week"), {"DE": 0}))
+    [conflict] = [f for f in report.findings if f.check == "conflict"]
+    assert conflict.facts == {"change": "12"} and "reaches the same people" in conflict.message
 
 
 def test_periods_are_half_open_and_an_open_end_runs_on():

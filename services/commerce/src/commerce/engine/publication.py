@@ -25,7 +25,6 @@ from datetime import datetime, timedelta
 from commerce.domain.localtime import format_instant, format_local, parse_instant, to_instant, to_local
 from commerce.domain.offers import ListPrice, Offer, from_json
 from commerce.domain.sentence import audience_words
-from commerce.domain.validation import clash_words
 from commerce.engine import clashes, records, reference
 from commerce.engine.call import Clock
 from commerce.engine.database import Connection, Database, utc_text
@@ -144,12 +143,10 @@ class Publisher:
         if isinstance(content, Offer):
             # The publication lock makes activations go one at a time: an offer
             # that clashes with one already live stays scheduled, off the site.
-            clash = await clashes.first_clash(tx, content, change.id, ("active",))
+            clash = await clashes.first_clash(tx, content, change.id, ("active",), ref, now)
             if clash is not None:
-                other = clash.other
-                return Outcome(change.id, "refused", error=clash_words(
-                    ref.markets[clash.market].name, other.title, other.change_id, other.state, content.group)
-                    + " It stays scheduled: cancel one of them.")
+                return Outcome(change.id, "refused", error=clash.words(ref.markets[clash.market].name, content.group)
+                               + " It stays scheduled: cancel one of them.")
         body: dict = {"change": change.id, "version": change.current_version, "from": "scheduled", "to": "active"}
         if isinstance(content, ListPrice):
             market = ref.markets[content.market]

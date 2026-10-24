@@ -10,7 +10,8 @@ Checks, by the name a finding carries:
   price      the version sells something, at a price below the list price
   floor      an offer price, or a list price, below the market's floor (§5.4)
   conflict   another offer in the same non-combinability group reaches the
-             same people in the same period (§6.1, §10.3)
+             same people in the same period (§6.1, §10.3); for listeners of
+             two different artists, the people in both are counted (§6.4)
   overlap    another price for the same plan and market (§4.1)
   dates      a start in the future, before the end; how long the offer lasts
   time_zone  a local time the clocks skip or repeat (§3.7)
@@ -83,6 +84,10 @@ class Neighbour:
     title: str
     state: str
     content: Content
+    # People in both audiences, counted in the data on the day of the check,
+    # in each market where the clash turns on it (see `needs_count`). A market
+    # missing here was not counted, and that is a clash.
+    shared: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -125,9 +130,11 @@ SEGMENTS_THAT_MEET = {
 
 
 def audiences_overlap(a: Audience, b: Audience) -> bool:
-    """Whether some person can be in both audiences. A student check or a
-    listening threshold narrows an audience without moving it elsewhere; two
-    listening rules aim at different people only through different artists."""
+    """Whether the definitions let some person be in both audiences. A student
+    check or a listening threshold narrows an audience without moving it
+    elsewhere, and one person can listen to two artists: listening rules never
+    keep two audiences apart. Whether anyone is in both audiences of two
+    different artists' listeners is a question for the data (`needs_count`)."""
     if a.segment is None or b.segment is None:
         return False
     if "anyone" not in (a.segment, b.segment):
@@ -136,9 +143,12 @@ def audiences_overlap(a: Audience, b: Audience) -> bool:
                 return False
         elif frozenset({a.segment, b.segment}) not in SEGMENTS_THAT_MEET:
             return False
-    if a.listening is not None and b.listening is not None and a.listening.artist_id != b.listening.artist_id:
-        return False
     return True
+
+
+def listening_apart(a: Audience, b: Audience) -> bool:
+    """Both audiences ask for listening to an artist, a different one each."""
+    return a.listening is not None and b.listening is not None and a.listening.artist_id != b.listening.artist_id
 
 
 def periods_overlap(a: OfferPeriod, b: OfferPeriod) -> bool:
@@ -150,18 +160,50 @@ def periods_overlap(a: OfferPeriod, b: OfferPeriod) -> bool:
     return a_before_b_ends and b_before_a_ends
 
 
-def clashes(offer: Offer, other: Offer, market: str) -> bool:
-    """Whether two offers of one non-combinability group reach the same people
-    in the same period of one market: they never stack (§6.1, §10.3), so only
-    one of them may go live. Validation, scheduling and activation all ask."""
+def _may_clash(offer: Offer, other: Offer, market: str) -> bool:
+    """One group, one market, periods that overlap, audiences whose definitions can hold one person."""
     mine, theirs = offer.period_in(market), other.period_in(market)
     return (mine is not None and theirs is not None and bool(offer.group) and offer.group == other.group
             and audiences_overlap(offer.audience, other.audience) and periods_overlap(mine, theirs))
 
 
-def clash_words(market_name: str, title: str, change_id: int, state: str, group: str | None) -> str:
-    return (f"{market_name}: {title} (#{change_id}, {state.replace('_', ' ')}) reaches the same people in the same "
-            f"period, in the same group {group}: they never stack.")
+def needs_count(offer: Offer, other: Offer, market: str) -> bool:
+    """Whether a clash in this market turns on how many people are in both
+    audiences: all else says the offers clash, and both audiences are
+    listeners of different artists, so only the data can say if anyone is in
+    both. The engine counts them for these markets, and only these."""
+    return listening_apart(offer.audience, other.audience) and _may_clash(offer, other, market)
+
+
+def clashes(offer: Offer, other: Offer, market: str, shared: int | None = None) -> bool:
+    """Whether two offers of one non-combinability group reach the same people
+    in the same period of one market: they never stack (§6.1, §10.3), so only
+    one of them may go live. Validation, scheduling and activation all ask.
+
+    When the clash turns on a count (`needs_count`), `shared` is how many people
+    the data holds in both audiences on the day of the check: more than zero is
+    a clash, and so is a count that could not be made (None) (§6.4)."""
+    if not _may_clash(offer, other, market):
+        return False
+    return not listening_apart(offer.audience, other.audience) or shared is None or shared > 0
+
+
+def people(count: int) -> str:
+    return f"{count:,} person" if count == 1 else f"{count:,} people"
+
+
+def clash_words(market_name: str, title: str, change_id: int, state: str, group: str | None, *,
+                counted: bool = False, shared: int | None = None) -> str:
+    """Why the two offers clash. `counted` says the clash turned on the people
+    counted in both audiences, `shared` how many they were (None: not counted)."""
+    other = f"{title} (#{change_id}, {state.replace('_', ' ')})"
+    if not counted:
+        return f"{market_name}: {other} reaches the same people in the same period, in the same group {group}: they never stack."
+    if shared is None:
+        found = "who is in both audiences could not be counted, which counts as a clash"
+    else:
+        found = f"{people(shared)} {'is' if shared == 1 else 'are'} in both audiences today"
+    return f"{market_name}: {other} runs in the same period, in the same group {group}, and {found}: they never stack."
 
 
 class _Findings:
@@ -279,11 +321,14 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
         for other in ctx.neighbours:
             if not isinstance(other.content, Offer) or other.state not in PENDING_OR_LIVE:
                 continue
-            if clashes(offer, other.content, code):
+            counted = needs_count(offer, other.content, code)
+            shared = other.shared.get(code) if counted else None
+            if clashes(offer, other.content, code, shared):
                 conflicts.append(f"{other.title} (#{other.change_id})")
                 found.add("conflict", BLOCKING, code,
-                          clash_words(market.name, other.title, other.change_id, other.state, offer.group),
-                          change=other.change_id)
+                          clash_words(market.name, other.title, other.change_id, other.state, offer.group,
+                                      counted=counted, shared=shared),
+                          change=other.change_id, **({} if shared is None else {"shared": shared}))
 
         if plan is None:
             unsimulated.append("no plan chosen")

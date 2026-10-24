@@ -12,16 +12,24 @@ transaction ends; the second call then reads what the first decided.
 Scheduling and activation check the clash again, so that a pair that got past
 validation anyway (an edit by hand, a race before this lock existed) still
 never goes live together.
+
+Two campaigns for listeners of different artists clash only if someone is in
+both audiences: each check counts them in the data, on the market's day, for
+the markets where the clash turns on it (§6.4).
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date, datetime
 
 from commerce.domain.offers import Content, ListPrice, Offer, from_json
-from commerce.domain.validation import clashes
+from commerce.domain.validation import clash_words, clashes, needs_count
+from commerce.engine import eligibility
 from commerce.engine.database import Connection
+from commerce.engine.reference import Reference
 
 NEIGHBOURHOOD_LOCK = 4_600_031
 
@@ -55,19 +63,42 @@ async def others(tx: Connection, kind: str, states: tuple[str, ...], excluding: 
     return [Other(r["id"], r["title"], r["state"], from_json(json.loads(r["content"]))) for r in rows]
 
 
+def market_days(ref: Reference, offer: Offer, now: datetime) -> dict[str, date]:
+    return {code: ref.market(code).today(now) for code in offer.markets()}
+
+
+async def shared_people(tx: Connection, offer: Offer, other: Offer, days: Mapping[str, date]) -> dict[str, int]:
+    """People in both audiences, counted on each market's day, in the markets where the clash turns on it."""
+    return {market: await eligibility.count_both(tx, offer.audience, other.audience, market, days[market])
+            for market in offer.markets() if needs_count(offer, other, market)}
+
+
 @dataclass(frozen=True)
 class Clash:
     market: str
     other: Other
+    shared: int | None = None  # people counted in both audiences, when the clash turned on them
+
+    def words(self, market_name: str, group: str | None) -> str:
+        other = self.other
+        return clash_words(market_name, other.title, other.change_id, other.state, group,
+                           counted=self.shared is not None, shared=self.shared)
+
+    def facts(self) -> dict[str, object]:
+        return {"check": "conflict", "market": self.market, "change": self.other.change_id,
+                **({} if self.shared is None else {"shared": self.shared})}
 
 
-async def first_clash(tx: Connection, offer: Offer, change_id: int, states: tuple[str, ...]) -> Clash | None:
+async def first_clash(tx: Connection, offer: Offer, change_id: int, states: tuple[str, ...],
+                      ref: Reference, now: datetime) -> Clash | None:
     """The first offer in one of these states that clashes with this one, market by market."""
+    days = market_days(ref, offer, now)
     for other in await others(tx, "offer", states, change_id):
         assert isinstance(other.content, Offer)
+        shared = await shared_people(tx, offer, other.content, days)
         for market in offer.markets():
-            if clashes(offer, other.content, market):
-                return Clash(market, other)
+            if clashes(offer, other.content, market, shared.get(market)):
+                return Clash(market, other, shared.get(market))
     return None
 
 

@@ -1,10 +1,12 @@
 """Who is in an offer's audience, counted in the data (business book §6.5).
 
-One predicate, written once, answers both questions: how many people an
-audience reaches in a market on a day (the N of the sentence), and whether
-one person is in it (a quote for a subscriber). Days are the market's
-calendar days. A listening rule counts the full days before the day itself:
-"the last 30 days" on 24 October are 24 September to 23 October.
+One predicate, written once, answers every question: how many people an
+audience reaches in a market on a day (the N of the sentence), whether one
+person is in it (a quote for a subscriber), and how many people are in two
+audiences at once (two campaigns for listeners of different artists, §6.4).
+Days are the market's calendar days. A listening rule counts the full days
+before the day itself: "the last 30 days" on 24 October are 24 September to
+23 October.
 """
 
 from __future__ import annotations
@@ -55,6 +57,13 @@ async def count(tx: Connection, audience: Audience, market: str, day: date) -> i
     args: list = []
     where = _predicate(audience, market, day, args)
     return await tx.fetchval(f"select count(*) {_FROM.format(today='$1::text::date')} where {where}", *args)
+
+
+async def count_both(tx: Connection, a: Audience, b: Audience, market: str, day: date) -> int:
+    """People in both audiences in a market on a day."""
+    args: list = []
+    both = f"{_predicate(a, market, day, args)} and {_predicate(b, market, day, args)}"
+    return await tx.fetchval(f"select count(*) {_FROM.format(today='$1::text::date')} where {both}", *args)
 
 
 async def includes(tx: Connection, audience: Audience, market: str, day: date, subscriber_id: int) -> bool:
