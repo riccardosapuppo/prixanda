@@ -1,10 +1,12 @@
 // The guided creation: Continue stops on the first field to fix, with its own
 // message; the example fills the form and the page beside it writes the
 // price the Italian way; a role that only reads finds the fields read-only,
-// no Save draft, and, when it reviews, the way to Approvals.
+// no Save draft, and, when it reviews, the way to Approvals; and a save
+// refused late, after the person loaded the newer version, does not bring
+// the conflict back.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
-import { MARKETS, PLANS_IT, studentPass } from "../../stories/fixtures.ts";
+import { type Change, MARKETS, PLANS_IT, studentPass } from "../../stories/fixtures.ts";
 import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
 import type { Viewer } from "../../lib/react/session.tsx";
 import { Wizard } from "./wizard.tsx";
@@ -17,7 +19,37 @@ function gatewayFor() {
   });
 }
 
-function GuidedCreation({ viewer, gateway, changeId }: { readonly viewer: Viewer; readonly gateway: ReturnType<typeof gatewayFor>; readonly changeId: string | null }) {
+/** The pass as a draft at one of its versions, as the engine would answer it then. */
+function draftAt(version: 1 | 2): Change {
+  const pass = studentPass("DRAFT");
+  const current = pass.versions.find((entry) => entry.version === version) ?? pass.current;
+  return { ...pass, currentVersion: version, versions: pass.versions.filter((entry) => entry.version <= version), current, requiredSignatures: [], sentence: null };
+}
+
+/**
+ * A gateway on which someone else saved v2 while this page edits v1: every
+ * save from v1 is refused as stale, the first one at once, the next ones only
+ * when release() says so.
+ */
+function staleGateway() {
+  let release = () => {};
+  const refused = () => ({
+    saveOfferVersion: { __typename: "Refusal", code: "STALE_VERSION", reason: "Version 2 was saved after the version you edited.", facts: [], change: draftAt(2) },
+  });
+  const gateway = fakeGateway({
+    Markets: () => ({ markets: MARKETS }),
+    Plans: () => ({ plans: PLANS_IT }),
+    Change: (_variables: unknown, calls) => ({ change: calls.some((call) => call.operation === "SaveOfferVersion") ? draftAt(2) : draftAt(1) }),
+    SaveOfferVersion: (_variables: unknown, calls) => calls.filter((call) => call.operation === "SaveOfferVersion").length === 1
+      ? refused()
+      : new Promise((resolve) => {
+        release = () => resolve(refused());
+      }),
+  });
+  return Object.assign(gateway, { release: () => release() });
+}
+
+function GuidedCreation({ viewer, gateway, changeId }: { readonly viewer: Viewer; readonly gateway: ReturnType<typeof gatewayFor> & { readonly release?: () => void }; readonly changeId: string | null }) {
   return (
     <StoryProviders gateway={gateway} viewer={viewer}>
       <Wizard changeId={changeId} />
@@ -71,5 +103,26 @@ export const LockedForFinance: Story = {
     await expect(page.getByRole("link", { name: "Open v3 in Approvals" })).toHaveAttribute("href", "/campaigns/approval/?id=7");
     await expect(page.getByLabelText("Campaign name")).toBeDisabled();
     await expect(page.queryByRole("button", { name: "Save draft" })).toBeNull();
+  },
+};
+
+export const ALateRefusalDoesNotBringTheConflictBack: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: staleGateway(), changeId: "7" },
+  parameters: { route: { pathname: "/campaigns/edit/", query: { id: "7", step: "1" } } },
+  play: async ({ canvasElement, args }) => {
+    const page = within(canvasElement);
+    await userEvent.type(await page.findByLabelText("Campaign name"), ", mine");
+    // The first save is refused at once: v2 was saved meanwhile.
+    await userEvent.click(page.getByRole("button", { name: "Save draft" }));
+    await expect(await page.findByText("Someone saved v2 while you were editing v1.")).toBeInTheDocument();
+    // A second save leaves from v1; before its answer, the person loads v2.
+    await userEvent.click(page.getByRole("button", { name: "Save draft" }));
+    await userEvent.click(page.getByRole("button", { name: "Load v2 and drop my edits" }));
+    await expect(page.getByLabelText("Campaign name")).toHaveValue("Student Autumn Pass");
+    await expect(page.queryByText(/while you were editing/)).toBeNull();
+    // The late answer refuses a save made from v1, which the form no longer stands on.
+    args.gateway.release?.();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await expect(page.queryByText(/while you were editing/)).toBeNull();
   },
 };

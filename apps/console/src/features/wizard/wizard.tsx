@@ -146,6 +146,12 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
   // from (§6.3). It moves only after a save of ours or a reload the person
   // asks for, never because the query read a newer version in the meantime.
   const [base, setBase] = useState<{ readonly version: number; readonly content: OfferContent | null }>(() => ({ version: change?.currentVersion ?? 0, content: offerContent(change) }));
+  // The base as it is now, for an answer that arrives after the person moved it.
+  const baseNow = useRef(base);
+  const moveBase = (next: { readonly version: number; readonly content: OfferContent | null }) => {
+    baseNow.current = next;
+    setBase(next);
+  };
   const saved = base.content;
   const [form, setForm] = useState<OfferForm>(() => (saved ? formFromContent(saved) : emptyForm()));
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
@@ -222,11 +228,15 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
     if (conflict === null && !dirty) return { id: change.id, version: base.version };
     const result = (await save.mutateAsync({ changeId: change.id, baseVersion: base.version, offer: typed.input })).saveOfferVersion as ResultUnion;
     if (result.__typename === "Refusal") {
-      if (result.code === "STALE_VERSION" && result.change) setStaleRefusal(result.change);
-      else setRefusal({ code: result.code, reason: result.reason });
+      // A refusal names the version that made this save stale. If the person
+      // has loaded that version since (the answer came late), the conflict is
+      // already settled: it does not come back.
+      if (result.code === "STALE_VERSION" && result.change) {
+        if (result.change.currentVersion > baseNow.current.version) setStaleRefusal(result.change);
+      } else setRefusal({ code: result.code, reason: result.reason });
       return null;
     }
-    setBase({ version: result.currentVersion, content: offerContent(result) });
+    moveBase({ version: result.currentVersion, content: offerContent(result) });
     setStaleRefusal(null);
     await refresh();
     return { id: result.id, version: result.currentVersion };
@@ -308,7 +318,7 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
       {conflict ? <ConflictPanel conflict={conflict} startedFrom={base.version} onLoad={() => {
         const content = offerContent(conflict);
         if (content) setForm(formFromContent(content));
-        setBase({ version: conflict.currentVersion, content });
+        moveBase({ version: conflict.currentVersion, content });
         setStaleRefusal(null);
         void refresh();
       }} /> : null}
