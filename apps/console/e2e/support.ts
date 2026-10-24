@@ -87,7 +87,13 @@ export async function layoutProblems(page: Page): Promise<{ readonly sideways: n
       if (element.closest("[data-scrolls]") || element.closest(".table-scroll") || element.closest("[role=region]")) continue;
       const style = getComputedStyle(element);
       if (style.display === "none" || style.visibility === "hidden" || element.getClientRects().length === 0) continue;
-      if (element.classList.contains("sr-only") || element.closest(".sr-only")) continue;
+      // Text hidden on purpose for assistive technology (sr-only, at some widths or all) is not cut text.
+      let hidden = false;
+      for (let at: HTMLElement | null = element; at !== null && !hidden; at = at.parentElement) {
+        const shown = getComputedStyle(at);
+        hidden = shown.position === "absolute" && at.offsetWidth <= 1 && at.offsetHeight <= 1 && (shown.overflow === "hidden" || shown.clipPath === "inset(50%)");
+      }
+      if (hidden) continue;
       const hidesX = style.overflowX === "hidden" || style.overflowX === "clip";
       const ellipsis = style.textOverflow === "ellipsis";
       if ((hidesX || ellipsis) && element.scrollWidth > element.clientWidth + 1 && (element.textContent ?? "").trim() !== "") {
