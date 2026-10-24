@@ -1,5 +1,6 @@
 # A change and what moves it on: the wizard, the simulation and the approval
-# read the same fields (business book §6, §7).
+# read the same fields (business book §6, §7), for every kind the console
+# writes: an offer, a price migration (§8) and a prepaid pass (§9).
 
 fragment PersonRef on Person {
   id
@@ -56,6 +57,52 @@ fragment ContentFields on ChangeContent {
     amount
     startsLocal
   }
+  ... on PriceMigrationContent {
+    title
+    plan
+    market
+    amount
+    noticesLocal
+    startsLocal
+  }
+  ... on PrepaidPassContent {
+    title
+    plan
+    months
+    prices {
+      market
+      amount
+    }
+    periods {
+      market
+      startsLocal
+      endsLocal
+    }
+    codeValidMonths
+    pages {
+      market
+      title
+      text
+      terms
+      treatment
+    }
+  }
+}
+
+fragment MigrationProgressFields on MigrationProgress {
+  requirement
+  windowEnds {
+    market
+    local
+    utc
+  }
+  asked
+  waiting
+  accepted
+  declined
+  lapsed
+  newPrice
+  left
 }
 
 fragment VersionFields on ChangeVersion {
@@ -116,6 +163,9 @@ fragment ChangeFields on Change {
   }
   sentence
   authorReason
+  migration {
+    ...MigrationProgressFields
+  }
 }
 
 fragment ResultFields on ChangeResult {
@@ -175,6 +225,32 @@ mutation CreateOffer($offer: OfferInput!) {
 
 mutation SaveOfferVersion($changeId: ID!, $baseVersion: Int!, $offer: OfferInput!) {
   saveOfferVersion(changeId: $changeId, baseVersion: $baseVersion, offer: $offer) {
+    ...ResultFields
+  }
+}
+
+# A price migration: the commercial lead's alone (§8, §12).
+mutation CreatePriceMigration($migration: PriceMigrationInput!) {
+  createPriceMigration(migration: $migration) {
+    ...ResultFields
+  }
+}
+
+mutation SavePriceMigrationVersion($changeId: ID!, $baseVersion: Int!, $migration: PriceMigrationInput!) {
+  savePriceMigrationVersion(changeId: $changeId, baseVersion: $baseVersion, migration: $migration) {
+    ...ResultFields
+  }
+}
+
+# A prepaid pass: the commercial lead's alone (§9, §12).
+mutation CreatePrepaidPass($pass: PrepaidPassInput!) {
+  createPrepaidPass(pass: $pass) {
+    ...ResultFields
+  }
+}
+
+mutation SavePrepaidPassVersion($changeId: ID!, $baseVersion: Int!, $pass: PrepaidPassInput!) {
+  savePrepaidPassVersion(changeId: $changeId, baseVersion: $baseVersion, pass: $pass) {
     ...ResultFields
   }
 }

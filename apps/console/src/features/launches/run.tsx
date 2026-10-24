@@ -22,6 +22,7 @@ import { AuditEventsDocument, CancelLaunchDocument, LaunchRunDocument, RetryLaun
 import {
   elapsed, INCIDENT_KIND, INCIDENT_LOOK, type LaunchDetail, launchActions, launchWords, MAX_FAILURES, now, publication, STEP_LOOK, STEP_NAME, stepCounts, stepLook,
 } from "../../lib/launch.ts";
+import { approvalHref } from "../../lib/kinds.ts";
 import { marketName, marketZone } from "../../lib/markets.ts";
 import { asRole, can, primaryRole, whoDoes } from "../../lib/permissions.ts";
 import { useAction, useGatewayQuery } from "../../lib/react/gateway.tsx";
@@ -46,7 +47,7 @@ export function LaunchRunScreen() {
         <>
           <LaunchChip launch={launch} />
           <span>
-            <Link href={`/campaigns/approval/?id=${launch.change.id}`}>{launch.title} v{launch.version}</Link>, {marketName(query.data.markets, launch.starts.market)}.
+            {launch.change ? <Link href={approvalHref(launch.kind, launch.change.id)}>{launch.title} v{launch.version}</Link> : <>{launch.title} v{launch.version}</>}, {marketName(query.data.markets, launch.starts.market)}.
             Starts {formatLocalWithUtc(launch.starts.local, marketZone(query.data.markets, launch.starts.market))}
           </span>
         </>
@@ -232,7 +233,7 @@ function OnCall({ launch }: { readonly launch: LaunchDetail }) {
     return launch.state === "DONE" ? (
       <p className="text-sm text-ink-2">
         Published: there is nothing to try again. To take the change off the site, {whoDoes("suspend", { one: "suspends it", many: "suspend it" }, { start: false, either: true })} on its{" "}
-        <Link href={`/campaigns/approval/?id=${launch.change.id}`}>approval page</Link>, with a reason.
+        {launch.change ? <Link href={approvalHref(launch.kind, launch.change.id)}>approval page</Link> : "approval page"}, with a reason.
       </p>
     ) : null;
   }
@@ -360,7 +361,8 @@ function Incidents({ launch, zone }: { readonly launch: LaunchDetail; readonly z
  */
 function Events({ launch, zone }: { readonly launch: LaunchDetail; readonly zone: string }) {
   const seqs = new Set(launch.auditEventSeqs);
-  const byChange = useGatewayQuery(AuditEventsDocument, { filter: { subject: `change:${launch.change.id}` }, first: 100, after: null }, { enabled: seqs.size > 0 });
+  const changeId = launch.change?.id ?? null;
+  const byChange = useGatewayQuery(AuditEventsDocument, { filter: { subject: `change:${changeId ?? ""}` }, first: 100, after: null }, { enabled: seqs.size > 0 && changeId !== null });
   const byLaunch = useGatewayQuery(AuditEventsDocument, { filter: { subject: `launch:${launch.id}` }, first: 100, after: null });
   const byCatalog = useGatewayQuery(AuditEventsDocument, { filter: { subject: `catalog:${launch.snapshotAfter ?? ""}` }, first: 20, after: null }, { enabled: launch.snapshotAfter !== null });
   const events = [...(byChange.data?.auditEvents.nodes ?? []), ...(byLaunch.data?.auditEvents.nodes ?? []), ...(byCatalog.data?.auditEvents.nodes ?? [])]
@@ -371,7 +373,7 @@ function Events({ launch, zone }: { readonly launch: LaunchDetail; readonly zone
     <section className="grid content-start gap-3" aria-labelledby="launch-events">
       <div className="zone-head">
         <h2 id="launch-events">Audit events</h2>
-        <Link href={`/audit/?change=${launch.change.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold"><Icon name="scroll" size={16} />Open the audit log</Link>
+        {changeId ? <Link href={`/audit/?change=${changeId}`} className="inline-flex items-center gap-1.5 text-sm font-semibold"><Icon name="scroll" size={16} />Open the audit log</Link> : null}
       </div>
       {byChange.isError ? <ErrorPanel error={byChange.error} /> : byLaunch.isError ? <ErrorPanel error={byLaunch.error} /> : events.length === 0 && unread.length === 0 ? (
         <p className="text-sm text-ink-2">{launch.startedAt ? "None yet: the steps write their events when they commit." : "The launch has not begun: it begins a minute before the start."}</p>

@@ -25,7 +25,26 @@ type Offer = {
   readonly pages: readonly { readonly market: string; readonly title: string; readonly text: string; readonly terms: string }[];
 };
 type ListPrice = { readonly __typename: "ListPriceContent"; readonly title: string; readonly plan: string; readonly market: string; readonly amount: Money; readonly startsLocal: string };
-type Content = Offer | ListPrice | { readonly __typename: string };
+type Migration = {
+  readonly __typename: "PriceMigrationContent";
+  readonly title: string;
+  readonly plan: string;
+  readonly market: string;
+  readonly amount: Money;
+  readonly noticesLocal: string;
+  readonly startsLocal: string;
+};
+type Pass = {
+  readonly __typename: "PrepaidPassContent";
+  readonly title: string;
+  readonly plan: string;
+  readonly months: number;
+  readonly prices: readonly { readonly market: string; readonly amount: Money }[];
+  readonly periods: readonly { readonly market: string; readonly startsLocal: string; readonly endsLocal: string | null }[];
+  readonly codeValidMonths: number;
+  readonly pages: readonly { readonly market: string; readonly title: string; readonly text: string; readonly terms: string }[];
+};
+type Content = Offer | ListPrice | Migration | Pass | { readonly __typename: string };
 
 export type Difference = { readonly field: string; readonly before: string; readonly after: string };
 
@@ -112,6 +131,43 @@ export function describeChanges(before: Content, after: Content, markets: Market
     add("Name", a.title, b.title);
     add("Price", formatMoney(a.amount), formatMoney(b.amount));
     add("Starts", a.startsLocal, b.startsLocal);
+  }
+  if (before.__typename === "PriceMigrationContent" && after.__typename === "PriceMigrationContent") {
+    const a = before as Migration;
+    const b = after as Migration;
+    const name = (code: string) => markets.find((market) => market.code === code)?.name ?? code;
+    const zoneOf = (code: string) => markets.find((market) => market.code === code)?.timeZone ?? "UTC";
+    add("Name", a.title, b.title);
+    add("Plan", planName(a.plan), planName(b.plan));
+    add("Market", name(a.market), name(b.market));
+    add("New price", formatMoney(a.amount), formatMoney(b.amount));
+    add("Existing subscribers asked or told from", formatLocal(a.noticesLocal, zoneOf(a.market)), formatLocal(b.noticesLocal, zoneOf(b.market)));
+    add("New subscribers pay it from", formatLocal(a.startsLocal, zoneOf(a.market)), formatLocal(b.startsLocal, zoneOf(b.market)));
+  }
+  if (before.__typename === "PrepaidPassContent" && after.__typename === "PrepaidPassContent") {
+    const a = before as Pass;
+    const b = after as Pass;
+    add("Name", a.title, b.title);
+    add("Plan", planName(a.plan), planName(b.plan));
+    add("Months of the plan", String(a.months), String(b.months));
+    add("A code waits to be activated", `${a.codeValidMonths} months`, `${b.codeValidMonths} months`);
+    const every = [...new Set([...a.prices.map((p) => p.market), ...b.prices.map((p) => p.market), ...a.periods.map((p) => p.market), ...b.periods.map((p) => p.market)])];
+    for (const code of every) {
+      const market = markets.find((candidate) => candidate.code === code);
+      const name = market?.name ?? code;
+      const zone = market?.timeZone ?? "UTC";
+      const price = (pass: Pass) => {
+        const found = pass.prices.find((p) => p.market === code);
+        return found ? formatMoney(found.amount) : "not sold";
+      };
+      add(`${name}, price`, price(a), price(b));
+      add(`${name}, on sale`, periodWords(a.periods.find((p) => p.market === code), zone), periodWords(b.periods.find((p) => p.market === code), zone));
+      const pageA = a.pages.find((p) => p.market === code);
+      const pageB = b.pages.find((p) => p.market === code);
+      add(`${name}, page title`, pageA?.title ?? "none", pageB?.title ?? "none");
+      add(`${name}, page text`, pageA?.text ?? "none", pageB?.text ?? "none");
+      add(`${name}, terms`, pageA?.terms ?? "none", pageB?.terms ?? "none");
+    }
   }
   return found;
 }

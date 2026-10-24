@@ -16,10 +16,13 @@ on a server at request time.
   page's memory.
 - **Home.** What waits for approval (with what each change does), what
   launches in the next seven days, today's incidents, who pays by plan and
-  market, this month's revenue without VAT, and the week as lanes. Revenue is
-  read by Finance and the commercial lead, the value of prepaid passes not yet
-  earned by Finance (§12.2, §9.2); every other role finds, in the same place,
-  who reads them, and the console does not even ask for revenue in their name.
+  market, this month's revenue without VAT, the value of prepaid passes sold
+  and not yet earned, and the week as lanes. Revenue is read by Finance and
+  the commercial lead; the value not yet earned by Finance alone (§12.2,
+  §9.2): by market, the codes sold, activated and expired unused, and their
+  net value, with the total in euros at the declared rate. Every other role
+  finds, in the same place, who reads them, and the console does not even ask
+  for those figures in their name.
 - **Campaigns.** The list, and a guided creation in five steps with the page
   beside it as the site would show it. Only Marketing creates and submits; the
   other roles read the same steps with the fields read-only, and a role that
@@ -30,7 +33,33 @@ on a server at request time.
   author's reason, the fingerprint; approve or send back after a confirmation
   that names the version and the fingerprint. The author finds no button and
   reads why; sending back is open to both roles that review, even on a
-  version only Finance may sign.
+  version only Finance may sign. The same page serves every kind of change,
+  and its evidence follows the kind: a campaign's simulation, a price
+  migration's market rules and simulation, a pass's prices and periods.
+- **Price migrations** (§8, §14.3). The commercial lead alone writes one in
+  three steps like a campaign's: the new price for one plan in one market,
+  the dates (when the existing subscribers are asked or told, when new
+  subscribers pay it), then the check and the submission. Beside the form,
+  the market's rules in two blocks that are never mixed: what the law asks,
+  with its sources, and what Rione chose, labelled as a choice and not law
+  (§8.1). The check shows the engine's findings (price, dates, overlap), each
+  with the step that fixes it. The simulation (§8.7) says who pays what and
+  from when, one subscription before and after, the revenue at risk at an
+  acceptance declared as an assumption (90%, illustrative, changeable on the
+  page), who would move to the Free plan, the prepaid passes it never
+  touches, and conditions 1 and 5. Finance signs it, the commercial lead
+  schedules it, and once its launch asked or told the subscribers, its
+  progress shows how many were asked and who waits, accepted, declined or let
+  the window run out (silence is no in Germany), read again every few seconds.
+  A migration that started is not suspended: its price is in the price list,
+  never edited (§4.2).
+- **Prepaid passes** (§9, §14.4). The commercial lead alone writes one in
+  the five steps of a campaign: the plan and months it gives (no Student
+  pass: a gift code cannot carry a student verification), how long a code can
+  wait, a fixed price, a period of sale and a page in each market, then the
+  check and the submission, with the page beside it as the site would show
+  it. Finance signs it as a price (condition 1), the commercial lead
+  schedules it, and its launch puts it on sale.
 - **Audit log.** Newest first, with filters, the chain's verification against
   an exported head, and the head's export. The page says §11.4 of the
   business book word for word.

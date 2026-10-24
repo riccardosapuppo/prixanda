@@ -1,5 +1,6 @@
 # The simulation of an offer in one market against not running it (§6.6),
-# with the conditions under which finance must sign (§7.3).
+# and of a price migration (§8.7), with the conditions under which finance
+# must sign (§7.3).
 
 fragment TotalsFields on Totals {
   revenue
@@ -40,6 +41,73 @@ query SimulateOffer($changeId: ID!, $version: Int!, $market: MarketCode!, $overr
         source
       }
       horizonMonths
+    }
+    ... on Refusal {
+      code
+      reason
+      facts {
+        name
+        value
+      }
+    }
+  }
+}
+
+fragment PriceStepFields on PriceStep {
+  price
+  net
+  artists
+  paymentCosts
+  contribution
+}
+
+query SimulateMigration($changeId: ID!, $version: Int, $overrides: [AssumptionInput!]) {
+  simulateMigration(changeId: $changeId, version: $version, overrides: $overrides) {
+    __typename
+    ... on MigrationSimulation {
+      before {
+        ...PriceStepFields
+      }
+      after {
+        ...PriceStepFields
+      }
+      newSubscribersFrom {
+        market
+        local
+        utc
+      }
+      noticesFrom {
+        market
+        local
+        utc
+      }
+      windowEnds {
+        market
+        local
+        utc
+      }
+      existingFrom
+      existing
+      accepting
+      notAccepting
+      movingToFree
+      monthlyRevenueChange
+      monthlyContributionChange
+      revenueAtRiskMonthly
+      breakEvenAcceptanceRevenueBasisPoints
+      breakEvenAcceptanceContributionBasisPoints
+      prepaidPassesUntouched
+      assumptions {
+        name
+        value
+        source
+      }
+      financeConditions {
+        number
+        rule
+        met
+        detail
+      }
     }
     ... on Refusal {
       code

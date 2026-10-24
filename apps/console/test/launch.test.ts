@@ -33,7 +33,7 @@ describe("a launch, step by step", () => {
   });
 
   it("tells what the launch published apart from what is live today", () => {
-    const done = (state: LaunchDetail["change"]["state"]) => launch("DONE", ["DONE", "DONE", "DONE", "DONE", "DONE"], { snapshotAfter: "418", change: { id: "7", currentVersion: 3, state } });
+    const done = (state: NonNullable<LaunchDetail["change"]>["state"]) => launch("DONE", ["DONE", "DONE", "DONE", "DONE", "DONE"], { snapshotAfter: "418", change: { id: "7", currentVersion: 3, state } });
     // Today as the launch left it: nothing to say.
     assert.deepEqual(now(done("ACTIVE"), "418"), { catalog: "418", words: "Student Autumn Pass v3 is live on the site.", differs: null });
     // Suspended since: the launch's own publication stays history, and today says otherwise.

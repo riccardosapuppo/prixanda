@@ -151,7 +151,7 @@ function Results({ simulation, change, market, busy }: { readonly simulation: Si
             ? "No retention makes it break even: even if every taker stayed, it would not pay for itself over the horizon."
             : `It breaks even if at least ${formatPercent(breakEven)} of takers stay at the list price.`}
         </p>
-        <RetentionScale assumed={retention} breakEven={breakEven} />
+        <ShareScale assumed={retention} breakEven={breakEven} what="Retention" caption="Retention after the offer months" />
         <p className="max-w-[70ch] text-sm text-ink-2">The simulation applies the business book's formulas (§6.6) to these assumptions. It does not forecast and learns nothing from data.</p>
       </section>
 
@@ -230,15 +230,15 @@ function Risk({ icon, children }: { readonly icon: "warning" | "info"; readonly 
   );
 }
 
-/** Retention from 0 to 100%: the assumption above the line, the break-even below, the gap between them woven. */
-function RetentionScale({ assumed, breakEven }: { readonly assumed: number; readonly breakEven: number | null }) {
+/** A share from 0 to 100% (retention, acceptance): the assumption above the line, the break-even below, the gap between them woven. */
+export function ShareScale({ assumed, breakEven, what, caption }: { readonly assumed: number; readonly breakEven: number | null; readonly what: string; readonly caption: string }) {
   const at = (bp: number) => `${Math.min(100, Math.max(0, bp / 100))}%`;
   const even = breakEven !== null && breakEven >= 0 ? breakEven : null;
   const low = even === null ? assumed : Math.min(assumed, even);
   const high = even === null ? assumed : Math.max(assumed, even);
   const margin = even !== null && assumed >= even;
   return (
-    <div className="relative mb-5 grid max-w-[46rem] gap-1.5 py-11" role="img" aria-label={`Retention scale: ${formatPercent(assumed)} assumed${even === null ? ", no break-even" : `, break-even at ${formatPercent(even)}`}.`}>
+    <div className="relative mb-5 grid max-w-[46rem] gap-1.5 py-11" role="img" aria-label={`${what} scale: ${formatPercent(assumed)} assumed${even === null ? ", no break-even" : `, break-even at ${formatPercent(even)}`}.`}>
       <div className="relative h-3 bg-stone-2 shadow-[inset_0_0_0_1px_var(--color-edge)]">
         {even !== null ? (
           <div className={`absolute top-0 bottom-0 ${margin ? "bg-silk-saffron shadow-[inset_0_0_0_1px_var(--color-saffron)]" : "weave-cross bg-stone-0 shadow-[inset_0_0_0_1px_var(--color-ink)]"}`} style={{ left: at(low), width: `calc(${at(high)} - ${at(low)})` }} />
@@ -256,7 +256,7 @@ function RetentionScale({ assumed, breakEven }: { readonly assumed: number; read
         <span>0%</span>
         <span>100%</span>
       </div>
-      <p className="absolute right-0 bottom-[-1.4rem] left-0 text-center text-2xs text-ink-2">Retention after the offer months</p>
+      <p className="absolute right-0 bottom-[-1.4rem] left-0 text-center text-2xs text-ink-2">{caption}</p>
     </div>
   );
 }
@@ -289,7 +289,7 @@ function Assumptions({ simulation, typed, onType, busy }: {
   );
 }
 
-function Fixed({ label, value, source, icon }: { readonly label: string; readonly value: string; readonly source: string; readonly icon: "database" | "calendar-blank" }) {
+export function Fixed({ label, value, source, icon }: { readonly label: string; readonly value: string; readonly source: string; readonly icon: "database" | "calendar-blank" }) {
   return (
     <div className="grid gap-1 border-b border-cord pb-3">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
@@ -301,7 +301,7 @@ function Fixed({ label, value, source, icon }: { readonly label: string; readonl
   );
 }
 
-function AssumptionField({ name, label, hint, value, source, typed, onApply }: {
+export function AssumptionField({ name, label, hint, value, source, typed, onApply }: {
   readonly name: string;
   readonly label: string;
   readonly hint: string;

@@ -136,11 +136,13 @@ const ON_THE_SITE: Readonly<Record<string, string>> = {
 export type Now = { readonly catalog: string | null; readonly words: string; readonly differs: string | null };
 
 export function now(launch: Pick<LaunchDetail, "title" | "version" | "state" | "snapshotBefore" | "snapshotAfter" | "steps" | "change">, liveCatalog: string | null): Now {
-  const words = `${launch.title} v${launch.version} ${ON_THE_SITE[launch.change.state] ?? "is not on the site"}.`;
+  // The engine always sends the change with its launch; the schema lets it be null only beside a refusal's.
+  const state = launch.change?.state ?? null;
+  const words = `${launch.title} v${launch.version} ${state === null ? "is not known to the console" : (ON_THE_SITE[state] ?? "is not on the site")}.`;
   const left = publication(launch);
-  if (!left.published) return { catalog: liveCatalog, words, differs: null };
-  if (launch.change.state !== "ACTIVE") {
-    const word = ON_THE_SITE[launch.change.state]?.split(":")[0]?.replace(/^is |^has /, "") ?? launch.change.state.toLowerCase();
+  if (!left.published || state === null) return { catalog: liveCatalog, words, differs: null };
+  if (state !== "ACTIVE") {
+    const word = ON_THE_SITE[state]?.split(":")[0]?.replace(/^is |^has /, "") ?? state.toLowerCase();
     return {
       catalog: liveCatalog, words,
       differs: `Not what this launch left: it published catalog #${left.catalog ?? "?"} with the change live; since then the change was ${word}${liveCatalog && liveCatalog !== left.catalog ? `, and catalog #${liveCatalog} is the live one` : ""}.`,
