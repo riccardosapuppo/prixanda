@@ -635,7 +635,14 @@ leave behind: there must be none.
 with seat-based plans goes through the same flows. It shows that Plancia
 is not wired to music and could serve other subscription businesses. Taking
 real payments would stay with a payment provider; Plancia governs
-decisions, approvals and publication.
+decisions, approvals and publication. In the tests it is Quillbase, an
+invented maker of shared notebooks for teams: Starter, its plan without
+payment, and Team (5 seats) and Business (25 seats). What only the music
+service assumed is now a setting or a rule of the data: the artists' share
+and minimum (none for a business that pays no artists, and so no floor),
+the name of the plan without payment (whichever plan is not paid, one at
+most), plans of up to 1,000 seats, and entitlements that only music plans
+have.
 
 ## 15. What Rione does not do
 

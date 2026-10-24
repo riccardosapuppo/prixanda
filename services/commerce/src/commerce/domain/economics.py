@@ -46,7 +46,8 @@ ECB_23_OCTOBER_2026 = ExchangeRate("EUR", "GBP", 83_728, 100_000, "ECB reference
 
 @dataclass(frozen=True)
 class Book:
-    """The assumptions of the business book (§16), with its defaults.
+    """The assumptions of the business book (§16), with its defaults: the music service's. A business that pays
+    no artists (§14.7) has no pool and no minimum, and so no floor: Book(pool_share_bp=0, minimum={...: 0}).
 
     The platform is meant to let finance edit them; until a settings screen
     exists the engine is built with these values, injected, never read from
@@ -115,6 +116,8 @@ class MarketTerms:
                 raise ValueError(f"{name} must be between 0 and {BASIS_POINTS} basis points")
         if self.minimum < 0:
             raise ValueError("the artists' minimum cannot be negative")
+        if self.minimum > 0 and self.pool_share_bp == 0:
+            raise ValueError("a minimum for the artists needs a share of revenue to pay it from")
 
     def net(self, price: int) -> int:
         """§3.5: N(P) = round_half_up(P × 10000 / (10000 + v))."""
