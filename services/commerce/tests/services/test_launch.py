@@ -232,3 +232,31 @@ async def test_a_list_price_in_force_is_not_suspended(world):
     await world.engine.activate_due()
     response = await suspend(world, change)
     assert response.refusal.code == REFUSAL.REFUSAL_CODE_WRONG_STATE and response.refusal.facts["kind"] == "list_price"
+
+
+async def test_an_activation_interleaved_with_a_suspension_stays_on_the_site(world, monkeypatch):
+    # The activation pass reads the clock, then a suspension publishes with a later time before the
+    # activation takes the publication lock: the activation's catalog comes later in the sequence with
+    # an earlier time. The site must still show the activated offer.
+    first = await live(world)  # live from 26 October
+    gift = student_autumn(title="Autumn gift", plan="individual", non_combinability_group="gift-offers",
+                          audience=changes_pb2.Audience(segment=changes_pb2.SEGMENT_NEVER_PAID),
+                          prices=[changes_pb2.OfferPrice(market="IT", fixed=common_pb2.Money(amount_minor=899, currency="EUR"))],
+                          periods=[changes_pb2.OfferPeriod(market="IT", starts_local="2026-10-27T09:00")])
+    second = await scheduled(world, gift, MARKETING, FINANCE)
+    publisher = world.engine.publisher
+    original = publisher.activate
+
+    async def suspend_first_then_activate(tx, change_id, now, request_id):
+        world.clock.at = at(2026, 10, 27, 8, 5)  # five minutes after the pass read its clock
+        await suspend(world, first, reason="The page shows the wrong price.")
+        return await original(tx, change_id, now, request_id)
+
+    monkeypatch.setattr(publisher, "activate", suspend_first_then_activate)
+    world.clock.at = at(2026, 10, 27, 7, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert (outcome.change_id, outcome.action) == (second.id, "activated")
+    world.clock.at = at(2026, 10, 27, 9, 0)
+    assert [o.offer_id for o in await offers(world)] == [second.id]
+    times = await world.owner.fetch("select published_at from catalog_publication order by seq")
+    assert [t["published_at"] for t in times] == sorted(t["published_at"] for t in times)

@@ -235,6 +235,22 @@ validation, which checks:
 - that every market has its page text;
 - and which signatures the version needs (§7.3).
 
+Two offers conflict when they are in the same non-combinability group, sold
+in the same market in periods that overlap, to audiences that can hold the
+same person. The definitions answer that last question (people who never
+paid and Free listeners can be the same people; subscribers of two different
+plans cannot; a student check or a listening threshold only narrows an
+audience), except when both audiences ask for listening to an artist, a
+different one each. The same person can listen to both, so the engine counts
+in the data how many people are in both audiences, in that market, on the
+day of the check. More than zero is a conflict, and the number is in the
+validation's report and in the refusal; a count that cannot be made is a
+conflict too. Scheduling and activation check the conflict again, and count
+again. Someone who comes to be in both audiences once both campaigns are
+live is still protected one by one: a subscriber holds at most one offer of
+a group, and confirming a quote for a second one is refused with
+NOT_COMBINABLE (§10.3).
+
 §6.5 **The difference, in business words.** Before anyone approves, Box
 Office states the change as a sentence, in this shape: "Italy, Student: from
 €5.79 to €2.99 for 3 months, new subscribers only; N eligible; conflicts:
@@ -242,9 +258,11 @@ none." N, the number of eligible people, is counted in the data when the
 sentence is written, never typed by the author.
 
 §6.6 **The simulation of a campaign.** A campaign is compared with not
-running it, over a horizon of `H` months. The assumptions are visible and
-editable, and each one carries its source (a default from this book, or a
-value someone typed, with their role and the time):
+running it, over a horizon of `H` months. An offer that lasts longer than
+`H` months is simulated over its own months and then `H` months after them,
+so that the simulation always covers the whole offer. The assumptions are
+visible and editable, and each one carries its source (a default from this
+book, or a value someone typed, with their role and the time):
 
 - `E`: the eligible audience (from the data);
 - `u`: take-up, the share of `E` that takes the offer;
@@ -324,7 +342,10 @@ round to zero (an audience too small for the assumptions: 1 eligible person
 at 12% take-up is 0 takers). The simulation then shows no effect either way,
 not even a loss, and an effect that cannot be shown is finance's to sign;
 the author writes why, as for a negative contribution. This is a prudent
-choice of this book, not a rule from elsewhere.
+choice of this book, not a rule from elsewhere. For the same reason, when a
+campaign cannot be simulated at all (no list price in force to compare
+with, for example), conditions 3 and 4 both count as met: a simulation that
+is missing never reads as a condition not met.
 
 Otherwise the commercial lead or finance may approve.
 

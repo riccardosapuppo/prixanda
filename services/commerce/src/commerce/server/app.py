@@ -61,7 +61,7 @@ async def _activation_timer(engine: Engine, interval: float, log: JsonLog) -> No
         await asyncio.sleep(interval)
         try:
             for outcome in [*await engine.activate_due(), *await engine.end_due()]:
-                level = "warning" if outcome.action == "failed" else "info"
+                level = "warning" if outcome.action in ("failed", "refused") else "info"
                 log(level, "activation", change=outcome.change_id, action=outcome.action, snapshot=outcome.snapshot_id,
                     error=outcome.error)
         except Exception as error:  # the next tick tries again; stage 6 brings retries and alarms

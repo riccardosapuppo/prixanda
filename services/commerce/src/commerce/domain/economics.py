@@ -67,6 +67,14 @@ class Book:
     exchange_rate: ExchangeRate = ECB_23_OCTOBER_2026
     quote_validity_seconds: int = 30 * 60
 
+    def horizon_for(self, months_at_offer: int) -> int:
+        """§6.6: the book's horizon when the offer fits in it; an offer longer than
+        that is simulated over its own months and then the book's horizon after
+        them, so that the simulation always covers the whole offer."""
+        if months_at_offer <= self.horizon_months:
+            return self.horizon_months
+        return months_at_offer + self.horizon_months
+
     def terms(self, currency: str, vat_bp: int) -> MarketTerms:
         if currency not in self.minimum:
             raise ValueError(f"the book sets no artists' minimum in {currency}")
@@ -306,39 +314,51 @@ def finance_rule(number: int, book: Book) -> str:
 
 def finance_conditions(book: Book, *, sets_list_price: bool, below_floor: list[str],
                        discount_and_top_up: Money | None, contribution: Money | None, horizon_months: int,
-                       asks_consent: bool = False, no_takers: list[str] | None = None) -> list[FinanceCondition]:
+                       asks_consent: bool = False, no_takers: list[str] | None = None,
+                       unsimulated: list[str] | None = None) -> list[FinanceCondition]:
     """The five conditions of §7.3, each met or not, with the numbers.
 
     below_floor lists the offer prices under their market's floor, already in
     words ("Italy: €2.99 against a floor of €6.10"). The simulated amounts are
-    in the reporting currency (§3.6), summed over the markets; None when there
-    is nothing to simulate (a list price).
+    in the reporting currency (§3.6), summed over the markets that could be
+    simulated; None when there is nothing to simulate (a list price).
 
     no_takers names the markets whose simulated takers round to zero: there
     the simulation shows no effect either way, and condition 4 counts as met,
-    because an effect that cannot be shown is finance's to sign (§7.3)."""
+    because an effect that cannot be shown is finance's to sign (§7.3).
+
+    unsimulated says, in words, why a campaign could not be simulated at all
+    ("France: no list price in force"). A simulation that is missing never
+    reads as a condition not met: conditions 3 and 4 then count as met."""
     def condition(number: int, met: bool, detail: str) -> FinanceCondition:
         return FinanceCondition(number, finance_rule(number, book), met, detail)
 
     threshold = book.finance_threshold
     over = f"over {horizon_months} months"
     unseen = no_takers or []
-    if contribution is None:
-        contribution_detail = "Nothing to simulate."
-    else:
-        contribution_detail = f"{format_money(contribution)} {over}"
-        if unseen:
-            contribution_detail += (f"; the simulated takers round to zero in {listing(unseen)}, so the effect "
-                                    "cannot be shown and finance signs for it")
+    blind = f"the campaign cannot be simulated ({'; '.join(unsimulated)}), so finance signs for it" if unsimulated else ""
+
+    def described(parts: list[str]) -> str:
+        text = "; ".join(part for part in parts if part)
+        return (text[0].upper() + text[1:] + ("" if text.endswith(".") else ".")) if text else "Nothing to simulate."
+
+    cost_detail = described([
+        f"{format_money(discount_and_top_up)} {over}, against {format_money(threshold)}" if discount_and_top_up is not None else "",
+        blind])
+    contribution_detail = described([
+        f"{format_money(contribution)} {over}" if contribution is not None else "",
+        f"the simulated takers round to zero in {listing(unseen)}, so the effect cannot be shown and finance signs for it"
+        if unseen else "",
+        blind])
     return [
         condition(1, sets_list_price,
                   "This change sets a list price." if sets_list_price else "No list price is created or changed."),
         condition(2, bool(below_floor),
                   "; ".join(below_floor) if below_floor else "Every offer price is at or above its market's floor."),
-        condition(3, discount_and_top_up is not None and discount_and_top_up > threshold,
-                  f"{format_money(discount_and_top_up)} {over}, against {format_money(threshold)}"
-                  if discount_and_top_up is not None else "Nothing to simulate."),
-        condition(4, contribution is not None and (contribution.amount < 0 or bool(unseen)), contribution_detail),
+        condition(3, (discount_and_top_up is not None and discount_and_top_up > threshold) or bool(unsimulated),
+                  cost_detail),
+        condition(4, (contribution is not None and (contribution.amount < 0 or bool(unseen))) or bool(unsimulated),
+                  contribution_detail),
         condition(5, asks_consent,
                   "Existing subscribers are asked to accept a higher price." if asks_consent else "No price migration."),
     ]
