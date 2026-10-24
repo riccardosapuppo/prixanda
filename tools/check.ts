@@ -20,6 +20,7 @@ import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { buildConsole, GATEWAY_URL as E2E_GATEWAY_URL, runEndToEnd } from "../apps/console/e2e/run.ts";
 import { nestedSegmentFiles } from "../apps/site/scripts/segments.ts";
+import { buildDemo, DEMO_URL, missingParts, serveDemo } from "./demo.ts";
 import { licenseInventory, writeReport } from "./licenses.ts";
 import { flyway } from "./lib/flyway.ts";
 import { measure } from "./lib/measure.ts";
@@ -686,6 +687,77 @@ const SUITES: Suite[] = [
         await cluster.sql("postgres", `drop database if exists ${database} with (force)`);
       }
     },
+  },
+  // The demo in the browser (stage 8): the three parts built for the
+  // sandbox and assembled in dist/demo/, served on DEMO_PORT (4651), and
+  // headless Chromium on its journeys. It comes last: it leaves the apps'
+  // out/ folders built for the sandbox.
+  {
+    name: "demo",
+    what: "the demo in the browser, assembled: the site at /, the console at /console/, the sandbox at /sandbox/, served on 127.0.0.1:4651; headless Chromium on its journeys, no request leaving the origin, axe",
+    needsDatabase: false,
+    async run() {
+      if (!(await chromiumInstalled())) return notRun("no Chromium for playwright 1.62.1: npx playwright install chromium (it downloads the browser)");
+      const missing = missingParts();
+      if (missing.length > 0) return notRun(`not built yet: ${missing.map((part) => `${part.name}, by ${part.owner}`).join("; ")}`);
+      try {
+        await buildDemo({ echo: false });
+      } catch (error) {
+        return failed("-", error instanceof Error ? error.message.slice(-3000) : String(error));
+      }
+      const server = await serveDemo();
+      try {
+        const counted: string[] = [];
+        for (const journey of DEMO_JOURNEYS) {
+          const report = join(reports, `demo-${journey.name}.xml`);
+          const summary = join(reports, `demo-${journey.name}.json`);
+          await rm(summary, { force: true });
+          const ran = await run(process.execPath, [...journey.args(report)], {
+            cwd: journey.cwd, echo: true, env: { ...process.env, DEMO_URL, [journey.summaryVariable]: summary },
+          });
+          if (!existsSync(report)) return failed(counted.join("; ") || "0", `${journey.name}: node --test wrote no report (exit ${ran.code})`);
+          const xml = await readFile(report, "utf8");
+          const tests = [...xml.matchAll(/<testcase\b/g)].length;
+          const failures = [...xml.matchAll(/<failure\b/g)].length;
+          const said = existsSync(summary) ? journey.describe(JSON.parse(await readFile(summary, "utf8"))) : "no summary";
+          counted.push(`${journey.name}: ${tests} tests, ${failures} failed; ${said}`);
+          if (ran.code !== 0 || failures > 0) return failed(counted.join("; "), `${journey.name}: node --test exited ${ran.code}`);
+          if (tests < journey.floor) return failed(counted.join("; "), `${journey.name}: fewer than ${journey.floor} tests`);
+        }
+        return passed(counted.join("; "));
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+  },
+];
+
+/**
+ * The journeys of the suite demo, one after the other, on the demo served on
+ * DEMO_URL. Each writes a JUnit report and a summary of what it measured.
+ * The console's journey, the recruiter's with two tabs (the site and the
+ * console), goes in this list next to the site's.
+ */
+type DemoJourney = {
+  readonly name: string;
+  readonly cwd: string;
+  readonly args: (report: string) => readonly string[];
+  readonly summaryVariable: string;
+  readonly floor: number;
+  readonly describe: (summary: Record<string, unknown>) => string;
+};
+const seconds = (ms: unknown) => (typeof ms === "number" ? `${(ms / 1000).toFixed(1)} s` : "never");
+const DEMO_JOURNEYS: readonly DemoJourney[] = [
+  {
+    name: "site",
+    cwd: join(repoRoot, "apps", "site"),
+    args: (report) => ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`, "--test-reporter=spec", "--test-reporter-destination=stdout", join("e2e", "demo.e2e.ts")],
+    summaryVariable: "SITE_DEMO_SUMMARY",
+    floor: 6,
+    describe: (summary) => `first start ${seconds(summary["coldReadyMs"])}, second tab ${seconds(summary["secondTabMs"])},`
+      + ` the campaign on the site ${seconds(summary["offerOnSiteMs"])} after the launch, a reload ${seconds(summary["reloadMs"])},`
+      + ` the worker again ${seconds(summary["restartMs"])}, start over ${seconds(summary["startOverMs"])};`
+      + ` axe on ${String(summary["pagesChecked"])} pages, ${String(summary["seriousViolations"])} serious; ${String(summary["externalRequests"])} requests elsewhere`,
   },
 ];
 

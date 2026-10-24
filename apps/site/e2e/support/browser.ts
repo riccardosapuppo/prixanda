@@ -71,16 +71,27 @@ export class Watch {
 
   /** A browser of its own (cookies included). */
   async visitor(width = 1280): Promise<{ context: BrowserContext; page: Page }> {
+    const context = await this.context(width);
+    return { context, page: await this.tab(context) };
+  }
+
+  /** A browser of its own whose requests to another host are counted and refused; its tabs come from tab(). */
+  async context(width = 1280): Promise<BrowserContext> {
     const context = await this.#browser().newContext({ viewport: { width, height: width < 600 ? 844 : 900 }, locale: "en-GB", timezoneId: "Europe/Rome" });
     await context.route("**/*", async (route) => {
       const url = new URL(route.request().url());
-      if (url.hostname !== "127.0.0.1") {
+      if (url.protocol !== "data:" && url.protocol !== "blob:" && url.hostname !== "127.0.0.1") {
         this.externalRequests += 1;
         await route.abort();
         return;
       }
       await route.continue();
     });
+    return context;
+  }
+
+  /** A new tab of a browser, watched like the others. */
+  async tab(context: BrowserContext): Promise<Page> {
     const page = await context.newPage();
     page.on("console", (message) => {
       if (message.type() === "error") this.pageErrors.push(message.text());
@@ -91,7 +102,7 @@ export class Watch {
       const body = request.postDataJSON() as { operationName?: string; variables?: Record<string, unknown> } | null;
       this.siteRequests.push({ operation: body?.operationName ?? "", requestId: request.headers()["x-request-id"] ?? "", variables: body?.variables ?? {} });
     });
-    return { context, page };
+    return page;
   }
 
   /** axe on the page as it is now: serious and critical violations fail the test. */

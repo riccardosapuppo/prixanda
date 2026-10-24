@@ -10,6 +10,14 @@ import { randomUUID } from "node:crypto";
 
 export type Answer = { readonly status: number; readonly body: any; readonly text: string };
 
+/** One of the demo's people, signed in on the console's API: over HTTP here, through the sandbox's worker in the demo's test. */
+export type Session = {
+  graphql(query: string, variables?: Record<string, unknown>, headers?: Record<string, string>): Promise<Answer>;
+};
+
+/** How a launch gets a person's session: by default, over HTTP to the console's API at that address. */
+export type Sessions = string | ((person: string) => Promise<Session>);
+
 export class ConsoleSession {
   readonly url: string;
   readonly person: string;
@@ -129,8 +137,8 @@ const KINDS = {
  * exact version and fingerprint; marketing schedules it. The engine then
  * activates it at its start, on its own.
  */
-export async function launchOffer(consoleUrl: string, offer: Record<string, unknown>, tag = randomUUID().slice(0, 8)): Promise<Launched> {
-  return launchChange(consoleUrl, "offer", offer, tag);
+export async function launchOffer(sessions: Sessions, offer: Record<string, unknown>, tag = randomUUID().slice(0, 8)): Promise<Launched> {
+  return launchChange(sessions, "offer", offer, tag);
 }
 
 /**
@@ -139,13 +147,14 @@ export async function launchOffer(consoleUrl: string, offer: Record<string, unkn
  * starts it on its own: an offer or a pass goes on sale, a migration asks or
  * tells the existing subscribers.
  */
-export async function launchChange(consoleUrl: string, kind: keyof typeof KINDS, content: Record<string, unknown>, tag = randomUUID().slice(0, 8)): Promise<Launched> {
+export async function launchChange(sessions: Sessions, kind: keyof typeof KINDS, content: Record<string, unknown>, tag = randomUUID().slice(0, 8)): Promise<Launched> {
   const how = KINDS[kind];
-  const author = await new ConsoleSession(consoleUrl, how.author).signIn();
-  const finance = await new ConsoleSession(consoleUrl, "finance-1").signIn();
+  const open = typeof sessions === "string" ? (person: string) => new ConsoleSession(sessions, person).signIn() : sessions;
+  const author = await open(how.author);
+  const finance = await open("finance-1");
   const marketing = author;
   const requestIds: Record<string, string> = {};
-  const step = async (session: ConsoleSession, action: string, query: string, variables: Record<string, unknown>) => {
+  const step = async (session: Session, action: string, query: string, variables: Record<string, unknown>) => {
     const requestId = `e2e-${action.replace("change.", "")}-${tag}`;
     requestIds[action] = requestId;
     const answer = await session.graphql(query, variables, { "x-request-id": requestId });

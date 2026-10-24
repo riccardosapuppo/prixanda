@@ -2,12 +2,17 @@
 // (a personal project, simulated data), the header with the service's
 // wordmark, and the footer's one sentence. The disclaimer about payments is
 // not repeated here: it stands where a visitor could take a step for a
-// purchase, and only there.
+// purchase, and only there. In the demo's sandbox (SANDBOX=1) the frame adds
+// the bar of the demo starting in this browser, and at the foot the line and
+// the panel about the sandbox.
 import { Icon } from "design/icon";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { copy } from "../../content/copy.ts";
+import { SANDBOX_MODE } from "../../data/config.ts";
 import { HeaderLinks } from "./HeaderLinks.tsx";
+import { SandboxFooter } from "./SandboxFooter.tsx";
+import { SandboxStatus } from "./SandboxStatus.tsx";
 
 export function ProjectTags() {
   return (
@@ -56,13 +61,17 @@ export function SiteFrame({ children }: { readonly children: ReactNode }) {
           <HeaderLinks />
         </div>
       </header>
+      {SANDBOX_MODE ? <SandboxStatus /> : null}
       <main id="main" tabIndex={-1} className="flex-1 focus-visible:outline-none">
         {children}
       </main>
       <footer className="border-t border-ink bg-stone-0">
         <div className="wrap grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-8 gap-y-4 py-8 max-md:grid-cols-1">
           <Wordmark label={`${copy.service}: ${copy.nav.plans.toLowerCase()}`} />
-          <p className="m-0 max-w-[72ch] text-md text-ink-2">{copy.frame.footer}</p>
+          <div className="grid max-w-[72ch] gap-3">
+            <p className="m-0 text-md text-ink-2">{copy.frame.footer}</p>
+            {SANDBOX_MODE ? <SandboxFooter /> : null}
+          </div>
         </div>
       </footer>
     </>
