@@ -338,6 +338,68 @@ export declare type PriceMigrationContent = Message<"commerce.v1.PriceMigrationC
 export declare const PriceMigrationContentSchema: GenMessage<PriceMigrationContent>;
 
 /**
+ * A prepaid pass (§9, §14.4): months of a plan paid in advance, sold as a
+ * single-use code that can be given as a gift. It never renews, and price
+ * changes made after it was sold do not touch it. The commercial lead writes
+ * it and finance signs it, as a price (§7.3, condition 1). It starts when
+ * the first of its periods does.
+ *
+ * @generated from message commerce.v1.PrepaidPassContent
+ */
+export declare type PrepaidPassContent = Message<"commerce.v1.PrepaidPassContent"> & {
+  /**
+   * @generated from field: string title = 1;
+   */
+  title: string;
+
+  /**
+   * The plan it gives, for its months.
+   *
+   * @generated from field: string plan = 2;
+   */
+  plan: string;
+
+  /**
+   * @generated from field: int32 months = 3;
+   */
+  months: number;
+
+  /**
+   * Its price in each market where it is sold, VAT included: a fixed price.
+   *
+   * @generated from field: repeated commerce.v1.OfferPrice prices = 4;
+   */
+  prices: OfferPrice[];
+
+  /**
+   * When it is on sale in each market, in local time; no end: open.
+   *
+   * @generated from field: repeated commerce.v1.OfferPeriod periods = 5;
+   */
+  periods: OfferPeriod[];
+
+  /**
+   * How long a code sold can be activated: months from the day it was sold.
+   *
+   * @generated from field: int32 code_valid_months = 6;
+   */
+  codeValidMonths: number;
+
+  /**
+   * Its page in each market.
+   *
+   * @generated from field: repeated commerce.v1.OfferPage pages = 7;
+   */
+  pages: OfferPage[];
+};
+
+/**
+ * Describes the message commerce.v1.PrepaidPassContent.
+ * Use `create(PrepaidPassContentSchema)` to create a new message.
+ */
+export declare const PrepaidPassContentSchema: GenMessage<PrepaidPassContent>;
+
+/**
  * How a price migration stands with the existing subscribers, once it started.
  *
  * @generated from message commerce.v1.MigrationProgress
@@ -459,6 +521,12 @@ export declare type ChangeVersion = Message<"commerce.v1.ChangeVersion"> & {
      */
     value: PriceMigrationContent;
     case: "priceMigration";
+  } | {
+    /**
+     * @generated from field: commerce.v1.PrepaidPassContent prepaid = 8;
+     */
+    value: PrepaidPassContent;
+    case: "prepaid";
   } | { case: undefined; value?: undefined };
 };
 
@@ -783,6 +851,12 @@ export declare type CreateChangeRequest = Message<"commerce.v1.CreateChangeReque
      */
     value: PriceMigrationContent;
     case: "priceMigration";
+  } | {
+    /**
+     * @generated from field: commerce.v1.PrepaidPassContent prepaid = 4;
+     */
+    value: PrepaidPassContent;
+    case: "prepaid";
   } | { case: undefined; value?: undefined };
 };
 
@@ -857,6 +931,12 @@ export declare type SaveVersionRequest = Message<"commerce.v1.SaveVersionRequest
      */
     value: PriceMigrationContent;
     case: "priceMigration";
+  } | {
+    /**
+     * @generated from field: commerce.v1.PrepaidPassContent prepaid = 6;
+     */
+    value: PrepaidPassContent;
+    case: "prepaid";
   } | { case: undefined; value?: undefined };
 };
 

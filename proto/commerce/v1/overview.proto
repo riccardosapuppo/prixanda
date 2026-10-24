@@ -69,6 +69,21 @@ message MarketRevenue {
   Money revenue_eur = 3;
 }
 
+// The prepaid passes of a market, and their value sold and not yet earned on
+// the day (§9.2): each pass's net amount is earned in equal monthly parts from
+// its activation, the last taking the remainder; a code not activated stays
+// unearned until it expires.
+message PrepaidValue {
+  string market = 1;
+  // Codes paid for, of which activated, and expired unused.
+  int64 sold = 2;
+  int64 activated = 3;
+  int64 expired = 4;
+  // Without VAT, in the market's currency, and in euros at the declared rate.
+  Money unearned = 5;
+  Money unearned_eur = 6;
+}
+
 message GetOverviewResponse {
   repeated ChangeSummary waiting_for_approval = 1;
   repeated Launch launches_next_7_days = 2;
@@ -83,6 +98,10 @@ message GetOverviewResponse {
   string exchange_rate_note = 8;
   // What the music service adds this month to reach the artists' minimum (§5.5).
   Money monthly_top_ups = 9;
+  // Finance only (§12.2): the value of prepaid passes sold and not yet earned,
+  // by market and in all; empty for the other roles.
+  repeated PrepaidValue prepaid = 10;
+  Money prepaid_unearned_eur = 11;
 }
 
 message Person {

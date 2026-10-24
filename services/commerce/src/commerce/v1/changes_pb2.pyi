@@ -178,6 +178,24 @@ class PriceMigrationContent(_message.Message):
     starts_local: str
     def __init__(self, title: _Optional[str] = ..., plan: _Optional[str] = ..., market: _Optional[str] = ..., amount: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., notices_local: _Optional[str] = ..., starts_local: _Optional[str] = ...) -> None: ...
 
+class PrepaidPassContent(_message.Message):
+    __slots__ = ("title", "plan", "months", "prices", "periods", "code_valid_months", "pages")
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    PLAN_FIELD_NUMBER: _ClassVar[int]
+    MONTHS_FIELD_NUMBER: _ClassVar[int]
+    PRICES_FIELD_NUMBER: _ClassVar[int]
+    PERIODS_FIELD_NUMBER: _ClassVar[int]
+    CODE_VALID_MONTHS_FIELD_NUMBER: _ClassVar[int]
+    PAGES_FIELD_NUMBER: _ClassVar[int]
+    title: str
+    plan: str
+    months: int
+    prices: _containers.RepeatedCompositeFieldContainer[OfferPrice]
+    periods: _containers.RepeatedCompositeFieldContainer[OfferPeriod]
+    code_valid_months: int
+    pages: _containers.RepeatedCompositeFieldContainer[OfferPage]
+    def __init__(self, title: _Optional[str] = ..., plan: _Optional[str] = ..., months: _Optional[int] = ..., prices: _Optional[_Iterable[_Union[OfferPrice, _Mapping]]] = ..., periods: _Optional[_Iterable[_Union[OfferPeriod, _Mapping]]] = ..., code_valid_months: _Optional[int] = ..., pages: _Optional[_Iterable[_Union[OfferPage, _Mapping]]] = ...) -> None: ...
+
 class MigrationProgress(_message.Message):
     __slots__ = ("requirement", "window_ends", "asked", "waiting", "accepted", "declined", "lapsed", "new_price", "left")
     REQUIREMENT_FIELD_NUMBER: _ClassVar[int]
@@ -201,7 +219,7 @@ class MigrationProgress(_message.Message):
     def __init__(self, requirement: _Optional[str] = ..., window_ends: _Optional[_Union[_common_pb2.LocalTime, _Mapping]] = ..., asked: _Optional[int] = ..., waiting: _Optional[int] = ..., accepted: _Optional[int] = ..., declined: _Optional[int] = ..., lapsed: _Optional[int] = ..., new_price: _Optional[int] = ..., left: _Optional[int] = ...) -> None: ...
 
 class ChangeVersion(_message.Message):
-    __slots__ = ("version", "author", "created_at", "content_hash", "offer", "list_price", "price_migration")
+    __slots__ = ("version", "author", "created_at", "content_hash", "offer", "list_price", "price_migration", "prepaid")
     VERSION_FIELD_NUMBER: _ClassVar[int]
     AUTHOR_FIELD_NUMBER: _ClassVar[int]
     CREATED_AT_FIELD_NUMBER: _ClassVar[int]
@@ -209,6 +227,7 @@ class ChangeVersion(_message.Message):
     OFFER_FIELD_NUMBER: _ClassVar[int]
     LIST_PRICE_FIELD_NUMBER: _ClassVar[int]
     PRICE_MIGRATION_FIELD_NUMBER: _ClassVar[int]
+    PREPAID_FIELD_NUMBER: _ClassVar[int]
     version: int
     author: str
     created_at: str
@@ -216,7 +235,8 @@ class ChangeVersion(_message.Message):
     offer: OfferContent
     list_price: ListPriceContent
     price_migration: PriceMigrationContent
-    def __init__(self, version: _Optional[int] = ..., author: _Optional[str] = ..., created_at: _Optional[str] = ..., content_hash: _Optional[bytes] = ..., offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ..., price_migration: _Optional[_Union[PriceMigrationContent, _Mapping]] = ...) -> None: ...
+    prepaid: PrepaidPassContent
+    def __init__(self, version: _Optional[int] = ..., author: _Optional[str] = ..., created_at: _Optional[str] = ..., content_hash: _Optional[bytes] = ..., offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ..., price_migration: _Optional[_Union[PriceMigrationContent, _Mapping]] = ..., prepaid: _Optional[_Union[PrepaidPassContent, _Mapping]] = ...) -> None: ...
 
 class Approval(_message.Message):
     __slots__ = ("version", "approver", "role", "decided_at", "content_hash")
@@ -334,14 +354,16 @@ class ChangeSummary(_message.Message):
     def __init__(self, id: _Optional[int] = ..., kind: _Optional[_Union[ChangeKind, str]] = ..., title: _Optional[str] = ..., state: _Optional[_Union[ChangeState, str]] = ..., current_version: _Optional[int] = ..., created_by: _Optional[str] = ..., markets: _Optional[_Iterable[str]] = ..., required_signatures: _Optional[_Iterable[_Union[RequiredSignature, _Mapping]]] = ..., updated_at: _Optional[str] = ...) -> None: ...
 
 class CreateChangeRequest(_message.Message):
-    __slots__ = ("offer", "list_price", "price_migration")
+    __slots__ = ("offer", "list_price", "price_migration", "prepaid")
     OFFER_FIELD_NUMBER: _ClassVar[int]
     LIST_PRICE_FIELD_NUMBER: _ClassVar[int]
     PRICE_MIGRATION_FIELD_NUMBER: _ClassVar[int]
+    PREPAID_FIELD_NUMBER: _ClassVar[int]
     offer: OfferContent
     list_price: ListPriceContent
     price_migration: PriceMigrationContent
-    def __init__(self, offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ..., price_migration: _Optional[_Union[PriceMigrationContent, _Mapping]] = ...) -> None: ...
+    prepaid: PrepaidPassContent
+    def __init__(self, offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ..., price_migration: _Optional[_Union[PriceMigrationContent, _Mapping]] = ..., prepaid: _Optional[_Union[PrepaidPassContent, _Mapping]] = ...) -> None: ...
 
 class CreateChangeResponse(_message.Message):
     __slots__ = ("change", "refusal")
@@ -352,18 +374,20 @@ class CreateChangeResponse(_message.Message):
     def __init__(self, change: _Optional[_Union[Change, _Mapping]] = ..., refusal: _Optional[_Union[_common_pb2.Refusal, _Mapping]] = ...) -> None: ...
 
 class SaveVersionRequest(_message.Message):
-    __slots__ = ("change_id", "base_version", "offer", "list_price", "price_migration")
+    __slots__ = ("change_id", "base_version", "offer", "list_price", "price_migration", "prepaid")
     CHANGE_ID_FIELD_NUMBER: _ClassVar[int]
     BASE_VERSION_FIELD_NUMBER: _ClassVar[int]
     OFFER_FIELD_NUMBER: _ClassVar[int]
     LIST_PRICE_FIELD_NUMBER: _ClassVar[int]
     PRICE_MIGRATION_FIELD_NUMBER: _ClassVar[int]
+    PREPAID_FIELD_NUMBER: _ClassVar[int]
     change_id: int
     base_version: int
     offer: OfferContent
     list_price: ListPriceContent
     price_migration: PriceMigrationContent
-    def __init__(self, change_id: _Optional[int] = ..., base_version: _Optional[int] = ..., offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ..., price_migration: _Optional[_Union[PriceMigrationContent, _Mapping]] = ...) -> None: ...
+    prepaid: PrepaidPassContent
+    def __init__(self, change_id: _Optional[int] = ..., base_version: _Optional[int] = ..., offer: _Optional[_Union[OfferContent, _Mapping]] = ..., list_price: _Optional[_Union[ListPriceContent, _Mapping]] = ..., price_migration: _Optional[_Union[PriceMigrationContent, _Mapping]] = ..., prepaid: _Optional[_Union[PrepaidPassContent, _Mapping]] = ...) -> None: ...
 
 class SaveVersionResponse(_message.Message):
     __slots__ = ("change", "refusal")

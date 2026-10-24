@@ -204,3 +204,37 @@ class ListOffersResponse(_message.Message):
     OFFERS_FIELD_NUMBER: _ClassVar[int]
     offers: _containers.RepeatedCompositeFieldContainer[PublishedOffer]
     def __init__(self, offers: _Optional[_Iterable[_Union[PublishedOffer, _Mapping]]] = ...) -> None: ...
+
+class ListPrepaidPassesRequest(_message.Message):
+    __slots__ = ("market",)
+    MARKET_FIELD_NUMBER: _ClassVar[int]
+    market: str
+    def __init__(self, market: _Optional[str] = ...) -> None: ...
+
+class PrepaidPassOnSale(_message.Message):
+    __slots__ = ("pass_id", "market", "title", "plan", "months", "price", "code_valid_months", "text", "terms")
+    PASS_ID_FIELD_NUMBER: _ClassVar[int]
+    MARKET_FIELD_NUMBER: _ClassVar[int]
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    PLAN_FIELD_NUMBER: _ClassVar[int]
+    MONTHS_FIELD_NUMBER: _ClassVar[int]
+    PRICE_FIELD_NUMBER: _ClassVar[int]
+    CODE_VALID_MONTHS_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    TERMS_FIELD_NUMBER: _ClassVar[int]
+    pass_id: int
+    market: str
+    title: str
+    plan: str
+    months: int
+    price: _common_pb2.Money
+    code_valid_months: int
+    text: str
+    terms: str
+    def __init__(self, pass_id: _Optional[int] = ..., market: _Optional[str] = ..., title: _Optional[str] = ..., plan: _Optional[str] = ..., months: _Optional[int] = ..., price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., code_valid_months: _Optional[int] = ..., text: _Optional[str] = ..., terms: _Optional[str] = ...) -> None: ...
+
+class ListPrepaidPassesResponse(_message.Message):
+    __slots__ = ("passes",)
+    PASSES_FIELD_NUMBER: _ClassVar[int]
+    passes: _containers.RepeatedCompositeFieldContainer[PrepaidPassOnSale]
+    def __init__(self, passes: _Optional[_Iterable[_Union[PrepaidPassOnSale, _Mapping]]] = ...) -> None: ...
