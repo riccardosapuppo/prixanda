@@ -105,6 +105,11 @@ describe("the role matrix", () => {
     assert.deepEqual(Object.keys(FIELD_ROLES).sort(), ["Overview.monthlyRevenue", "Overview.monthlyRevenueEur", "Overview.monthlyTopUps"]);
   });
 
+  test("asks for the home in a role that reads its narrower fields first, when the person holds one", () => {
+    const readers = [...new Set(Object.values(FIELD_ROLES).flat())];
+    assert.deepEqual(sorted(METHOD_ROLES.GetOverview.slice(0, readers.length)), sorted(readers));
+  });
+
   test("covers every method of the contract: public or in the matrix, never both", () => {
     const contract = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService]
       .flatMap((service) => service.methods.map((method) => method.name));
@@ -127,6 +132,7 @@ describe("a person holding two roles acts in the one the operation needs", () =>
         extraPeople: {
           "lead-and-finance-1": { label: "Commercial lead and finance", roles: ["commercial_lead", "finance"] },
           "marketing-and-lead-1": { label: "Marketing and commercial lead", roles: ["marketing", "commercial_lead"] },
+          "marketing-and-finance-1": { label: "Marketing and finance", roles: ["marketing", "finance"] },
         },
       },
     });
@@ -154,6 +160,29 @@ describe("a person holding two roles acts in the one the operation needs", () =>
     assert.equal(answer.body.data.validateChange.state, "VALIDATED", answer.text);
     assert.equal(harness.engine.calls.find((call) => call.method === "ValidateChange")?.role, "marketing");
     assert.equal(harness.engine.count("BatchGetChanges"), 1, "the kind was read through the loader, once");
+  });
+
+  test("the home: a person who may read revenue reads it, whichever other role they hold", async () => {
+    // The engine fills the revenue only for finance and the commercial lead:
+    // the overview must be asked in the role that reads it, or it comes back
+    // empty while the gateway's field check lets it through.
+    const query = "{ overview { monthlyRevenue { market revenue } monthlyRevenueEur monthlyTopUps exchangeRateNote } }";
+    for (const person of ["marketing-and-finance-1", "marketing-and-lead-1"]) {
+      const client = harness.console();
+      await client.signIn(person);
+      harness.engine.clearCalls();
+      const answer = await client.graphql(query);
+      assert.equal(answer.body.errors, undefined, `${person}: ${answer.text}`);
+      assert.deepEqual(answer.body.data.overview.monthlyRevenueEur, { amountMinor: "15234000", currency: "EUR" }, person);
+      assert.deepEqual(answer.body.data.overview.monthlyTopUps, { amountMinor: "187200", currency: "EUR" }, person);
+      assert.equal(answer.body.data.overview.monthlyRevenue.length, 1, person);
+      assert.notEqual(harness.engine.calls.find((call) => call.method === "GetOverview")?.role, "marketing", person);
+    }
+    const marketing = harness.console();
+    await marketing.signIn("marketing-1");
+    const refused = await marketing.graphql(query);
+    assert.deepEqual(refused.body.errors.map((error: { extensions: { code: string } }) => error.extensions.code), ["FORBIDDEN", "FORBIDDEN", "FORBIDDEN"]);
+    assert.equal(refused.body.data.overview.exchangeRateNote, "1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026)");
   });
 
   test("a person with one role needs no lookup", async () => {

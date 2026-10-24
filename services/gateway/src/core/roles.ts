@@ -52,7 +52,11 @@ export const METHOD_ROLES = {
   GetChange: ALL,
   BatchGetChanges: ALL,
   ListChanges: ALL,
-  GetOverview: ALL,
+  // Everyone reads the home, but the engine fills its revenue only for
+  // finance and the commercial lead (FIELD_ROLES below): a person who also
+  // holds one of those roles must ask in it, or the revenue comes back empty
+  // while the field check lets it through.
+  GetOverview: ["finance", "commercial_lead", "marketing", "catalog_manager", "on_call", "auditor"],
   ListEvents: ALL,
   // The on-call engineer verifies the chain when the runbook says it does not add up.
   VerifyChain: ["auditor", "on_call"],
