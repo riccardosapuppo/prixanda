@@ -232,12 +232,13 @@ const SUITES: Suite[] = [
       return passed(counted);
     },
   },
-  // The engine and the gateway together (end of stage 3): the real engine on
-  // CHECK_ENGINE_PORT, the real gateway on the gateway's test ports, and the
-  // Student Autumn Pass walked through over HTTP only.
+  // The engine and the gateway together (end of stage 3, and the subscriber's
+  // side of stage 5): the real engine on CHECK_ENGINE_PORT, the real gateway
+  // on the gateway's test ports, and the Student Autumn Pass walked through
+  // over HTTP only, up to a student's subscription.
   {
     name: "integration",
-    what: "the real engine and the real gateway over HTTP: §14.1 from a draft to the site's quote, the audit log, idempotency",
+    what: "the real engine and the real gateway over HTTP: §14.1 from a draft to a student's subscription on the site, the audit log, idempotency",
     needsDatabase: true,
     async run({ cluster }) {
       if (!cluster) return notRun("no database");
@@ -257,10 +258,20 @@ const SUITES: Suite[] = [
           INTEGRATION_SUMMARY: summaryFile,
         });
         if (!existsSync(summaryFile)) return failed(tests.counted, `${tests.detail}\nthe test wrote no summary`.trim());
-        const summary = JSON.parse(await readFile(summaryFile, "utf8")) as { activationMs: number | null; auditEvents: number; engineExit: number | null };
-        const counted = `${tests.counted}; on the site ${summary.activationMs === null ? "never" : `${(summary.activationMs / 1000).toFixed(1)} s`} after 09:00; ${summary.auditEvents} audit events`;
+        const summary = JSON.parse(await readFile(summaryFile, "utf8")) as {
+          activationMs: number | null;
+          auditEvents: number;
+          engineExit: number | null;
+          subscription: { price: string; months: number; fullPrice: string; fullPriceFrom: string; payment: string; logged: boolean } | null;
+        };
+        const euros = (minor: string) => (Number(minor) / 100).toFixed(2);
+        const paid = summary.subscription
+          ? `subscribed at ${euros(summary.subscription.price)} × ${summary.subscription.months}, then ${euros(summary.subscription.fullPrice)} from ${summary.subscription.fullPriceFrom}, the first month ${summary.subscription.payment}`
+          : "no subscription";
+        const counted = `${tests.counted}; on the site ${summary.activationMs === null ? "never" : `${(summary.activationMs / 1000).toFixed(1)} s`} after 09:00; ${summary.auditEvents} audit events; ${paid}`;
         if (tests.outcome !== "passed") return { ...tests, counted };
         if (summary.auditEvents < GATEWAY_FLOOR.integrationAuditEvents) return failed(counted, `fewer than ${GATEWAY_FLOOR.integrationAuditEvents} audit events of the pass were found`);
+        if (!summary.subscription?.logged) return failed(counted, "the student's subscription was not found in the audit log");
         if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
         return passed(counted);
       } finally {
@@ -287,7 +298,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 46, coreFiles: 19, generated: 3, schemaTests: 18, tests: 185, dataloaderOffers: 25, integrationTests: 7, integrationAuditEvents: 7,
+  files: 46, coreFiles: 19, generated: 3, schemaTests: 18, tests: 185, dataloaderOffers: 25, integrationTests: 8, integrationAuditEvents: 7,
 };
 
 /**

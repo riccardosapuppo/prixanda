@@ -380,9 +380,20 @@ sign: the price is under the floor) and submits it; marketing's approval and
 the commercial lead's are refused, finance's with an old fingerprint too,
 and finance's with the exact one approves it; marketing schedules it; the
 site shows it at €2.99 with €5.79 struck through, and quotes €2.99 for 3
-months, then €5.79; the auditor finds every step in the log with the request
+months, then €5.79, and shows where the Student price goes (§5.5: €4.75 net,
+€3.00 for the artists, €0.15 of it from the music service; the offer's own
+breakdown comes with the engine of stage 6, and reads null until then without
+an error); the auditor finds every step in the log with the request
 id the client sent, and the chain holds; a repeated idempotency key gives the
-same change, and the same key for another request is refused.
+same change, and the same key for another request is refused. Last, on the
+site, the demo's verified student in Italy signs in, asks for the pass's quote
+and confirms it: €2.99 charged on 26 October, then on 26 November and 26
+December, the list price of €5.79 from 26 January 2027, the same in their
+account, the first month's payment succeeded with a receipt that says no
+money moved (read again from the account while it is pending, with an engine
+that charges after the confirmation), and in the log a
+`subscription.confirmed` written by the subscriber with the site's request
+id, the chain still whole.
 
 The engine reads the machine's clock when it runs for real, and nothing in
 it moves time. The test starts the same `serve()` through a launcher of its

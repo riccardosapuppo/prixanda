@@ -1,5 +1,6 @@
 // The engine and the gateway together, on the Student Autumn Pass of the
-// business book's §14.1, from a draft to a quote on the site.
+// business book's §14.1, from a draft to the subscription of a student on the
+// site.
 //
 // Run by tools/check.ts (suite integration), which hands it a database cloned
 // from the migrated template and filled with the small generated data (seed
@@ -49,6 +50,10 @@ const CHANGE = `__typename ... on Change { id state currentVersion sentence crea
   validation { valid eligible findings { check severity } }
   requiredSignatures { role conditions signed why } approvals { approver { id } role fingerprint } }
   ... on Refusal { code reason facts { name value } }`;
+
+const SUBSCRIPTION = "plan market paid price startedOn billingDay offerTitle offerMonths offerMonthsLeft fullPriceFrom fullPrice nextBillingOn nextCharge";
+const PAYMENT = "state amount provider requestedAt settledAt receipt { amount provider providerReference demonstration note }";
+const EUR = (amountMinor: string) => ({ amountMinor, currency: "EUR" });
 
 /** The engine as a child process, its log lines read as they come, its clock moved through its standard input. */
 type Engine = {
@@ -169,6 +174,8 @@ const state = {
   requestIds: {} as Record<string, string>,
   activationMs: Number.NaN,
   auditEvents: 0,
+  /** What the student of step h pays, as the engine confirmed it and the log has it. */
+  subscription: null as null | { price: string; months: number; fullPrice: string; fullPriceFrom: string; payment: string; logged: boolean },
 };
 
 function client(endpoint: "internal" | "public"): Client {
@@ -327,7 +334,9 @@ describe("the Student Autumn Pass through the engine and the gateway (§14.1)", 
 
   test("e. the site: the pass in Italy at €2.99 with €5.79 struck through, and a quote of €2.99 for 3 months, then €5.79", async () => {
     const site = client("public");
-    const listed = await site.graphql(`{ offers(market: "IT") { id plan title price listPrice monthsAtOfferPrice needsStudentCheck audience takeableUntil { local utc } } }`);
+    const breakdown = "breakdown { price net artists topUp }";
+    const listed = await site.graphql(`{ offers(market: "IT") { id plan title price listPrice monthsAtOfferPrice needsStudentCheck audience takeableUntil { local utc } ${breakdown} } }`);
+    assert.equal(listed.body.errors, undefined, listed.text);
     const offer = listed.body.data.offers.find((candidate: { id: string }) => candidate.id === state.changeId);
     assert.ok(offer, listed.text);
     assert.deepEqual(
@@ -335,6 +344,17 @@ describe("the Student Autumn Pass through the engine and the gateway (§14.1)", 
       { plan: "student", title: "Student Autumn Pass", price: { amountMinor: "299", currency: "EUR" }, listPrice: { amountMinor: "579", currency: "EUR" }, months: 3, student: true, until: { local: "2026-11-30T00:00", utc: "2026-11-29T23:00:00Z" } },
     );
     assert.equal(offer.audience, "Verified students in Italy who have never had a paid plan");
+    // Where the price goes (§1.2, §5). The engine of stage 5 sends no breakdown with its offers, and the site reads null;
+    // from stage 6, the §14.1 numbers: of the artists' €3.00, €1.47 from the subscriber and €1.53 from the service.
+    if (offer.breakdown !== null) {
+      assert.deepEqual(offer.breakdown, { price: EUR("299"), net: EUR("245"), artists: EUR("300"), topUp: EUR("153") });
+    }
+    const catalog = await site.graphql(`{ markets { code vatBasisPoints artistsMinimum } plans(market: "IT") { code ${breakdown} } }`);
+    assert.equal(catalog.body.errors, undefined, catalog.text);
+    assert.deepEqual(catalog.body.data.markets.find((market: { code: string }) => market.code === "IT"), { code: "IT", vatBasisPoints: 2200, artistsMinimum: EUR("300") });
+    // §5.5: the Student price in Italy, €5.79, is €4.75 net; its pool of €2.85 gets €0.15 more to reach the €3.00.
+    assert.deepEqual(catalog.body.data.plans.find((plan: { code: string }) => plan.code === "student").breakdown,
+      { price: EUR("579"), net: EUR("475"), artists: EUR("300"), topUp: EUR("15") });
     // A visitor not signed in: the engine quotes, and checks who they are when they subscribe (stage 5).
     const quoted = await site.graphql(`mutation ($offer: ID!) { requestQuote(plan: "student", market: "IT", offerId: $offer) {
       __typename ... on Quote { id price listPrice monthsAtPrice thenPrice expiresAt offerId } ... on Refusal { code reason } } }`, { variables: { offer: state.changeId } });
@@ -392,5 +412,68 @@ describe("the Student Autumn Pass through the engine and the gateway (§14.1)", 
     const other = await people.marketing.graphql(`mutation ($o: OfferInput!) { createOffer(offer: $o) { ${CHANGE} } }`, { variables: { o: { ...spring, title: "Another" } }, key });
     assert.deepEqual(codes(other), ["BAD_USER_INPUT"], other.text);
     assert.equal(await count(), before + 1);
+  });
+
+  test("h. on the site, the verified student of the demo subscribes: €2.99 on 26 October, November and December, €5.79 from 26 January 2027; the log shows it", async () => {
+    const site = client("public");
+    const entrance = await site.graphql("{ demoListeners { id title market plan studentVerified } }");
+    const student = (entrance.body.data.demoListeners as Array<{ id: string; title: string; market: string; plan: string; studentVerified: boolean }>)
+      .find((listener) => listener.title === "Student in Italy, verified");
+    assert.ok(student, entrance.text);
+    assert.deepEqual({ market: student.market, plan: student.plan, verified: student.studentVerified }, { market: "IT", plan: "free", verified: true });
+    await site.signInAsListener(student.id);
+
+    const quoted = await site.graphql(`mutation ($offer: ID!) { requestQuote(plan: "student", market: "IT", offerId: $offer) {
+      __typename ... on Quote { id price monthsAtPrice thenPrice } ... on Refusal { code reason } } }`, { variables: { offer: state.changeId } });
+    const quote = quoted.body.data.requestQuote;
+    assert.equal(quote.__typename, "Quote", quoted.text);
+    assert.deepEqual({ price: quote.price, months: quote.monthsAtPrice, then: quote.thenPrice }, { price: EUR("299"), months: 3, then: EUR("579") });
+
+    const confirmed = await site.graphql(`mutation ($q: ID!) { confirmSubscription(quoteId: $q) { __typename
+      ... on Confirmation { subscription { ${SUBSCRIPTION} } payment { ${PAYMENT} } }
+      ... on Refusal { code reason } } }`, { variables: { q: quote.id }, headers: { "x-request-id": requestId("confirm") } });
+    const confirmation = confirmed.body.data.confirmSubscription;
+    assert.equal(confirmation.__typename, "Confirmation", confirmed.text);
+    // The engine's clock is 09:00:05 in Rome on Monday 26 October: the first month is charged today.
+    assert.deepEqual(confirmation.subscription, {
+      plan: "student", market: "IT", paid: true, price: EUR("299"), startedOn: "2026-10-26", billingDay: 26,
+      offerTitle: "Student Autumn Pass", offerMonths: 3, offerMonthsLeft: 3, fullPriceFrom: "2027-01-26", fullPrice: EUR("579"),
+      nextBillingOn: "2026-11-26", nextCharge: EUR("299"),
+    });
+    const account = await site.graphql(`{ me { id account { subscription { ${SUBSCRIPTION} } studentVerification { valid } } } }`);
+    assert.deepEqual(account.body.data.me, { id: student.id, account: { subscription: confirmation.subscription, studentVerification: { valid: true } } });
+
+    // The first month's payment. An engine that charges after the confirmation
+    // (stage 6) answers it PENDING and its provider settles it shortly after,
+    // so the site reads the account again; the engine of stage 5 charged at
+    // the confirmation, and the gateway reads its receipt as a payment that
+    // succeeded then.
+    let payment = confirmation.payment;
+    const asked = performance.now();
+    while (payment?.state === "PENDING") {
+      if (performance.now() - asked > 20_000) throw new Error("the payment was not settled in 20 s");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      payment = (await site.graphql(`{ me { account { payment { ${PAYMENT} } } } }`)).body.data.me.account.payment;
+    }
+    assert.deepEqual({ state: payment?.state, amount: payment?.amount, provider: payment?.provider }, { state: "SUCCEEDED", amount: EUR("299"), provider: "simulated" });
+    assert.deepEqual({ amount: payment.receipt.amount, demonstration: payment.receipt.demonstration }, { amount: EUR("299"), demonstration: true });
+    assert.match(payment.receipt.note, /no money moved/);
+
+    // The auditor: the subscription, written by the subscriber, with the request id the site sent.
+    const log = await people.auditor.graphql(`{ auditEvents(filter: { action: "subscription.confirmed" }, first: 10) { nodes { actor actorRole subject requestId body } } }`);
+    const event = (log.body.data.auditEvents.nodes as Array<{ actor: string; actorRole: string; subject: string; requestId: string; body: string }>)
+      .find((candidate) => candidate.requestId === state.requestIds["confirm"]);
+    assert.ok(event, log.text);
+    assert.deepEqual({ actor: event.actor, role: event.actorRole }, { actor: `subscriber-${student.id}`, role: "SUBSCRIBER" });
+    assert.match(event.subject, /^subscription:\d+$/);
+    const body = JSON.parse(event.body) as Record<string, unknown>;
+    assert.deepEqual({ quote: body["quote"], offer: String(body["offer"]), price: body["price"], from: body["full_price_from"] },
+      { quote: quote.id, offer: state.changeId, price: 299, from: "2027-01-26" });
+    const verified = await people.auditor.graphql("{ verifyAuditChain { ok brokenAt } }");
+    assert.deepEqual(verified.body.data.verifyAuditChain, { ok: true, brokenAt: null }, "the chain holds with the subscriber's event in it");
+    state.subscription = {
+      price: "299", months: 3, fullPrice: "579", fullPriceFrom: confirmation.subscription.fullPriceFrom,
+      payment: confirmation.payment.state === "PENDING" ? "settled after the confirmation" : "taken at the confirmation", logged: true,
+    };
   });
 });
