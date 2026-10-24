@@ -24,6 +24,12 @@ from commerce.engine.database import DatabaseError, DatabaseUnavailable, Row
 # (57P01 to 57P03), too many connections (53300) and a statement cancelled by
 # the timeout (57014): the database is not there to answer.
 _UNAVAILABLE_STATES = ("57P01", "57P02", "57P03", "53300", "57014")
+_WHY = {
+    "08003": "the connection to the database was lost", "08006": "the connection to the database was lost",
+    "57P01": "the database ended the connection", "57P02": "the database ended the connection",
+    "57P03": "the database is starting or stopping", "53300": "the database has no connection to spare",
+    "57014": "a statement took too long and was cancelled",
+}
 ISOLATION = {"read_committed": "read_committed", "repeatable_read": "repeatable_read", "serializable": "serializable"}
 
 
@@ -31,7 +37,7 @@ def translate(error: BaseException) -> Exception:
     if isinstance(error, asyncpg.PostgresError):
         state = error.sqlstate or ""
         if state.startswith("08") or state in _UNAVAILABLE_STATES:
-            return DatabaseUnavailable(f"the database is not answering ({state})")
+            return DatabaseUnavailable(f"{_WHY.get(state, 'the database is not answering')} ({state})")
         return DatabaseError(state, str(error), getattr(error, "constraint_name", None))
     if isinstance(error, (OSError, asyncio.TimeoutError)):
         return DatabaseUnavailable(f"the database cannot be reached ({type(error).__name__})")
