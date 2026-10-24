@@ -242,9 +242,7 @@ async def _leave(tx: Connection, request: Request, market: reference.Market, lea
     if sub["ended_on"] is not None and _date(sub["ended_on"]) <= leaves_on:
         return False
     await tx.execute("update subscription set ended_on = $2::text::date where id = $1", sub["id"], leaves_on.isoformat())
-    await charging.write_subscription(tx, market, subscriber_id=sub["subscriber_id"], plan_id="free", paid=False,
-                                      price=Money.zero(market.currency), started_on=leaves_on,
-                                      billing_day=billing.billing_day_for(leaves_on))
+    await charging.write_free_subscription(tx, market, subscriber_id=sub["subscriber_id"], started_on=leaves_on)
     return True
 
 

@@ -412,7 +412,7 @@ export type Subscription = {
   /** What each month costs now: during an offer, the quoted offer price. */
   readonly price: Scalars['Money']['output'];
   readonly startedOn: Scalars['Date']['output'];
-  /** The day of the month it is charged on; null on the free plan. */
+  /** The day of the month it is charged on; null on the free plan, and for a prepaid pass, which is never charged. */
   readonly billingDay?: Maybe<Scalars['Int']['output']>;
   /** The offer it was taken with; null at the list price. */
   readonly offerTitle?: Maybe<Scalars['String']['output']>;

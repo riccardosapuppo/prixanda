@@ -360,7 +360,7 @@ type Subscription {
   "What each month costs now: during an offer, the quoted offer price."
   price: Money!
   startedOn: Date!
-  "The day of the month it is charged on; null on the free plan."
+  "The day of the month it is charged on; null on the free plan, and for a prepaid pass, which is never charged."
   billingDay: Int
   "The offer it was taken with; null at the list price."
   offerTitle: String
