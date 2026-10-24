@@ -337,3 +337,14 @@ def test_a_simulation_that_cannot_run_counts_as_conditions_3_and_4():
     assert not report.valid
     met = {c.number: c for c in report.conditions if c.met}
     assert {3, 4} <= set(met) and "cannot be simulated (France: no list price in force)" in met[3].detail
+
+
+def test_a_percentage_that_brings_the_price_to_nothing_blocks_and_the_validation_still_reports():
+    # 99.99% off the Student price of 5,79 € comes to 0,00 €: an offer has a price above zero.
+    report = validate(student_autumn(prices=(OfferPrice("IT", None, 9_999),)), context(IT=IT))
+    [price] = [f for f in report.findings if f.check == "price" and f.market == "IT"]
+    assert not report.valid and price.severity == BLOCKING and "€0.00" in price.message
+    assert price.facts == {"offer_price": "0", "list_price": "579"}
+    assert report.simulations == {}
+    simulated = {c.number: c for c in report.conditions if c.number in (3, 4)}
+    assert all(c.met and "cannot be simulated" in c.detail for c in simulated.values())

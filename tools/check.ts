@@ -16,7 +16,7 @@
 // but one could not run on this machine, which is listed and never reads as
 // passed.
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { flyway } from "./lib/flyway.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
@@ -37,13 +37,19 @@ const failed = (counted: string, detail: string): Omit<Result, "suite" | "second
 const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome: "not run", counted: "-", detail });
 
 // The floors: what each suite must at least have checked.
-const FLOOR = { typecheckedFiles: 12, contractFiles: 30, migrations: 10, pythonTests: 514, invariants: 10, generatedSubscribers: 5_000 };
+const FLOOR = {
+  typecheckedFiles: 12, contractFiles: 47, migrations: 11, pythonTests: 568, invariants: 10, generatedSubscribers: 5_000,
+  faultsInjected: 12,
+};
 // pytest's tests by area, read from the folder each test lives in: the
 // database's own rules (tests/), the rules as plain Python (domain), the
 // business book's numbers (golden), every service against PostgreSQL
-// (services), the calls over gRPC with a real server (e2e), and the
-// properties Hypothesis generates cases for (properties).
-const AREA_FLOOR: Record<string, number> = { database: 81, domain: 152, golden: 32, services: 212, e2e: 27, properties: 10 };
+// (services), the calls over gRPC with a real server (e2e), the properties
+// Hypothesis generates cases for (properties), and the faults injected in a
+// launch with the engine's real process (faults).
+const AREA_FLOOR: Record<string, number> = { database: 90, domain: 153, golden: 32, services: 241, e2e: 28, properties: 10, faults: 14 };
+// What tests/faults writes: every fault injected in a launch, and what it left.
+type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 
 const SUITES: Suite[] = [
   {
@@ -97,7 +103,7 @@ const SUITES: Suite[] = [
   },
   {
     name: "pytest",
-    what: "the engine against PostgreSQL: the database's rules, the domain, the golden cases, every service and call with its refusals and errors, gRPC end to end, properties",
+    what: "the engine against PostgreSQL: the database's rules, the domain, the golden cases, every service and call with its refusals and errors, gRPC end to end, properties, faults injected in launches",
     needsDatabase: true,
     async run({ cluster }) {
       if (!cluster) return notRun("no database");
@@ -106,6 +112,9 @@ const SUITES: Suite[] = [
       await assertFree(PORTS.engineCheck, "the engine's gRPC tests");
       const commerce = join(repoRoot, "services", "commerce");
       const report = join(reports, "pytest-engine.xml");
+      // The faults' report of an earlier run must not stand in for this one.
+      const faultsFile = join(reports, "fault-injection.json");
+      await rm(faultsFile, { force: true });
       const ran = await run(venvPython, ["-m", "pytest", "-q", "-p", "no:cacheprovider", `--junitxml=${report}`, "tests"], {
         cwd: commerce,
         env: {
@@ -114,6 +123,7 @@ const SUITES: Suite[] = [
           COMMERCE_TEST_TEMPLATE: TEMPLATE,
           COMMERCE_TEST_APP_URL: cluster.url("{database}", "app").replace("%7Bdatabase%7D", "{database}"),
           COMMERCE_TEST_ENGINE_PORT: String(PORTS.engineCheck),
+          COMMERCE_TEST_REPORTS: reports,
         },
         echo: true,
       });
@@ -131,10 +141,17 @@ const SUITES: Suite[] = [
       if (short.length) return failed(counted, short.map(([area, floor]) => `${area}: fewer than ${floor} tests`).join("; "));
       const unknown = Object.keys(areas).filter((area) => !(area in AREA_FLOOR));
       if (unknown.length) return failed(counted, `tests in an area with no floor: ${unknown.join(", ")}`);
+      // The faults injected in launches: every one recovered, none left a launch half live.
+      if (!existsSync(faultsFile)) return failed(counted, "the fault-injection tests wrote no report");
+      const faults = JSON.parse(await readFile(faultsFile, "utf8")) as FaultReport;
+      const told = `${counted}; faults: ${faults.faults_injected} injected, ${faults.partial_activations} partial activations, ${faults.recovered} recovered`;
+      if (faults.faults_injected < FLOOR.faultsInjected) return failed(told, `fewer than ${FLOOR.faultsInjected} faults injected`);
+      if (faults.partial_activations !== 0) return failed(told, "a fault left a launch half live (reports/fault-injection.json)");
+      if (faults.recovered !== faults.faults_injected) return failed(told, "a launch did not recover from its fault");
       // Rule 26: a test that writes undoes what it wrote, caches included.
       const deposits = [".hypothesis", ".pytest_cache"].filter((name) => existsSync(join(commerce, name)));
-      if (deposits.length) return failed(counted, `the tests left ${deposits.join(" and ")} in services/commerce`);
-      return passed(counted);
+      if (deposits.length) return failed(told, `the tests left ${deposits.join(" and ")} in services/commerce`);
+      return passed(told);
     },
   },
   {

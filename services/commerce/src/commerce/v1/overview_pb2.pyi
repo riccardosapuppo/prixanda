@@ -31,18 +31,28 @@ class Launch(_message.Message):
     def __init__(self, change_id: _Optional[int] = ..., title: _Optional[str] = ..., starts: _Optional[_Union[_common_pb2.LocalTime, _Mapping]] = ..., state: _Optional[_Union[_changes_pb2.ChangeState, str]] = ..., at_risk: bool = ..., risk: _Optional[str] = ...) -> None: ...
 
 class Incident(_message.Message):
-    __slots__ = ("change_id", "title", "run", "state", "summary")
+    __slots__ = ("change_id", "title", "run", "state", "summary", "launch_id", "kind", "opened_at", "closed_at", "resolution")
     CHANGE_ID_FIELD_NUMBER: _ClassVar[int]
     TITLE_FIELD_NUMBER: _ClassVar[int]
     RUN_FIELD_NUMBER: _ClassVar[int]
     STATE_FIELD_NUMBER: _ClassVar[int]
     SUMMARY_FIELD_NUMBER: _ClassVar[int]
+    LAUNCH_ID_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    OPENED_AT_FIELD_NUMBER: _ClassVar[int]
+    CLOSED_AT_FIELD_NUMBER: _ClassVar[int]
+    RESOLUTION_FIELD_NUMBER: _ClassVar[int]
     change_id: int
     title: str
     run: str
     state: str
     summary: str
-    def __init__(self, change_id: _Optional[int] = ..., title: _Optional[str] = ..., run: _Optional[str] = ..., state: _Optional[str] = ..., summary: _Optional[str] = ...) -> None: ...
+    launch_id: int
+    kind: str
+    opened_at: str
+    closed_at: str
+    resolution: str
+    def __init__(self, change_id: _Optional[int] = ..., title: _Optional[str] = ..., run: _Optional[str] = ..., state: _Optional[str] = ..., summary: _Optional[str] = ..., launch_id: _Optional[int] = ..., kind: _Optional[str] = ..., opened_at: _Optional[str] = ..., closed_at: _Optional[str] = ..., resolution: _Optional[str] = ...) -> None: ...
 
 class SubscriberCount(_message.Message):
     __slots__ = ("market", "plan", "count")

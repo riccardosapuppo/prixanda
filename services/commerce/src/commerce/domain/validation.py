@@ -115,8 +115,15 @@ class Report:
     simulations: Mapping[str, CampaignResult] = field(default_factory=dict)
 
 
+def on_sale(price: Money, list_price: Money) -> bool:
+    """An offer is sold at a price above zero and below the list price in force (§6.1, §6.2):
+    the catalog shows it, a quote gives it, a confirmation takes it, only then."""
+    return price.amount > 0 and price < list_price
+
+
 def resolve_price(price: OfferPrice, list_price: Money) -> Money:
-    """A fixed amount, or the list price less a percentage, rounded half up (§6.1)."""
+    """A fixed amount, or the list price less a percentage, rounded half up (§6.1). A large
+    percentage can come to nothing (99.99% off 5,79 € is 0,00 €): on_sale() says whether it sells."""
     if price.fixed is not None:
         return price.fixed
     if price.percent_off_bp is None:
@@ -292,7 +299,12 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
                 found.add("price", BLOCKING, code, f"{market.name}: no list price of {plan.name} is in force at the start.")
         else:
             offer_price = resolve_price(price, market.list_price)
-            if offer_price >= market.list_price:
+            if offer_price.amount <= 0:
+                found.add("price", BLOCKING, code,
+                          f"{market.name}: the offer comes to {format_money(offer_price)} off the list price in force, "
+                          f"{format_money(market.list_price)}: an offer has a price above zero.",
+                          offer_price=offer_price.amount, list_price=market.list_price.amount)
+            elif offer_price >= market.list_price:
                 found.add("price", BLOCKING, code,
                           f"{market.name}: an offer costs less than the list price in force, {format_money(market.list_price)}.",
                           offer_price=offer_price.amount, list_price=market.list_price.amount)
@@ -336,6 +348,8 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
             unsimulated.append(f"{market.name}: no list price in force")
         elif offer_price is None or offer_price >= market.list_price:
             unsimulated.append(f"{market.name}: the offer price is not below the list price")
+        elif offer_price.amount <= 0:
+            unsimulated.append(f"{market.name}: the offer comes to {format_money(offer_price)}")
         elif offer.months_at_offer_price < 1:
             unsimulated.append("no months at the offer price")
         else:

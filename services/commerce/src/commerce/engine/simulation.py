@@ -77,6 +77,9 @@ class Simulation:
         if list_price is None:
             raise Refused("INVALID", f"No {offer.plan} price is in force in {market.name} at the offer's start.")
         offer_price = resolve_price(offer.price_in(code), list_price)
+        if offer_price.amount <= 0:
+            raise Refused("INVALID", f"The offer comes to {format_money(offer_price)} off {format_money(list_price)}: "
+                                     "there is no price to simulate.")
         if offer_price >= list_price:
             raise Refused("INVALID", f"The offer costs {format_money(offer_price)}, not less than the list price "
                                      f"{format_money(list_price)}: there is no campaign to simulate.")

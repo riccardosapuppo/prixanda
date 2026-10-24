@@ -19,7 +19,7 @@
 // @generated from file commerce/v1/subscriptions.proto (package commerce.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 import type { Money, Refusal } from "./common_pb.js";
 
@@ -348,6 +348,67 @@ export declare type Receipt = Message<"commerce.v1.Receipt"> & {
 export declare const ReceiptSchema: GenMessage<Receipt>;
 
 /**
+ * @generated from message commerce.v1.Payment
+ */
+export declare type Payment = Message<"commerce.v1.Payment"> & {
+  /**
+   * @generated from field: string payment_id = 1;
+   */
+  paymentId: string;
+
+  /**
+   * @generated from field: commerce.v1.PaymentState state = 2;
+   */
+  state: PaymentState;
+
+  /**
+   * @generated from field: commerce.v1.Money amount = 3;
+   */
+  amount?: Money | undefined;
+
+  /**
+   * "simulated": no money moves.
+   *
+   * @generated from field: string provider = 4;
+   */
+  provider: string;
+
+  /**
+   * ISO 8601 with Z.
+   *
+   * @generated from field: string requested_at = 5;
+   */
+  requestedAt: string;
+
+  /**
+   * When the provider's event settled it; empty while pending.
+   *
+   * @generated from field: string settled_at = 6;
+   */
+  settledAt: string;
+
+  /**
+   * Why the provider declined it; empty otherwise.
+   *
+   * @generated from field: string failure_reason = 7;
+   */
+  failureReason: string;
+
+  /**
+   * Issued when the payment succeeds; absent before.
+   *
+   * @generated from field: commerce.v1.Receipt receipt = 8;
+   */
+  receipt?: Receipt | undefined;
+};
+
+/**
+ * Describes the message commerce.v1.Payment.
+ * Use `create(PaymentSchema)` to create a new message.
+ */
+export declare const PaymentSchema: GenMessage<Payment>;
+
+/**
  * @generated from message commerce.v1.Confirmation
  */
 export declare type Confirmation = Message<"commerce.v1.Confirmation"> & {
@@ -357,9 +418,20 @@ export declare type Confirmation = Message<"commerce.v1.Confirmation"> & {
   subscription?: Subscription | undefined;
 
   /**
-   * @generated from field: commerce.v1.Receipt receipt = 2;
+   * Always empty: the charge happens after the confirmation, and its receipt
+   * is in Account.payment once the payment succeeded.
+   *
+   * @generated from field: commerce.v1.Receipt receipt = 2 [deprecated = true];
+   * @deprecated
    */
   receipt?: Receipt | undefined;
+
+  /**
+   * PENDING: the provider is asked after this answer.
+   *
+   * @generated from field: commerce.v1.Payment payment = 3;
+   */
+  payment?: Payment | undefined;
 };
 
 /**
@@ -444,6 +516,14 @@ export declare type Account = Message<"commerce.v1.Account"> & {
    * @generated from field: commerce.v1.StudentVerification student_verification = 4;
    */
   studentVerification?: StudentVerification | undefined;
+
+  /**
+   * The first month's payment of the running subscription; absent on the free
+   * plan and for subscriptions that came with the data.
+   *
+   * @generated from field: commerce.v1.Payment payment = 5;
+   */
+  payment?: Payment | undefined;
 };
 
 /**
@@ -485,6 +565,48 @@ export declare type GetAccountResponse = Message<"commerce.v1.GetAccountResponse
 export declare const GetAccountResponseSchema: GenMessage<GetAccountResponse>;
 
 /**
+ * The first month's payment of a subscription confirmed from a quote (§4.5).
+ * The provider's events settle it, each counted once however often and in
+ * whatever order it arrives. No money moves: the provider is simulated, and
+ * it accepts every charge.
+ *
+ * @generated from enum commerce.v1.PaymentState
+ */
+export enum PaymentState {
+  /**
+   * @generated from enum value: PAYMENT_STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Asked for and not settled yet; the subscription runs meanwhile.
+   *
+   * @generated from enum value: PAYMENT_STATE_PENDING = 1;
+   */
+  PENDING = 1,
+
+  /**
+   * Taken: the receipt is issued.
+   *
+   * @generated from enum value: PAYMENT_STATE_SUCCEEDED = 2;
+   */
+  SUCCEEDED = 2,
+
+  /**
+   * Declined: the paid subscription ends at the end of that day, and the
+   * listener is back on the free plan the day after.
+   *
+   * @generated from enum value: PAYMENT_STATE_FAILED = 3;
+   */
+  FAILED = 3,
+}
+
+/**
+ * Describes the enum commerce.v1.PaymentState.
+ */
+export declare const PaymentStateSchema: GenEnum<PaymentState>;
+
+/**
  * @generated from service commerce.v1.SubscriberService
  */
 export declare const SubscriberService: GenService<{
@@ -519,8 +641,11 @@ export declare const SubscriberService: GenService<{
    * is still on sale, the listener is in its audience (§6, §10), the offer's
    * cap on redemptions is not reached, the listener never took another offer
    * of the same non-combinability group (§10.3), and no paid subscription is
-   * already running. The first month is charged through the simulated
-   * provider, and the receipt says it is a demonstration.
+   * already running. The subscription starts at once and its first month's
+   * payment comes back PENDING: the engine asks the simulated provider for it
+   * after the confirmation commits, through the outbox, as it would ask a real
+   * one. The provider's events settle the payment, and GetAccount then shows
+   * it succeeded, with a receipt that says it is a demonstration.
    *
    * @generated from rpc commerce.v1.SubscriberService.ConfirmQuote
    */

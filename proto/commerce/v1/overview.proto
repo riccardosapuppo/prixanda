@@ -34,13 +34,25 @@ message Launch {
   string risk = 6;
 }
 
+// An incident of a launch (launches.proto): a launch that failed or was
+// refused, or a scheduled change not live 5 minutes after its start.
 message Incident {
   int64 change_id = 1 [jstype = JS_STRING];
   string title = 2;
+  // The launch's run identifier, as its audit events and log lines carry it: "launch-12".
   string run = 3;
-  // recovered, open.
+  // open; recovered: its launch went through and nobody had to act; resolved:
+  // a person retried or cancelled the launch.
   string state = 4;
   string summary = 5;
+  int64 launch_id = 6 [jstype = JS_STRING];
+  // late, failed, refused.
+  string kind = 7;
+  // ISO 8601 with Z; closed_at is empty while the incident is open.
+  string opened_at = 8;
+  string closed_at = 9;
+  // How it closed: "published at ...", "cancelled by on-call-1: ...".
+  string resolution = 10;
 }
 
 message SubscriberCount {
@@ -60,6 +72,8 @@ message MarketRevenue {
 message GetOverviewResponse {
   repeated ChangeSummary waiting_for_approval = 1;
   repeated Launch launches_next_7_days = 2;
+  // The incidents open at the instant, and those opened or closed on its day
+  // (UTC), newest first.
   repeated Incident incidents_today = 3;
   repeated SubscriberCount paying_subscribers = 4;
   repeated SubscriberCount free_listeners = 5;
