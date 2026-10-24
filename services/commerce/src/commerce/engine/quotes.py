@@ -21,6 +21,7 @@ from commerce.domain.economics import Book
 from commerce.domain import billing
 from commerce.domain.localtime import format_instant, to_local
 from commerce.domain.offers import Audience, ListeningRule
+from commerce.domain.sentence import audience_words
 from commerce.domain.money import format_money
 from commerce.domain.validation import on_sale, resolve_price
 from commerce.engine import charging, contract, eligibility, reference
@@ -35,6 +36,14 @@ def audience_of(stored: dict) -> Audience:
     rule = stored.get("listening")
     return Audience(stored.get("segment"), stored.get("current_plan"), bool(stored.get("needs_student_check")),
                     None if rule is None else ListeningRule(rule["artist_id"], rule["min_seconds"], rule["within_days"]))
+
+
+async def audience_in_sentence(tx: Connection, stored: dict, market: reference.Market, ref: reference.Reference) -> str:
+    """An offer's audience, for the middle of a refusal: "verified students in Italy who have never had a paid plan"."""
+    audience = audience_of(stored)
+    artists = await reference.artist_names(tx, {audience.listening.artist_id} if audience.listening else set())
+    return audience_words(audience, market.name, plan_names={p.id: p.name for p in ref.plans.values()}, artist_names=artists,
+                          in_sentence=True)
 
 
 class Quotes:
@@ -64,10 +73,11 @@ class Quotes:
             if home is None:
                 raise NotFound(f"no subscriber #{subscriber}")
             if home.strip() != market.code:
-                raise Refused("NOT_ELIGIBLE", f"Subscriber #{subscriber} is in {ref.markets[home.strip()].name}, "
-                                              f"and this quote is for {market.name}.", {"market": home.strip()})
+                raise Refused("NOT_ELIGIBLE", f"This listener is in {ref.markets[home.strip()].name}, and the quote is for "
+                                              f"{market.name}.", {"subscriber": subscriber, "market": home.strip()})
             if plan.needs_student_check and not await eligibility.has_valid_student_check(tx, subscriber, today):
-                raise Refused("NOT_ELIGIBLE", f"{plan.name} needs a valid student verification (§10).", {"check": "student"})
+                raise Refused("NOT_ELIGIBLE", f"{plan.name} needs a valid student verification (§10).",
+                              {"subscriber": subscriber, "check": "student"})
 
         offer = None
         if request.offer_id:
@@ -93,8 +103,9 @@ class Quotes:
                 raise Refused("QUOTE_EXPIRED", f"Offer #{offer.change_id} no longer costs less than the list price in "
                                                f"{market.name}.", {"offer_id": offer.change_id})
             if subscriber and not await eligibility.includes(tx, audience_of(offer.audience), market.code, today, subscriber):
-                raise Refused("NOT_ELIGIBLE", f"Subscriber #{subscriber} is not among {offer.audience_words.lower()}.",
-                              {"offer_id": offer.change_id, "audience": offer.audience_words})
+                raise Refused("NOT_ELIGIBLE", "This listener is not among "
+                                              f"{await audience_in_sentence(tx, offer.audience, market, ref)}.",
+                              {"subscriber": subscriber, "offer_id": offer.change_id, "audience": offer.audience_words})
             months = offer.months
             # The list price the account will charge after the offer's months: from the charge that ends them, on
             # the billing day of a subscription starting today, read as that day begins (charging.py).

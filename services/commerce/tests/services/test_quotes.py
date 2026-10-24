@@ -169,3 +169,17 @@ async def test_the_price_after_the_offer_is_the_one_the_account_will_charge(worl
     await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(quote_id=q.quote_id, subscriber_id=101), PUBLIC)
     s = (await world.call("GetAccount", subscriptions_pb2.GetAccountRequest(subscriber_id=101), PUBLIC)).account.subscription
     assert (s.full_price_from, s.full_price) == ("2027-01-28", q.then_price)
+
+
+async def test_a_refusal_names_the_market_as_it_is_written_and_keeps_the_listener_s_number_in_its_facts(world):
+    change = await scheduled(world, student_autumn(), MARKETING, FINANCE)
+    world.clock.at = at(2026, 10, 26, 7, 59, 30)
+    await world.engine.run_launches()
+    world.clock.at = at(2026, 10, 26, 8, 0)
+    outside = (await quote(world, plan="student", market="IT", offer_id=change.id, subscriber_id=104)).refusal  # has paid
+    assert outside.code == REFUSAL.REFUSAL_CODE_NOT_ELIGIBLE
+    assert outside.reason == "This listener is not among verified students in Italy who have never had a paid plan."
+    assert outside.facts["subscriber"] == "104"
+    elsewhere = (await quote(world, plan="individual", market="IT", subscriber_id=401)).refusal  # in France
+    assert elsewhere.reason == "This listener is in France, and the quote is for Italy."
+    assert (elsewhere.facts["subscriber"], elsewhere.facts["market"]) == ("401", "FR")

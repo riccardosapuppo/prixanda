@@ -44,7 +44,7 @@ from commerce.engine.catalog import LIVE_OFFER, Catalog, list_price_at, live_off
 from commerce.engine.database import Connection, utc_text
 from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound, Refused
 from commerce.engine.providers import PaymentProvider, StudentClaim, StudentVerifier
-from commerce.engine.quotes import audience_of
+from commerce.engine.quotes import audience_in_sentence, audience_of
 from commerce.v1 import subscriptions_pb2
 
 SUBSCRIBER_ROLE = "subscriber"
@@ -223,14 +223,15 @@ class Subscribers:
                                                "nothing: it is not on sale.", {"offer_id": offer_id})
         if home != market.code:
             raise Refused("NOT_ELIGIBLE", f"This listener is in {ref.markets[home].name}, and the quote is for {market.name}.",
-                          {"market": home})
+                          {"subscriber": subscriber, "market": home})
         plan = ref.plans[quote["plan_id"]]
         if plan.needs_student_check and not await eligibility.has_valid_student_check(tx, subscriber, today):
-            raise Refused("NOT_ELIGIBLE", f"{plan.name} needs a valid student verification (§10).", {"check": "student"})
+            raise Refused("NOT_ELIGIBLE", f"{plan.name} needs a valid student verification (§10).",
+                          {"subscriber": subscriber, "check": "student"})
         if offer is not None:
             if not await eligibility.includes(tx, audience_of(offer.audience), market.code, today, subscriber):
-                raise Refused("NOT_ELIGIBLE", f"The offer is for {offer.audience_words.lower()}.",
-                              {"offer_id": offer.change_id, "audience": offer.audience_words})
+                raise Refused("NOT_ELIGIBLE", f"The offer is for {await audience_in_sentence(tx, offer.audience, market, ref)}.",
+                              {"subscriber": subscriber, "offer_id": offer.change_id, "audience": offer.audience_words})
             group = await tx.fetchval("select group_name from catalog_offer where snapshot_id = $1 and change_id = $2 limit 1",
                                       offer.snapshot_id, offer.change_id)
             taken = await tx.fetchval(
