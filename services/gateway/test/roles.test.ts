@@ -177,14 +177,18 @@ describe("the role matrix", () => {
   test("covers every method of the contract: public, the subscriber's, or in the matrix, exactly one of them", () => {
     const services = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService, SubscriberService, LaunchService];
     const contract = services.flatMap((service) => service.methods.map((method) => method.name));
-    // Catalog 4, Change 12, Quote 1, Simulation 2, Audit 3, Overview 1, People 1, Subscriber 5, Launch 4.
-    assert.equal(contract.length, 33, "the contract's methods were all read");
+    // Catalog 5, Change 12, Quote 1, Simulation 2, Audit 3, Overview 1, People 1, Subscriber 7, Launch 4.
+    assert.equal(contract.length, 36, "the contract's methods were all read");
     // The gateway binds a client to every service of the contract, and engineCalls() refuses a method no list names.
     assert.deepEqual((Object.values(SERVICES) as unknown[]).length, services.length);
     for (const service of services) assert.ok((Object.values(SERVICES) as unknown[]).includes(service), service.typeName);
-    assert.deepEqual([...PUBLIC_METHODS].sort(), ["GetPriceList", "GetQuote", "ListDemoListeners", "ListMarkets", "ListOffers", "ListPeople", "ListPlans"]);
+    assert.deepEqual([...PUBLIC_METHODS].sort(), [
+      "GetPriceList", "GetQuote", "ListDemoListeners", "ListMarkets", "ListOffers", "ListPeople", "ListPlans", "ListPrepaidPasses",
+    ]);
     // The brief of stage 5: these act for the listener of the site's session, with no x-actor.
-    assert.deepEqual([...SUBSCRIBER_METHODS].sort(), ["AnswerPriceChange", "ConfirmQuote", "GetAccount", "VerifyStudent"]);
+    assert.deepEqual([...SUBSCRIBER_METHODS].sort(), [
+      "ActivatePrepaidPass", "AnswerPriceChange", "BuyPrepaidPass", "ConfirmQuote", "GetAccount", "VerifyStudent",
+    ]);
     for (const method of contract) {
       const kinds = [(PUBLIC_METHODS as readonly string[]).includes(method), (SUBSCRIBER_METHODS as readonly string[]).includes(method), Object.hasOwn(matrix, method)];
       assert.equal(kinds.filter(Boolean).length, 1, `${method} must be public, the subscriber's, or in the matrix, and only one of them`);

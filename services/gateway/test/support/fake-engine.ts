@@ -47,11 +47,13 @@ const SHAPE = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,99}$/;
 /** Served without a person of the team: the site's catalog, quotes and subscriber calls, and the list of people. */
 const PUBLIC = new Set([
   "ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote",
-  "ListDemoListeners", "VerifyStudent", "ConfirmQuote", "GetAccount", "AnswerPriceChange",
+  "ListDemoListeners", "VerifyStudent", "ConfirmQuote", "GetAccount", "AnswerPriceChange", "ListPrepaidPasses", "BuyPrepaidPass",
+  "ActivatePrepaidPass",
 ]);
 const IDEMPOTENT = new Set([
   "CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange", "ScheduleChange",
   "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent", "ConfirmQuote", "RetryLaunch", "CancelLaunch", "AnswerPriceChange",
+  "BuyPrepaidPass", "ActivatePrepaidPass",
 ]);
 /** Reads without an outcome: a role that may not call them gets PERMISSION_DENIED instead of a refusal. */
 const READS = new Set(["GetChange", "BatchGetChanges", "ListChanges", "GetOverview", "ListEvents", "VerifyChain", "ListLaunches", "GetLaunch"]);

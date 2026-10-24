@@ -590,6 +590,101 @@ export declare type ListOffersResponse = Message<"commerce.v1.ListOffersResponse
 export declare const ListOffersResponseSchema: GenMessage<ListOffersResponse>;
 
 /**
+ * @generated from message commerce.v1.ListPrepaidPassesRequest
+ */
+export declare type ListPrepaidPassesRequest = Message<"commerce.v1.ListPrepaidPassesRequest"> & {
+  /**
+   * @generated from field: string market = 1;
+   */
+  market: string;
+};
+
+/**
+ * Describes the message commerce.v1.ListPrepaidPassesRequest.
+ * Use `create(ListPrepaidPassesRequestSchema)` to create a new message.
+ */
+export declare const ListPrepaidPassesRequestSchema: GenMessage<ListPrepaidPassesRequest>;
+
+/**
+ * A prepaid pass the site sells (§9.1): its price is paid once, VAT included,
+ * for its months of the plan.
+ *
+ * @generated from message commerce.v1.PrepaidPassOnSale
+ */
+export declare type PrepaidPassOnSale = Message<"commerce.v1.PrepaidPassOnSale"> & {
+  /**
+   * The change that put it on sale.
+   *
+   * @generated from field: int64 pass_id = 1 [jstype = JS_STRING];
+   */
+  passId: string;
+
+  /**
+   * @generated from field: string market = 2;
+   */
+  market: string;
+
+  /**
+   * @generated from field: string title = 3;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string plan = 4;
+   */
+  plan: string;
+
+  /**
+   * @generated from field: int32 months = 5;
+   */
+  months: number;
+
+  /**
+   * @generated from field: commerce.v1.Money price = 6;
+   */
+  price?: Money | undefined;
+
+  /**
+   * How long a code sold today can be activated, in months.
+   *
+   * @generated from field: int32 code_valid_months = 7;
+   */
+  codeValidMonths: number;
+
+  /**
+   * @generated from field: string text = 8;
+   */
+  text: string;
+
+  /**
+   * @generated from field: string terms = 9;
+   */
+  terms: string;
+};
+
+/**
+ * Describes the message commerce.v1.PrepaidPassOnSale.
+ * Use `create(PrepaidPassOnSaleSchema)` to create a new message.
+ */
+export declare const PrepaidPassOnSaleSchema: GenMessage<PrepaidPassOnSale>;
+
+/**
+ * @generated from message commerce.v1.ListPrepaidPassesResponse
+ */
+export declare type ListPrepaidPassesResponse = Message<"commerce.v1.ListPrepaidPassesResponse"> & {
+  /**
+   * @generated from field: repeated commerce.v1.PrepaidPassOnSale passes = 1;
+   */
+  passes: PrepaidPassOnSale[];
+};
+
+/**
+ * Describes the message commerce.v1.ListPrepaidPassesResponse.
+ * Use `create(ListPrepaidPassesResponseSchema)` to create a new message.
+ */
+export declare const ListPrepaidPassesResponseSchema: GenMessage<ListPrepaidPassesResponse>;
+
+/**
  * @generated from service commerce.v1.CatalogService
  */
 export declare const CatalogService: GenService<{
@@ -629,6 +724,17 @@ export declare const CatalogService: GenService<{
     methodKind: "unary";
     input: typeof ListOffersRequestSchema;
     output: typeof ListOffersResponseSchema;
+  },
+  /**
+   * The prepaid passes on sale in a market now (§9): those whose change is
+   * active and whose period in the market holds the instant.
+   *
+   * @generated from rpc commerce.v1.CatalogService.ListPrepaidPasses
+   */
+  listPrepaidPasses: {
+    methodKind: "unary";
+    input: typeof ListPrepaidPassesRequestSchema;
+    output: typeof ListPrepaidPassesResponseSchema;
   },
 }>;
 

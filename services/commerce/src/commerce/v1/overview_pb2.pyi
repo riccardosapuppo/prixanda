@@ -74,8 +74,24 @@ class MarketRevenue(_message.Message):
     revenue_eur: _common_pb2.Money
     def __init__(self, market: _Optional[str] = ..., revenue: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., revenue_eur: _Optional[_Union[_common_pb2.Money, _Mapping]] = ...) -> None: ...
 
+class PrepaidValue(_message.Message):
+    __slots__ = ("market", "sold", "activated", "expired", "unearned", "unearned_eur")
+    MARKET_FIELD_NUMBER: _ClassVar[int]
+    SOLD_FIELD_NUMBER: _ClassVar[int]
+    ACTIVATED_FIELD_NUMBER: _ClassVar[int]
+    EXPIRED_FIELD_NUMBER: _ClassVar[int]
+    UNEARNED_FIELD_NUMBER: _ClassVar[int]
+    UNEARNED_EUR_FIELD_NUMBER: _ClassVar[int]
+    market: str
+    sold: int
+    activated: int
+    expired: int
+    unearned: _common_pb2.Money
+    unearned_eur: _common_pb2.Money
+    def __init__(self, market: _Optional[str] = ..., sold: _Optional[int] = ..., activated: _Optional[int] = ..., expired: _Optional[int] = ..., unearned: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., unearned_eur: _Optional[_Union[_common_pb2.Money, _Mapping]] = ...) -> None: ...
+
 class GetOverviewResponse(_message.Message):
-    __slots__ = ("waiting_for_approval", "launches_next_7_days", "incidents_today", "paying_subscribers", "free_listeners", "monthly_revenue", "monthly_revenue_eur", "exchange_rate_note", "monthly_top_ups")
+    __slots__ = ("waiting_for_approval", "launches_next_7_days", "incidents_today", "paying_subscribers", "free_listeners", "monthly_revenue", "monthly_revenue_eur", "exchange_rate_note", "monthly_top_ups", "prepaid", "prepaid_unearned_eur")
     WAITING_FOR_APPROVAL_FIELD_NUMBER: _ClassVar[int]
     LAUNCHES_NEXT_7_DAYS_FIELD_NUMBER: _ClassVar[int]
     INCIDENTS_TODAY_FIELD_NUMBER: _ClassVar[int]
@@ -85,6 +101,8 @@ class GetOverviewResponse(_message.Message):
     MONTHLY_REVENUE_EUR_FIELD_NUMBER: _ClassVar[int]
     EXCHANGE_RATE_NOTE_FIELD_NUMBER: _ClassVar[int]
     MONTHLY_TOP_UPS_FIELD_NUMBER: _ClassVar[int]
+    PREPAID_FIELD_NUMBER: _ClassVar[int]
+    PREPAID_UNEARNED_EUR_FIELD_NUMBER: _ClassVar[int]
     waiting_for_approval: _containers.RepeatedCompositeFieldContainer[_changes_pb2.ChangeSummary]
     launches_next_7_days: _containers.RepeatedCompositeFieldContainer[Launch]
     incidents_today: _containers.RepeatedCompositeFieldContainer[Incident]
@@ -94,7 +112,9 @@ class GetOverviewResponse(_message.Message):
     monthly_revenue_eur: _common_pb2.Money
     exchange_rate_note: str
     monthly_top_ups: _common_pb2.Money
-    def __init__(self, waiting_for_approval: _Optional[_Iterable[_Union[_changes_pb2.ChangeSummary, _Mapping]]] = ..., launches_next_7_days: _Optional[_Iterable[_Union[Launch, _Mapping]]] = ..., incidents_today: _Optional[_Iterable[_Union[Incident, _Mapping]]] = ..., paying_subscribers: _Optional[_Iterable[_Union[SubscriberCount, _Mapping]]] = ..., free_listeners: _Optional[_Iterable[_Union[SubscriberCount, _Mapping]]] = ..., monthly_revenue: _Optional[_Iterable[_Union[MarketRevenue, _Mapping]]] = ..., monthly_revenue_eur: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., exchange_rate_note: _Optional[str] = ..., monthly_top_ups: _Optional[_Union[_common_pb2.Money, _Mapping]] = ...) -> None: ...
+    prepaid: _containers.RepeatedCompositeFieldContainer[PrepaidValue]
+    prepaid_unearned_eur: _common_pb2.Money
+    def __init__(self, waiting_for_approval: _Optional[_Iterable[_Union[_changes_pb2.ChangeSummary, _Mapping]]] = ..., launches_next_7_days: _Optional[_Iterable[_Union[Launch, _Mapping]]] = ..., incidents_today: _Optional[_Iterable[_Union[Incident, _Mapping]]] = ..., paying_subscribers: _Optional[_Iterable[_Union[SubscriberCount, _Mapping]]] = ..., free_listeners: _Optional[_Iterable[_Union[SubscriberCount, _Mapping]]] = ..., monthly_revenue: _Optional[_Iterable[_Union[MarketRevenue, _Mapping]]] = ..., monthly_revenue_eur: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., exchange_rate_note: _Optional[str] = ..., monthly_top_ups: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., prepaid: _Optional[_Iterable[_Union[PrepaidValue, _Mapping]]] = ..., prepaid_unearned_eur: _Optional[_Union[_common_pb2.Money, _Mapping]] = ...) -> None: ...
 
 class Person(_message.Message):
     __slots__ = ("id", "label", "roles")

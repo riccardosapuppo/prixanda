@@ -14,6 +14,9 @@ service CatalogService {
   // The offers the published catalog holds now: the site shows an offer if and
   // only if its prices are in force (§7.5).
   rpc ListOffers(ListOffersRequest) returns (ListOffersResponse);
+  // The prepaid passes on sale in a market now (§9): those whose change is
+  // active and whose period in the market holds the instant.
+  rpc ListPrepaidPasses(ListPrepaidPassesRequest) returns (ListPrepaidPassesResponse);
 }
 
 message Market {
@@ -165,4 +168,28 @@ message ListOffersRequest {
 
 message ListOffersResponse {
   repeated PublishedOffer offers = 1;
+}
+
+message ListPrepaidPassesRequest {
+  string market = 1;
+}
+
+// A prepaid pass the site sells (§9.1): its price is paid once, VAT included,
+// for its months of the plan.
+message PrepaidPassOnSale {
+  // The change that put it on sale.
+  int64 pass_id = 1 [jstype = JS_STRING];
+  string market = 2;
+  string title = 3;
+  string plan = 4;
+  int32 months = 5;
+  Money price = 6;
+  // How long a code sold today can be activated, in months.
+  int32 code_valid_months = 7;
+  string text = 8;
+  string terms = 9;
+}
+
+message ListPrepaidPassesResponse {
+  repeated PrepaidPassOnSale passes = 1;
 }

@@ -54,6 +54,11 @@ class CatalogServiceStub(object):
                 request_serializer=commerce_dot_v1_dot_catalog__pb2.ListOffersRequest.SerializeToString,
                 response_deserializer=commerce_dot_v1_dot_catalog__pb2.ListOffersResponse.FromString,
                 _registered_method=True)
+        self.ListPrepaidPasses = channel.unary_unary(
+                '/commerce.v1.CatalogService/ListPrepaidPasses',
+                request_serializer=commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesRequest.SerializeToString,
+                response_deserializer=commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesResponse.FromString,
+                _registered_method=True)
 
 
 class CatalogServiceServicer(object):
@@ -86,6 +91,14 @@ class CatalogServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListPrepaidPasses(self, request, context):
+        """The prepaid passes on sale in a market now (§9): those whose change is
+        active and whose period in the market holds the instant.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CatalogServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -108,6 +121,11 @@ def add_CatalogServiceServicer_to_server(servicer, server):
                     servicer.ListOffers,
                     request_deserializer=commerce_dot_v1_dot_catalog__pb2.ListOffersRequest.FromString,
                     response_serializer=commerce_dot_v1_dot_catalog__pb2.ListOffersResponse.SerializeToString,
+            ),
+            'ListPrepaidPasses': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListPrepaidPasses,
+                    request_deserializer=commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesRequest.FromString,
+                    response_serializer=commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -218,6 +236,33 @@ class CatalogService(object):
             '/commerce.v1.CatalogService/ListOffers',
             commerce_dot_v1_dot_catalog__pb2.ListOffersRequest.SerializeToString,
             commerce_dot_v1_dot_catalog__pb2.ListOffersResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListPrepaidPasses(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/commerce.v1.CatalogService/ListPrepaidPasses',
+            commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesRequest.SerializeToString,
+            commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesResponse.FromString,
             options,
             channel_credentials,
             insecure,

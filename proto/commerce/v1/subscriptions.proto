@@ -48,6 +48,21 @@ service SubscriberService {
   // answer after the window, or a different answer, is refused with
   // REFUSAL_CODE_WRONG_STATE.
   rpc AnswerPriceChange(AnswerPriceChangeRequest) returns (AnswerPriceChangeResponse);
+  // A prepaid pass bought, to keep or give (§9): the engine takes the pass's
+  // price as it is on sale in the buyer's market, writes the code and its
+  // payment, PENDING, and asks the simulated provider through the outbox, as
+  // for a confirmation. The code can be activated once the payment succeeded,
+  // until its valid_until; unused, it expires. A pass not on sale in the
+  // buyer's market is refused with REFUSAL_CODE_NOT_ELIGIBLE.
+  rpc BuyPrepaidPass(BuyPrepaidPassRequest) returns (BuyPrepaidPassResponse);
+  // A code activated by a listener of the pass's market with no paid
+  // subscription running: the pass's plan from that day for its months,
+  // never charged and never renewed, then the free plan. A code of another
+  // market is refused with REFUSAL_CODE_NOT_ELIGIBLE, a listener already
+  // paying with REFUSAL_CODE_ALREADY_SUBSCRIBED, a code that is not ready
+  // (payment pending or declined, used, expired) with REFUSAL_CODE_WRONG_STATE.
+  // The same listener activating the same code again gets the same answer.
+  rpc ActivatePrepaidPass(ActivatePrepaidPassRequest) returns (ActivatePrepaidPassResponse);
 }
 
 message DemoListener {
@@ -120,9 +135,15 @@ message Subscription {
   string next_billing_on = 14;
   Money next_charge = 15;
   // The day a paid subscription ends if the listener does nothing more: after
-  // a no to a price change, or without the yes one needs (§8); from then the
-  // listener is on the free plan. Empty when it does not end.
+  // a no to a price change, or without the yes one needs (§8), or when a
+  // prepaid pass's months run out (§9); from then the listener is on the free
+  // plan. Empty when it does not end.
   string ends_on = 16;
+  // A prepaid pass's subscription (§9): the code it was activated with, and
+  // what the pass cost. It is never charged (price is zero, and there is no
+  // next charge) and never renewed. Empty otherwise.
+  string prepaid_code = 17;
+  Money prepaid_price = 18;
 }
 
 // A receipt of the simulated provider. No money moved: demonstration is always
@@ -202,6 +223,8 @@ message Account {
   Payment payment = 5;
   // The price changes of the running subscription, the latest first (§8).
   repeated PriceChange price_changes = 6;
+  // The prepaid passes this listener bought, the latest first (§9).
+  repeated PrepaidCode prepaid_codes = 7;
 }
 
 // A price change as the listener sees it (§8): a request for consent, or a notice.
@@ -268,4 +291,52 @@ message GetAccountRequest {
 
 message GetAccountResponse {
   Account account = 1;
+}
+
+// A prepaid pass's single-use code (§9.1).
+message PrepaidCode {
+  string code = 1;
+  int64 pass_id = 2 [jstype = JS_STRING];
+  string title = 3;
+  string plan = 4;
+  string market = 5;
+  int32 months = 6;
+  // What it cost, VAT included.
+  Money price = 7;
+  // ISO 8601 with Z.
+  string sold_at = 8;
+  // The last day it can be activated, in the market's calendar.
+  string valid_until = 9;
+  // pending: its payment is not settled yet; ready: it can be activated;
+  // activated; expired: not activated by valid_until; failed: the provider
+  // declined its payment.
+  string state = 10;
+  Payment payment = 11;
+  // Who activated it, and on which day; empty before.
+  int64 activated_by = 12 [jstype = JS_STRING];
+  string activated_on = 13;
+}
+
+message BuyPrepaidPassRequest {
+  int64 subscriber_id = 1 [jstype = JS_STRING];
+  int64 pass_id = 2 [jstype = JS_STRING];
+}
+
+message BuyPrepaidPassResponse {
+  oneof outcome {
+    PrepaidCode code = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message ActivatePrepaidPassRequest {
+  int64 subscriber_id = 1 [jstype = JS_STRING];
+  string code = 2;
+}
+
+message ActivatePrepaidPassResponse {
+  oneof outcome {
+    Subscription subscription = 1;
+    Refusal refusal = 2;
+  }
 }

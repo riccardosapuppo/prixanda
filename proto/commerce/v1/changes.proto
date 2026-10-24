@@ -151,6 +151,26 @@ message PriceMigrationContent {
   string starts_local = 6;
 }
 
+// A prepaid pass (§9, §14.4): months of a plan paid in advance, sold as a
+// single-use code that can be given as a gift. It never renews, and price
+// changes made after it was sold do not touch it. The commercial lead writes
+// it and finance signs it, as a price (§7.3, condition 1). It starts when
+// the first of its periods does.
+message PrepaidPassContent {
+  string title = 1;
+  // The plan it gives, for its months.
+  string plan = 2;
+  int32 months = 3;
+  // Its price in each market where it is sold, VAT included: a fixed price.
+  repeated OfferPrice prices = 4;
+  // When it is on sale in each market, in local time; no end: open.
+  repeated OfferPeriod periods = 5;
+  // How long a code sold can be activated: months from the day it was sold.
+  int32 code_valid_months = 6;
+  // Its page in each market.
+  repeated OfferPage pages = 7;
+}
+
 // How a price migration stands with the existing subscribers, once it started.
 message MigrationProgress {
   // consent or notice: what the market's law asks for (PriceChangePolicy).
@@ -183,6 +203,7 @@ message ChangeVersion {
     OfferContent offer = 5;
     ListPriceContent list_price = 6;
     PriceMigrationContent price_migration = 7;
+    PrepaidPassContent prepaid = 8;
   }
 }
 
@@ -268,6 +289,7 @@ message CreateChangeRequest {
     OfferContent offer = 1;
     ListPriceContent list_price = 2;
     PriceMigrationContent price_migration = 3;
+    PrepaidPassContent prepaid = 4;
   }
 }
 
@@ -286,6 +308,7 @@ message SaveVersionRequest {
     OfferContent offer = 3;
     ListPriceContent list_price = 4;
     PriceMigrationContent price_migration = 5;
+    PrepaidPassContent prepaid = 6;
   }
 }
 

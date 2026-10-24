@@ -61,7 +61,7 @@ export function createEngineClient(transport: Transport): EngineClient {
 export const IDEMPOTENT_METHODS = [
   "CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange",
   "ScheduleChange", "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent", "ConfirmQuote",
-  "RetryLaunch", "CancelLaunch", "AnswerPriceChange",
+  "RetryLaunch", "CancelLaunch", "AnswerPriceChange", "BuyPrepaidPass", "ActivatePrepaidPass",
 ] as const;
 
 export type Actor = { readonly id: string; readonly role: RoleName };

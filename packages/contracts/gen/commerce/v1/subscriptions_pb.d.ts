@@ -292,12 +292,27 @@ export declare type Subscription = Message<"commerce.v1.Subscription"> & {
 
   /**
    * The day a paid subscription ends if the listener does nothing more: after
-   * a no to a price change, or without the yes one needs (§8); from then the
-   * listener is on the free plan. Empty when it does not end.
+   * a no to a price change, or without the yes one needs (§8), or when a
+   * prepaid pass's months run out (§9); from then the listener is on the free
+   * plan. Empty when it does not end.
    *
    * @generated from field: string ends_on = 16;
    */
   endsOn: string;
+
+  /**
+   * A prepaid pass's subscription (§9): the code it was activated with, and
+   * what the pass cost. It is never charged (price is zero, and there is no
+   * next charge) and never renewed. Empty otherwise.
+   *
+   * @generated from field: string prepaid_code = 17;
+   */
+  prepaidCode: string;
+
+  /**
+   * @generated from field: commerce.v1.Money prepaid_price = 18;
+   */
+  prepaidPrice?: Money | undefined;
 };
 
 /**
@@ -541,6 +556,13 @@ export declare type Account = Message<"commerce.v1.Account"> & {
    * @generated from field: repeated commerce.v1.PriceChange price_changes = 6;
    */
   priceChanges: PriceChange[];
+
+  /**
+   * The prepaid passes this listener bought, the latest first (§9).
+   *
+   * @generated from field: repeated commerce.v1.PrepaidCode prepaid_codes = 7;
+   */
+  prepaidCodes: PrepaidCode[];
 };
 
 /**
@@ -766,6 +788,194 @@ export declare type GetAccountResponse = Message<"commerce.v1.GetAccountResponse
 export declare const GetAccountResponseSchema: GenMessage<GetAccountResponse>;
 
 /**
+ * A prepaid pass's single-use code (§9.1).
+ *
+ * @generated from message commerce.v1.PrepaidCode
+ */
+export declare type PrepaidCode = Message<"commerce.v1.PrepaidCode"> & {
+  /**
+   * @generated from field: string code = 1;
+   */
+  code: string;
+
+  /**
+   * @generated from field: int64 pass_id = 2 [jstype = JS_STRING];
+   */
+  passId: string;
+
+  /**
+   * @generated from field: string title = 3;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string plan = 4;
+   */
+  plan: string;
+
+  /**
+   * @generated from field: string market = 5;
+   */
+  market: string;
+
+  /**
+   * @generated from field: int32 months = 6;
+   */
+  months: number;
+
+  /**
+   * What it cost, VAT included.
+   *
+   * @generated from field: commerce.v1.Money price = 7;
+   */
+  price?: Money | undefined;
+
+  /**
+   * ISO 8601 with Z.
+   *
+   * @generated from field: string sold_at = 8;
+   */
+  soldAt: string;
+
+  /**
+   * The last day it can be activated, in the market's calendar.
+   *
+   * @generated from field: string valid_until = 9;
+   */
+  validUntil: string;
+
+  /**
+   * pending: its payment is not settled yet; ready: it can be activated;
+   * activated; expired: not activated by valid_until; failed: the provider
+   * declined its payment.
+   *
+   * @generated from field: string state = 10;
+   */
+  state: string;
+
+  /**
+   * @generated from field: commerce.v1.Payment payment = 11;
+   */
+  payment?: Payment | undefined;
+
+  /**
+   * Who activated it, and on which day; empty before.
+   *
+   * @generated from field: int64 activated_by = 12 [jstype = JS_STRING];
+   */
+  activatedBy: string;
+
+  /**
+   * @generated from field: string activated_on = 13;
+   */
+  activatedOn: string;
+};
+
+/**
+ * Describes the message commerce.v1.PrepaidCode.
+ * Use `create(PrepaidCodeSchema)` to create a new message.
+ */
+export declare const PrepaidCodeSchema: GenMessage<PrepaidCode>;
+
+/**
+ * @generated from message commerce.v1.BuyPrepaidPassRequest
+ */
+export declare type BuyPrepaidPassRequest = Message<"commerce.v1.BuyPrepaidPassRequest"> & {
+  /**
+   * @generated from field: int64 subscriber_id = 1 [jstype = JS_STRING];
+   */
+  subscriberId: string;
+
+  /**
+   * @generated from field: int64 pass_id = 2 [jstype = JS_STRING];
+   */
+  passId: string;
+};
+
+/**
+ * Describes the message commerce.v1.BuyPrepaidPassRequest.
+ * Use `create(BuyPrepaidPassRequestSchema)` to create a new message.
+ */
+export declare const BuyPrepaidPassRequestSchema: GenMessage<BuyPrepaidPassRequest>;
+
+/**
+ * @generated from message commerce.v1.BuyPrepaidPassResponse
+ */
+export declare type BuyPrepaidPassResponse = Message<"commerce.v1.BuyPrepaidPassResponse"> & {
+  /**
+   * @generated from oneof commerce.v1.BuyPrepaidPassResponse.outcome
+   */
+  outcome: {
+    /**
+     * @generated from field: commerce.v1.PrepaidCode code = 1;
+     */
+    value: PrepaidCode;
+    case: "code";
+  } | {
+    /**
+     * @generated from field: commerce.v1.Refusal refusal = 2;
+     */
+    value: Refusal;
+    case: "refusal";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message commerce.v1.BuyPrepaidPassResponse.
+ * Use `create(BuyPrepaidPassResponseSchema)` to create a new message.
+ */
+export declare const BuyPrepaidPassResponseSchema: GenMessage<BuyPrepaidPassResponse>;
+
+/**
+ * @generated from message commerce.v1.ActivatePrepaidPassRequest
+ */
+export declare type ActivatePrepaidPassRequest = Message<"commerce.v1.ActivatePrepaidPassRequest"> & {
+  /**
+   * @generated from field: int64 subscriber_id = 1 [jstype = JS_STRING];
+   */
+  subscriberId: string;
+
+  /**
+   * @generated from field: string code = 2;
+   */
+  code: string;
+};
+
+/**
+ * Describes the message commerce.v1.ActivatePrepaidPassRequest.
+ * Use `create(ActivatePrepaidPassRequestSchema)` to create a new message.
+ */
+export declare const ActivatePrepaidPassRequestSchema: GenMessage<ActivatePrepaidPassRequest>;
+
+/**
+ * @generated from message commerce.v1.ActivatePrepaidPassResponse
+ */
+export declare type ActivatePrepaidPassResponse = Message<"commerce.v1.ActivatePrepaidPassResponse"> & {
+  /**
+   * @generated from oneof commerce.v1.ActivatePrepaidPassResponse.outcome
+   */
+  outcome: {
+    /**
+     * @generated from field: commerce.v1.Subscription subscription = 1;
+     */
+    value: Subscription;
+    case: "subscription";
+  } | {
+    /**
+     * @generated from field: commerce.v1.Refusal refusal = 2;
+     */
+    value: Refusal;
+    case: "refusal";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message commerce.v1.ActivatePrepaidPassResponse.
+ * Use `create(ActivatePrepaidPassResponseSchema)` to create a new message.
+ */
+export declare const ActivatePrepaidPassResponseSchema: GenMessage<ActivatePrepaidPassResponse>;
+
+/**
  * The first month's payment of a subscription confirmed from a quote (§4.5).
  * The provider's events settle it, each counted once however often and in
  * whatever order it arrives. No money moves: the provider is simulated, and
@@ -876,6 +1086,37 @@ export declare const SubscriberService: GenService<{
     methodKind: "unary";
     input: typeof AnswerPriceChangeRequestSchema;
     output: typeof AnswerPriceChangeResponseSchema;
+  },
+  /**
+   * A prepaid pass bought, to keep or give (§9): the engine takes the pass's
+   * price as it is on sale in the buyer's market, writes the code and its
+   * payment, PENDING, and asks the simulated provider through the outbox, as
+   * for a confirmation. The code can be activated once the payment succeeded,
+   * until its valid_until; unused, it expires. A pass not on sale in the
+   * buyer's market is refused with REFUSAL_CODE_NOT_ELIGIBLE.
+   *
+   * @generated from rpc commerce.v1.SubscriberService.BuyPrepaidPass
+   */
+  buyPrepaidPass: {
+    methodKind: "unary";
+    input: typeof BuyPrepaidPassRequestSchema;
+    output: typeof BuyPrepaidPassResponseSchema;
+  },
+  /**
+   * A code activated by a listener of the pass's market with no paid
+   * subscription running: the pass's plan from that day for its months,
+   * never charged and never renewed, then the free plan. A code of another
+   * market is refused with REFUSAL_CODE_NOT_ELIGIBLE, a listener already
+   * paying with REFUSAL_CODE_ALREADY_SUBSCRIBED, a code that is not ready
+   * (payment pending or declined, used, expired) with REFUSAL_CODE_WRONG_STATE.
+   * The same listener activating the same code again gets the same answer.
+   *
+   * @generated from rpc commerce.v1.SubscriberService.ActivatePrepaidPass
+   */
+  activatePrepaidPass: {
+    methodKind: "unary";
+    input: typeof ActivatePrepaidPassRequestSchema;
+    output: typeof ActivatePrepaidPassResponseSchema;
   },
 }>;
 
