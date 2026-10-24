@@ -6,3 +6,4 @@ tools/lib/postgres.ts  # generates the local clusters' passwords and hands them 
 tools/lib/flyway.ts    # passes the cluster password to Flyway through the environment
 tools/check.ts         # hands the throwaway cluster's password to Flyway
 tools/db.ts            # hands the development cluster's password to Flyway
+tools/engine.ts        # hands the development cluster's password to Flyway before the engine starts

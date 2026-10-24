@@ -3,10 +3,12 @@ home and the demo's people (§12)."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from commerce.engine.errors import InvalidArgument, PermissionDenied
-from commerce.v1 import audit_pb2, common_pb2, overview_pb2
+from commerce.v1 import audit_pb2, common_pb2, overview_pb2, quotes_pb2, subscriptions_pb2
 from engine_support import (
     AUDITOR, CATALOG, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, create, family_rise, scheduled, student_autumn, submitted,
 )
@@ -129,3 +131,27 @@ async def test_the_people_of_the_demo_are_listed_for_the_console_s_entry(world):
     assert len(by_id) == 9
     assert by_id["finance-1"] == ("Finance", [common_pb2.ROLE_FINANCE])
     assert by_id["lead-and-finance-1"][1] == [common_pb2.ROLE_COMMERCIAL_LEAD, common_pb2.ROLE_FINANCE]
+
+
+async def test_the_revenue_counts_each_subscription_at_what_it_costs_on_the_day(world):
+    # The verified student takes the Student Autumn Pass on 26 October: 2,99 € a month for three months, then the list
+    # price of 5,79 € from 26 January 2027, as the account says. The home's revenue follows the same months.
+    change = await scheduled(world, student_autumn(), MARKETING, FINANCE)
+    world.clock.at = datetime(2026, 10, 26, 7, 59, 30, tzinfo=UTC)
+    await world.engine.run_launches()
+    world.clock.at = datetime(2026, 10, 26, 8, 0, tzinfo=UTC)
+    quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="student", market="IT", offer_id=change.id,
+                                                                      subscriber_id=101), PUBLIC)).quote
+    await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(quote_id=quote.quote_id, subscriber_id=101), PUBLIC)
+
+    async def italy(at: str) -> tuple[int, int]:
+        home = await world.call("GetOverview", overview_pb2.GetOverviewRequest(at=at), FINANCE)
+        return {r.market: r.revenue.amount_minor for r in home.monthly_revenue}["IT"], home.monthly_top_ups.amount_minor
+
+    # Net of VAT: Individual 860 and Student 475 as before, and the pass at 2,99 € is 245, with a top-up of 153.
+    assert await italy("2026-11-15T12:00:00Z") == (860 + 475 + 245, 15 + 153)
+    world.clock.at = datetime(2027, 2, 1, 12, 0, tzinfo=UTC)
+    account = (await world.call("GetAccount", subscriptions_pb2.GetAccountRequest(subscriber_id=101), PUBLIC)).account
+    assert account.subscription.price.amount_minor == 579
+    # After its three months the pass costs the list price: 475 net, and a top-up of 15 like any Student.
+    assert await italy("2027-02-01T12:00:00Z") == (860 + 475 + 475, 15 + 15)

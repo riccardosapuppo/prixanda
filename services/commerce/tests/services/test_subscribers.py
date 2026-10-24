@@ -419,3 +419,12 @@ async def test_a_confirmation_reads_the_list_price_in_force_at_that_moment(world
     assert list(on_sale.offers) == []
     response = await confirm(world, q.quote_id, 101)
     assert response.refusal.code == REFUSAL.REFUSAL_CODE_QUOTE_EXPIRED and "no longer costs less" in response.refusal.reason
+
+
+async def test_a_confirmation_outside_the_audience_names_the_market_as_it_is_written(world):
+    offer = await autumn_on_sale(world)
+    q = await quote(world, plan="student", market="IT", offer_id=offer)  # asked before signing in: no listener yet
+    refused = (await confirm(world, q.quote_id, 104)).refusal  # 104 has had a paid plan
+    assert refused.code == REFUSAL.REFUSAL_CODE_NOT_ELIGIBLE
+    assert refused.reason == "The offer is for verified students in Italy who have never had a paid plan."
+    assert refused.facts["subscriber"] == "104" and "#" not in refused.reason

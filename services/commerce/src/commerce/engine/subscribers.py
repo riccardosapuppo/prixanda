@@ -38,13 +38,13 @@ from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, to_local
 from commerce.domain.money import Money
 from commerce.domain.validation import on_sale, resolve_price
-from commerce.engine import contract, eligibility, payments, records, reference
+from commerce.engine import charging, contract, eligibility, payments, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.catalog import LIVE_OFFER, Catalog, list_price_at, live_offer
 from commerce.engine.database import Connection, utc_text
 from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound, Refused
 from commerce.engine.providers import PaymentProvider, StudentClaim, StudentVerifier
-from commerce.engine.quotes import audience_of
+from commerce.engine.quotes import audience_in_sentence, audience_of
 from commerce.v1 import subscriptions_pb2
 
 SUBSCRIBER_ROLE = "subscriber"
@@ -95,32 +95,29 @@ class Subscribers:
                                                      provider=row["provider"], reference=row["reference"] or "", valid=valid)
 
     async def _subscription(self, tx: Connection, market: reference.Market, row, today: date) -> subscriptions_pb2.Subscription:
-        price = Money(row["price_minor"], market.currency)
         message = subscriptions_pb2.Subscription(
             subscription_id=row["id"], plan=row["plan_id"], market=market.code, paid=row["paid"],
-            price=contract.money(price), started_on=row["started_on"], offer_id=row["offer_change_id"] or 0)
+            price=contract.money(Money(row["price_minor"], market.currency)), started_on=row["started_on"],
+            offer_id=row["offer_change_id"] or 0)
         if not row["paid"]:
             return message
-        started = _date(row["started_on"])
         months = row["offer_months"] or 0
-        schedule = billing.schedule(started, row["billing_day"], months, today)
+        now = await charging.standing(tx, market, plan_id=row["plan_id"], price_minor=row["price_minor"],
+                                      started_on=_date(row["started_on"]), billing_day=row["billing_day"], offer_months=months,
+                                      day=today)
+        schedule = now.schedule
+        message.price.CopyFrom(contract.money(now.price))  # after the offer's months, the list price of that day
         message.billing_day = row["billing_day"]
         message.next_billing_on = schedule.next_billing_on.isoformat()
-        next_charge = price
+        next_charge = Money(row["price_minor"], market.currency)
         if months:
             message.offer_title = await tx.fetchval("select title from change where id = $1", row["offer_change_id"])
             message.offer_months = months
             message.offer_months_left = schedule.offer_months_left
-            full_from = schedule.full_price_from
-            message.full_price_from = full_from.isoformat()
-            full = await list_price_at(tx, row["plan_id"], market, datetime.combine(full_from, datetime.min.time()))
-            if full is None:
-                raise FailedPrecondition(f"no {row['plan_id']} price is in force in {market.name} on {full_from.isoformat()}")
-            message.full_price.CopyFrom(contract.money(full))
-            if schedule.offer_months_left == 0:
-                message.price.CopyFrom(contract.money(full))  # the offer is over: the list price of that day applies
+            message.full_price_from = schedule.full_price_from.isoformat()
+            message.full_price.CopyFrom(contract.money(now.full_price))
             if not schedule.next_at_offer_price:
-                next_charge = full
+                next_charge = now.full_price
         message.next_charge.CopyFrom(contract.money(next_charge))
         return message
 
@@ -226,14 +223,15 @@ class Subscribers:
                                                "nothing: it is not on sale.", {"offer_id": offer_id})
         if home != market.code:
             raise Refused("NOT_ELIGIBLE", f"This listener is in {ref.markets[home].name}, and the quote is for {market.name}.",
-                          {"market": home})
+                          {"subscriber": subscriber, "market": home})
         plan = ref.plans[quote["plan_id"]]
         if plan.needs_student_check and not await eligibility.has_valid_student_check(tx, subscriber, today):
-            raise Refused("NOT_ELIGIBLE", f"{plan.name} needs a valid student verification (§10).", {"check": "student"})
+            raise Refused("NOT_ELIGIBLE", f"{plan.name} needs a valid student verification (§10).",
+                          {"subscriber": subscriber, "check": "student"})
         if offer is not None:
             if not await eligibility.includes(tx, audience_of(offer.audience), market.code, today, subscriber):
-                raise Refused("NOT_ELIGIBLE", f"The offer is for {offer.audience_words.lower()}.",
-                              {"offer_id": offer.change_id, "audience": offer.audience_words})
+                raise Refused("NOT_ELIGIBLE", f"The offer is for {await audience_in_sentence(tx, offer.audience, market, ref)}.",
+                              {"subscriber": subscriber, "offer_id": offer.change_id, "audience": offer.audience_words})
             group = await tx.fetchval("select group_name from catalog_offer where snapshot_id = $1 and change_id = $2 limit 1",
                                       offer.snapshot_id, offer.change_id)
             taken = await tx.fetchval(

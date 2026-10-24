@@ -39,7 +39,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 12, contractFiles: 47, migrations: 11, pythonTests: 568, invariants: 10, generatedSubscribers: 5_000,
+  typecheckedFiles: 12, contractFiles: 47, migrations: 11, pythonTests: 573, invariants: 10, generatedSubscribers: 5_000,
   faultsInjected: 12,
 };
 // pytest's tests by area, read from the folder each test lives in: the
@@ -48,7 +48,7 @@ const FLOOR = {
 // (services), the calls over gRPC with a real server (e2e), the properties
 // Hypothesis generates cases for (properties), and the faults injected in a
 // launch with the engine's real process (faults).
-const AREA_FLOOR: Record<string, number> = { database: 90, domain: 153, golden: 32, services: 241, e2e: 28, properties: 10, faults: 14 };
+const AREA_FLOOR: Record<string, number> = { database: 90, domain: 154, golden: 32, services: 245, e2e: 28, properties: 10, faults: 14 };
 // What tests/faults writes: every fault injected in a launch, and what it left.
 type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 
