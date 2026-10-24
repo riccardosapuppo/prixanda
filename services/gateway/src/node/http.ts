@@ -193,7 +193,7 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const started = performance.now();
     const { id: requestId } = requestIdFrom(header(request, "x-request-id"), newId);
-    const url = new URL(request.url ?? "/", "http://gateway.invalid");
+    let path = "(not a path)";
     const common: Record<string, string> = {
       "x-request-id": requestId,
       "cache-control": "no-store",
@@ -209,6 +209,14 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
       send(response, code, body, { ...common, ...extra });
     };
     try {
+      // A target such as //[ is no URL at all: an answer, like any other bad request.
+      let url: URL;
+      try {
+        url = new URL(request.url ?? "/", "http://gateway.invalid");
+      } catch {
+        return finish(400, failure(requestId, "BAD_REQUEST", "The request's target is not a path."));
+      }
+      path = url.pathname;
       // 2. CORS.
       const origin = header(request, "origin");
       if (origin !== undefined) {
@@ -330,7 +338,7 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
       else response.end();
     } finally {
       logger.log("info", "request", {
-        requestId, endpoint, method: request.method, path: url.pathname, status, ms: Math.round(performance.now() - started),
+        requestId, endpoint, method: request.method, path, status, ms: Math.round(performance.now() - started),
         ...(record?.operation ? { operation: record.operation } : {}),
         ...(person ? { person } : {}),
         ...(record ? { engineCalls: record.engineCalls, engineFailures: record.engineFailures } : {}),
@@ -338,8 +346,23 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
     }
   };
 
+  // handle() answers its own failures; this is the last guard, for whatever
+  // fails outside them (its log line, say): a request never takes the process
+  // down, and with it the other API, which lives in the same process.
   const server = createServer((request, response) => {
-    void handle(request, response);
+    handle(request, response).catch((error: unknown) => {
+      try {
+        logger.log("error", "request handler failed", { endpoint, error: error instanceof Error ? error.message : String(error) });
+      } catch {
+        // Nothing left to tell it to.
+      }
+      if (!response.headersSent) {
+        response.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        response.end(JSON.stringify({ errors: [{ message: "Internal error.", extensions: { code: "INTERNAL_SERVER_ERROR" } }] }));
+      } else if (!response.writableEnded) {
+        response.destroy();
+      }
+    });
   });
   // Slow clients do not hold connections open for ever.
   server.headersTimeout = 10_000;

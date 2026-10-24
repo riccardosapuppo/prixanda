@@ -202,6 +202,11 @@ hundred bytes of query could keep the gateway busy for minutes before any
 limit was checked. Thirty such levels are refused in milliseconds (a test
 holds that, with its threshold).
 
+A request whose target is not a path (`//[`, say) is a 400 like any other
+bad request. Whatever fails outside the handler's own answers is caught by a
+last guard around it and written to the log: no request can take the
+process down, and with it the other API, which lives in the same process.
+
 Rate limits are token buckets per client address and per session; past
 them the answer is 429 with `Retry-After`. They live in the process's
 memory: with several instances of the gateway, each counts on its own.

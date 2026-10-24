@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, request } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
@@ -138,6 +139,18 @@ describe("npm run gateway", () => {
       assert.equal(fromPage.status, 403);
       // The secrets never reach the log.
       for (const secret of [FAKE_TOKEN, SECRETS.GATEWAY_SESSION_SECRET]) assert.ok(!gateway.output().includes(secret));
+      // A request target that is no URL is a 400, and the process stays up.
+      const malformed = await new Promise<string>((resolve, reject) => {
+        let answer = "";
+        const socket = connect(PORTS.public, "127.0.0.1", () => socket.write("GET //[ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"));
+        socket.setEncoding("latin1");
+        socket.on("data", (chunk: string) => (answer += chunk));
+        socket.on("end", () => resolve(answer));
+        socket.on("error", reject);
+      });
+      assert.match(malformed, /^HTTP\/1\.1 400 /);
+      assert.equal((await get(`http://127.0.0.1:${PORTS.internal}/health`)).status, 200);
+      assert.equal(gateway.running(), true);
     } finally {
       await gateway.stop();
       await engine.stop();
@@ -211,6 +224,7 @@ async function startProcess(env: Record<string, string>) {
     exited,
     lines: () => lines,
     output: () => raw,
+    running: () => child.exitCode === null && child.signalCode === null,
     async stop() {
       if (child.exitCode === null) child.kill();
       await exited;
