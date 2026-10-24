@@ -60,6 +60,11 @@ query Home($readsRevenue: Boolean!) {
       run
       state
       summary
+      launchId
+      kind
+      openedAt
+      closedAt
+      resolution
       change {
         id
       }

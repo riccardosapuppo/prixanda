@@ -29,6 +29,8 @@ export type Right =
   | "scheduleOffer"
   | "cancelOffer"
   | "suspend"
+  | "retryLaunch"
+  | "cancelLaunch"
   | "verifyChain"
   | "exportHead"
   | "readRevenue"
@@ -84,6 +86,9 @@ export const TEAM = {
     // Cancelling a scheduled start is part of the on-call engineer's "roll back a launch".
     cancelOffer: ["MARKETING", "COMMERCIAL_LEAD", "ON_CALL"],
     suspend: ["ON_CALL"],
+    // §12.1: the on-call engineer retries or cancels a launch that stopped.
+    retryLaunch: ["ON_CALL"],
+    cancelLaunch: ["ON_CALL"],
     // §11.4: the auditor exports the log, and the auditor and the on-call engineer verify the chain.
     verifyChain: ["AUDITOR", "ON_CALL"],
     exportHead: ["AUDITOR"],

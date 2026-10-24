@@ -19,9 +19,10 @@ import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, ButtonLink, Callout, Chip, ErrorPanel, Loading, Locked, StateChip } from "../../components/ui.tsx";
 import {
-  ApproveChangeDocument, AuditEventsDocument, type AuditEventsQuery, CancelChangeDocument, ChangeDocument, type ChangeQuery, MarketsDocument,
+  ApproveChangeDocument, AuditEventsDocument, type AuditEventsQuery, CancelChangeDocument, ChangeDocument, type ChangeQuery, LaunchRunsDocument, MarketsDocument,
   RejectChangeDocument, ScheduleChangeDocument, SimulateOfferDocument, SuspendChangeDocument,
 } from "../../graphql/generated.ts";
+import { launchHref, launchLook } from "../../lib/launch.ts";
 import { describeChanges } from "../../lib/diff.ts";
 import { marketName, marketZone } from "../../lib/markets.ts";
 import {
@@ -251,6 +252,27 @@ function SimulationInShort({ change, market, marketLabel }: { readonly change: C
   );
 }
 
+/** The launches of a change, newest first: where its activation stands, and the way to its timeline. */
+function ItsLaunches({ changeId }: { readonly changeId: string }) {
+  const launches = useGatewayQuery(LaunchRunsDocument, { filter: { changeId }, first: 5, after: null });
+  const runs = launches.data?.launches.nodes ?? [];
+  if (runs.length === 0) return null;
+  return (
+    <ul role="list" className="grid gap-1.5">
+      {runs.map((run) => {
+        const look = launchLook(run);
+        return (
+          <li key={run.id} className="flex flex-wrap items-center gap-2 text-sm">
+            <Icon name="rocket-launch" size={16} className="text-indigo" />
+            <Link href={launchHref(run.id)} className="font-semibold">Its launch, {run.run}</Link>
+            <Chip look={look.look} icon={look.icon}>{look.word}</Chip>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function DecisionPanel({ change, markets }: { readonly change: Change; readonly markets: readonly { readonly code: string; readonly name: string; readonly timeZone: string; readonly currency: string }[] }) {
   const viewer = useViewer();
   const refresh = useRefreshChanges();
@@ -351,9 +373,11 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
         ) : <Locked>Approved. {whoDoes("scheduleOffer", { one: "schedules the launch", many: "schedule the launch" })}; {approvesWithoutScheduling({ start: false })}.</Locked>
       ) : null}
 
+      {["SCHEDULED", "ACTIVE", "SUSPENDED", "CANCELLED", "ENDED"].includes(change.state) ? <ItsLaunches changeId={change.id} /> : null}
+
       {change.state === "SCHEDULED" ? (
         <>
-          <p>Scheduled. The engine activates it at {startWords}, and publishes the catalog with it in one transaction (§7.5).</p>
+          <p>Scheduled: {startWords}. The engine begins its launch a minute before, runs it step by step, and publishes the catalog with it in one transaction (§7.5).</p>
           {offer && can(viewer.roles, "cancelOffer") ? (
             <Button icon="x-circle" onClick={() => setReasonOpen(reasonOpen === "cancel" ? null : "cancel")} aria-expanded={reasonOpen === "cancel"} aria-controls="decision-reason-form" className="justify-self-start">Cancel the launch</Button>
           ) : <Locked>{whoDoes("cancelOffer", { one: "can cancel a scheduled launch", many: "can cancel a scheduled launch" })}.</Locked>}

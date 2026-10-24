@@ -12,9 +12,16 @@ import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
 import type { Viewer } from "../../lib/react/session.tsx";
 import { HomeScreen } from "./home.tsx";
 
-function gatewayFor() {
+/** An open incident: the pass is not live five minutes after its start, and its launch waits to try the publish step again. */
+const LATE = {
+  title: "Student Autumn Pass", run: "launch-12", state: "OPEN" as const, kind: "LATE" as const, launchId: "12",
+  summary: "Student Autumn Pass (#7) is not live 5 minutes after its start at 09:00 Rome.", openedAt: "2026-10-26T08:05:00Z", closedAt: null, resolution: null,
+  change: { id: "7" },
+};
+
+function gatewayFor(incidents: readonly (typeof LATE)[] = []) {
   return fakeGateway({
-    Home: (variables: { readsRevenue: boolean }) => ({ overview: overview(variables.readsRevenue), markets: MARKETS }),
+    Home: (variables: { readsRevenue: boolean }) => ({ overview: { ...overview(variables.readsRevenue), incidentsToday: incidents }, markets: MARKETS }),
     Week: () => WEEK,
   });
 }
@@ -82,5 +89,16 @@ export const TheWeekLinesUpByUtcOnRequest: Story = {
     await userEvent.click(page.getByRole("button", { name: "UTC" }));
     await expect(page.getByRole("button", { name: "UTC" })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByText(/Lined up by UTC, the same instant falls on the same vertical/)).toBeInTheDocument();
+  },
+};
+
+export const ALaunchThatDoesNotStartIsAnAlarm: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: gatewayFor([LATE]) },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement);
+    const alarm = await page.findByRole("alert");
+    await expect(alarm).toHaveTextContent("Not live 5 minutes after its start: Student Autumn Pass.");
+    await expect(within(alarm).getByRole("link", { name: /Open its launch/ })).toHaveAttribute("href", "/launches/run/?id=12");
+    await expect(page.getByRole("link", { name: /See what happened/ })).toHaveAttribute("href", "/launches/run/?id=12");
   },
 };

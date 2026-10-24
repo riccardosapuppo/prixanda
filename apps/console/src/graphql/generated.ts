@@ -165,6 +165,41 @@ export type IncidentState =
   /** A person retried or cancelled the launch. */
   | 'RESOLVED';
 
+/** Why an incident opened. */
+export type IncidentKind =
+  /** A scheduled change not live 5 minutes after its start: the alarm. */
+  | 'LATE'
+  /** A step of the launch failed 5 times. */
+  | 'FAILED'
+  /** The launch's check found a clash or a later price. */
+  | 'REFUSED';
+
+export type LaunchFilter = {
+  readonly state?: LaunchState | null | undefined;
+  readonly changeId?: string | number | null | undefined;
+};
+
+/** Where a launch stands. */
+export type LaunchState =
+  /** Steps remain: the engine works on them, or waits to try a failed one again. */
+  | 'RUNNING'
+  /** Published, the site told, the live catalog checked. */
+  | 'DONE'
+  /** A step failed 5 times. Nothing was published unless its publish step is done. */
+  | 'FAILED'
+  /** The check found a clash or a later price: nothing was published, and the change stays scheduled. */
+  | 'REFUSED'
+  /** Given up before it published: its change is cancelled. */
+  | 'CANCELLED';
+
+export type LaunchStepState =
+  | 'PENDING'
+  /** Started and not finished: running now, or stopped by a fault and to be resumed. */
+  | 'RUNNING'
+  | 'DONE'
+  /** Its last attempt failed. */
+  | 'FAILED';
+
 export type AssumptionName =
   | 'ELIGIBLE'
   | 'TAKE_UP'
@@ -520,7 +555,7 @@ export type HomeQueryVariables = Exact<{
 export type HomeQuery = { readonly overview: { readonly monthlyRevenueEur?: { readonly amountMinor: string; readonly currency: string } | null, readonly monthlyTopUps?: { readonly amountMinor: string; readonly currency: string } | null, readonly exchangeRateNote: string, readonly waitingForApproval: ReadonlyArray<{ readonly id: string, readonly kind: ChangeKind, readonly title: string, readonly state: ChangeState, readonly currentVersion: number, readonly markets: ReadonlyArray<string>, readonly updatedAt: string, readonly details: { readonly id: string, readonly sentence: string | null, readonly versions: ReadonlyArray<{ readonly version: number, readonly author: { readonly id: string } }>, readonly current: { readonly version: number, readonly author: { readonly id: string }, readonly content:
             | { readonly __typename: 'OfferContent', readonly plan: string }
             | { readonly __typename: 'ListPriceContent', readonly plan: string }
-           }, readonly approvals: ReadonlyArray<{ readonly version: number, readonly approver: { readonly id: string } }> }, readonly createdBy: { readonly id: string, readonly label: string }, readonly requiredSignatures: ReadonlyArray<{ readonly role: Role, readonly conditions: ReadonlyArray<number>, readonly why: string, readonly signed: boolean }> }>, readonly launchesNext7Days: ReadonlyArray<{ readonly title: string, readonly state: ChangeState, readonly atRisk: boolean, readonly risk: string | null, readonly starts: { readonly market: string, readonly local: string, readonly utc: string }, readonly change: { readonly id: string, readonly kind: ChangeKind, readonly currentVersion: number } }>, readonly incidentsToday: ReadonlyArray<{ readonly title: string, readonly run: string, readonly state: IncidentState, readonly summary: string, readonly change: { readonly id: string } }>, readonly payingSubscribers: ReadonlyArray<{ readonly market: string, readonly plan: string, readonly count: number }>, readonly freeListeners: ReadonlyArray<{ readonly market: string, readonly plan: string, readonly count: number }>, readonly monthlyRevenue?: ReadonlyArray<{ readonly market: string, readonly revenue: { readonly amountMinor: string; readonly currency: string }, readonly revenueEur: { readonly amountMinor: string; readonly currency: string } }> | null }, readonly markets: ReadonlyArray<{ readonly code: string, readonly name: string, readonly currency: string, readonly minorUnits: number, readonly timeZone: string, readonly vatBasisPoints: number, readonly artistsMinimum: { readonly amountMinor: string; readonly currency: string }, readonly floor: { readonly amountMinor: string; readonly currency: string } }> };
+           }, readonly approvals: ReadonlyArray<{ readonly version: number, readonly approver: { readonly id: string } }> }, readonly createdBy: { readonly id: string, readonly label: string }, readonly requiredSignatures: ReadonlyArray<{ readonly role: Role, readonly conditions: ReadonlyArray<number>, readonly why: string, readonly signed: boolean }> }>, readonly launchesNext7Days: ReadonlyArray<{ readonly title: string, readonly state: ChangeState, readonly atRisk: boolean, readonly risk: string | null, readonly starts: { readonly market: string, readonly local: string, readonly utc: string }, readonly change: { readonly id: string, readonly kind: ChangeKind, readonly currentVersion: number } }>, readonly incidentsToday: ReadonlyArray<{ readonly title: string, readonly run: string, readonly state: IncidentState, readonly summary: string, readonly launchId: string | null, readonly kind: IncidentKind, readonly openedAt: string, readonly closedAt: string | null, readonly resolution: string | null, readonly change: { readonly id: string } }>, readonly payingSubscribers: ReadonlyArray<{ readonly market: string, readonly plan: string, readonly count: number }>, readonly freeListeners: ReadonlyArray<{ readonly market: string, readonly plan: string, readonly count: number }>, readonly monthlyRevenue?: ReadonlyArray<{ readonly market: string, readonly revenue: { readonly amountMinor: string; readonly currency: string }, readonly revenueEur: { readonly amountMinor: string; readonly currency: string } }> | null }, readonly markets: ReadonlyArray<{ readonly code: string, readonly name: string, readonly currency: string, readonly minorUnits: number, readonly timeZone: string, readonly vatBasisPoints: number, readonly artistsMinimum: { readonly amountMinor: string; readonly currency: string }, readonly floor: { readonly amountMinor: string; readonly currency: string } }> };
 
 export type WeekQueryVariables = Exact<{
   states?: ReadonlyArray<ChangeState> | null | undefined;
@@ -536,6 +571,57 @@ export type LaunchesQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type LaunchesQuery = { readonly overview: { readonly launchesNext7Days: ReadonlyArray<{ readonly title: string, readonly state: ChangeState, readonly atRisk: boolean, readonly risk: string | null, readonly starts: { readonly market: string, readonly local: string, readonly utc: string }, readonly change: { readonly id: string, readonly currentVersion: number } }> }, readonly markets: ReadonlyArray<{ readonly code: string, readonly name: string, readonly currency: string, readonly minorUnits: number, readonly timeZone: string, readonly vatBasisPoints: number, readonly artistsMinimum: { readonly amountMinor: string; readonly currency: string }, readonly floor: { readonly amountMinor: string; readonly currency: string } }> };
+
+export type LaunchFieldsFragment = { readonly id: string, readonly run: string, readonly title: string, readonly kind: ChangeKind, readonly version: number, readonly state: LaunchState, readonly dueAt: string, readonly startedAt: string | null, readonly finishedAt: string | null, readonly currentStep: string | null, readonly attempts: number, readonly cause: string | null, readonly retryAt: string | null, readonly resolution: string | null, readonly snapshotBefore: string | null, readonly snapshotAfter: string | null, readonly change: { readonly id: string, readonly currentVersion: number, readonly state: ChangeState }, readonly starts: { readonly market: string, readonly local: string, readonly utc: string } };
+
+export type LaunchDetailFieldsFragment = { readonly auditEventSeqs: ReadonlyArray<string>, readonly id: string, readonly run: string, readonly title: string, readonly kind: ChangeKind, readonly version: number, readonly state: LaunchState, readonly dueAt: string, readonly startedAt: string | null, readonly finishedAt: string | null, readonly currentStep: string | null, readonly attempts: number, readonly cause: string | null, readonly retryAt: string | null, readonly resolution: string | null, readonly snapshotBefore: string | null, readonly snapshotAfter: string | null, readonly steps: ReadonlyArray<{ readonly name: string, readonly purpose: string, readonly state: LaunchStepState, readonly startedAt: string | null, readonly finishedAt: string | null, readonly attempts: number, readonly error: string | null, readonly facts: ReadonlyArray<{ readonly name: string, readonly value: string }> }>, readonly incidents: ReadonlyArray<{ readonly id: string, readonly kind: IncidentKind, readonly state: IncidentState, readonly summary: string, readonly openedAt: string, readonly closedAt: string | null, readonly resolution: string | null }>, readonly change: { readonly id: string, readonly currentVersion: number, readonly state: ChangeState }, readonly starts: { readonly market: string, readonly local: string, readonly utc: string } };
+
+type LaunchResultFields_LaunchRun_Fragment = { readonly __typename: 'LaunchRun', readonly auditEventSeqs: ReadonlyArray<string>, readonly id: string, readonly run: string, readonly title: string, readonly kind: ChangeKind, readonly version: number, readonly state: LaunchState, readonly dueAt: string, readonly startedAt: string | null, readonly finishedAt: string | null, readonly currentStep: string | null, readonly attempts: number, readonly cause: string | null, readonly retryAt: string | null, readonly resolution: string | null, readonly snapshotBefore: string | null, readonly snapshotAfter: string | null, readonly steps: ReadonlyArray<{ readonly name: string, readonly purpose: string, readonly state: LaunchStepState, readonly startedAt: string | null, readonly finishedAt: string | null, readonly attempts: number, readonly error: string | null, readonly facts: ReadonlyArray<{ readonly name: string, readonly value: string }> }>, readonly incidents: ReadonlyArray<{ readonly id: string, readonly kind: IncidentKind, readonly state: IncidentState, readonly summary: string, readonly openedAt: string, readonly closedAt: string | null, readonly resolution: string | null }>, readonly change: { readonly id: string, readonly currentVersion: number, readonly state: ChangeState }, readonly starts: { readonly market: string, readonly local: string, readonly utc: string } };
+
+type LaunchResultFields_Refusal_Fragment = { readonly __typename: 'Refusal', readonly code: RefusalCode, readonly reason: string, readonly facts: ReadonlyArray<{ readonly name: string, readonly value: string }> };
+
+export type LaunchResultFieldsFragment =
+  | LaunchResultFields_LaunchRun_Fragment
+  | LaunchResultFields_Refusal_Fragment
+;
+
+export type LaunchRunsQueryVariables = Exact<{
+  filter?: LaunchFilter | null | undefined;
+  first: number;
+  after?: string | null | undefined;
+}>;
+
+
+export type LaunchRunsQuery = { readonly launches: { readonly next: string | null, readonly nodes: ReadonlyArray<{ readonly id: string, readonly run: string, readonly title: string, readonly kind: ChangeKind, readonly version: number, readonly state: LaunchState, readonly dueAt: string, readonly startedAt: string | null, readonly finishedAt: string | null, readonly currentStep: string | null, readonly attempts: number, readonly cause: string | null, readonly retryAt: string | null, readonly resolution: string | null, readonly snapshotBefore: string | null, readonly snapshotAfter: string | null, readonly change: { readonly id: string, readonly currentVersion: number, readonly state: ChangeState }, readonly starts: { readonly market: string, readonly local: string, readonly utc: string } }> }, readonly markets: ReadonlyArray<{ readonly code: string, readonly name: string, readonly currency: string, readonly minorUnits: number, readonly timeZone: string, readonly vatBasisPoints: number, readonly artistsMinimum: { readonly amountMinor: string; readonly currency: string }, readonly floor: { readonly amountMinor: string; readonly currency: string } }> };
+
+export type LaunchRunQueryVariables = Exact<{
+  id: string | number;
+}>;
+
+
+export type LaunchRunQuery = { readonly launch: { readonly auditEventSeqs: ReadonlyArray<string>, readonly id: string, readonly run: string, readonly title: string, readonly kind: ChangeKind, readonly version: number, readonly state: LaunchState, readonly dueAt: string, readonly startedAt: string | null, readonly finishedAt: string | null, readonly currentStep: string | null, readonly attempts: number, readonly cause: string | null, readonly retryAt: string | null, readonly resolution: string | null, readonly snapshotBefore: string | null, readonly snapshotAfter: string | null, readonly steps: ReadonlyArray<{ readonly name: string, readonly purpose: string, readonly state: LaunchStepState, readonly startedAt: string | null, readonly finishedAt: string | null, readonly attempts: number, readonly error: string | null, readonly facts: ReadonlyArray<{ readonly name: string, readonly value: string }> }>, readonly incidents: ReadonlyArray<{ readonly id: string, readonly kind: IncidentKind, readonly state: IncidentState, readonly summary: string, readonly openedAt: string, readonly closedAt: string | null, readonly resolution: string | null }>, readonly change: { readonly id: string, readonly currentVersion: number, readonly state: ChangeState }, readonly starts: { readonly market: string, readonly local: string, readonly utc: string } } | null, readonly markets: ReadonlyArray<{ readonly code: string, readonly name: string, readonly currency: string, readonly minorUnits: number, readonly timeZone: string, readonly vatBasisPoints: number, readonly artistsMinimum: { readonly amountMinor: string; readonly currency: string }, readonly floor: { readonly amountMinor: string; readonly currency: string } }> };
+
+export type RetryLaunchMutationVariables = Exact<{
+  launchId: string | number;
+  reason?: string | null | undefined;
+}>;
+
+
+export type RetryLaunchMutation = { readonly retryLaunch:
+    | { readonly __typename: 'LaunchRun', readonly auditEventSeqs: ReadonlyArray<string>, readonly id: string, readonly run: string, readonly title: string, readonly kind: ChangeKind, readonly version: number, readonly state: LaunchState, readonly dueAt: string, readonly startedAt: string | null, readonly finishedAt: string | null, readonly currentStep: string | null, readonly attempts: number, readonly cause: string | null, readonly retryAt: string | null, readonly resolution: string | null, readonly snapshotBefore: string | null, readonly snapshotAfter: string | null, readonly steps: ReadonlyArray<{ readonly name: string, readonly purpose: string, readonly state: LaunchStepState, readonly startedAt: string | null, readonly finishedAt: string | null, readonly attempts: number, readonly error: string | null, readonly facts: ReadonlyArray<{ readonly name: string, readonly value: string }> }>, readonly incidents: ReadonlyArray<{ readonly id: string, readonly kind: IncidentKind, readonly state: IncidentState, readonly summary: string, readonly openedAt: string, readonly closedAt: string | null, readonly resolution: string | null }>, readonly change: { readonly id: string, readonly currentVersion: number, readonly state: ChangeState }, readonly starts: { readonly market: string, readonly local: string, readonly utc: string } }
+    | { readonly __typename: 'Refusal', readonly code: RefusalCode, readonly reason: string, readonly facts: ReadonlyArray<{ readonly name: string, readonly value: string }> }
+   };
+
+export type CancelLaunchMutationVariables = Exact<{
+  launchId: string | number;
+  reason: string;
+}>;
+
+
+export type CancelLaunchMutation = { readonly cancelLaunch:
+    | { readonly __typename: 'LaunchRun', readonly auditEventSeqs: ReadonlyArray<string>, readonly id: string, readonly run: string, readonly title: string, readonly kind: ChangeKind, readonly version: number, readonly state: LaunchState, readonly dueAt: string, readonly startedAt: string | null, readonly finishedAt: string | null, readonly currentStep: string | null, readonly attempts: number, readonly cause: string | null, readonly retryAt: string | null, readonly resolution: string | null, readonly snapshotBefore: string | null, readonly snapshotAfter: string | null, readonly steps: ReadonlyArray<{ readonly name: string, readonly purpose: string, readonly state: LaunchStepState, readonly startedAt: string | null, readonly finishedAt: string | null, readonly attempts: number, readonly error: string | null, readonly facts: ReadonlyArray<{ readonly name: string, readonly value: string }> }>, readonly incidents: ReadonlyArray<{ readonly id: string, readonly kind: IncidentKind, readonly state: IncidentState, readonly summary: string, readonly openedAt: string, readonly closedAt: string | null, readonly resolution: string | null }>, readonly change: { readonly id: string, readonly currentVersion: number, readonly state: ChangeState }, readonly starts: { readonly market: string, readonly local: string, readonly utc: string } }
+    | { readonly __typename: 'Refusal', readonly code: RefusalCode, readonly reason: string, readonly facts: ReadonlyArray<{ readonly name: string, readonly value: string }> }
+   };
 
 export type SessionFieldsFragment = { readonly mode: SessionMode, readonly roles: ReadonlyArray<Role>, readonly csrfToken: string, readonly expiresAt: string, readonly person: { readonly id: string, readonly label: string, readonly roles: ReadonlyArray<Role> } };
 
@@ -681,7 +767,7 @@ export const SuspendChangeDocument: Operation<SuspendChangeMutation, SuspendChan
 export const HomeDocument: Operation<HomeQuery, HomeQueryVariables> = {
   name: "Home",
   kind: "query",
-  text: "query Home($readsRevenue: Boolean!) {\n  overview {\n    waitingForApproval {\n      ...SummaryFields\n      details {\n        id\n        sentence\n        versions {\n          version\n          author {\n            id\n          }\n        }\n        current {\n          version\n          author {\n            id\n          }\n          content {\n            __typename\n            ... on OfferContent {\n              plan\n            }\n            ... on ListPriceContent {\n              plan\n            }\n          }\n        }\n        approvals {\n          version\n          approver {\n            id\n          }\n        }\n      }\n    }\n    launchesNext7Days {\n      title\n      state\n      atRisk\n      risk\n      starts {\n        market\n        local\n        utc\n      }\n      change {\n        id\n        kind\n        currentVersion\n      }\n    }\n    incidentsToday {\n      title\n      run\n      state\n      summary\n      change {\n        id\n      }\n    }\n    payingSubscribers {\n      market\n      plan\n      count\n    }\n    freeListeners {\n      market\n      plan\n      count\n    }\n    monthlyRevenue @include(if: $readsRevenue) {\n      market\n      revenue\n      revenueEur\n    }\n    monthlyRevenueEur @include(if: $readsRevenue)\n    monthlyTopUps @include(if: $readsRevenue)\n    exchangeRateNote\n  }\n  markets {\n    ...MarketFields\n  }\n}\n\nfragment MarketFields on Market {\n  code\n  name\n  currency\n  minorUnits\n  timeZone\n  vatBasisPoints\n  artistsMinimum\n  floor\n}\n\nfragment PersonRef on Person {\n  id\n  label\n}\n\nfragment SignatureFields on RequiredSignature {\n  role\n  conditions\n  why\n  signed\n}\n\nfragment SummaryFields on ChangeSummary {\n  id\n  kind\n  title\n  state\n  currentVersion\n  createdBy {\n    ...PersonRef\n  }\n  markets\n  requiredSignatures {\n    ...SignatureFields\n  }\n  updatedAt\n}",
+  text: "query Home($readsRevenue: Boolean!) {\n  overview {\n    waitingForApproval {\n      ...SummaryFields\n      details {\n        id\n        sentence\n        versions {\n          version\n          author {\n            id\n          }\n        }\n        current {\n          version\n          author {\n            id\n          }\n          content {\n            __typename\n            ... on OfferContent {\n              plan\n            }\n            ... on ListPriceContent {\n              plan\n            }\n          }\n        }\n        approvals {\n          version\n          approver {\n            id\n          }\n        }\n      }\n    }\n    launchesNext7Days {\n      title\n      state\n      atRisk\n      risk\n      starts {\n        market\n        local\n        utc\n      }\n      change {\n        id\n        kind\n        currentVersion\n      }\n    }\n    incidentsToday {\n      title\n      run\n      state\n      summary\n      launchId\n      kind\n      openedAt\n      closedAt\n      resolution\n      change {\n        id\n      }\n    }\n    payingSubscribers {\n      market\n      plan\n      count\n    }\n    freeListeners {\n      market\n      plan\n      count\n    }\n    monthlyRevenue @include(if: $readsRevenue) {\n      market\n      revenue\n      revenueEur\n    }\n    monthlyRevenueEur @include(if: $readsRevenue)\n    monthlyTopUps @include(if: $readsRevenue)\n    exchangeRateNote\n  }\n  markets {\n    ...MarketFields\n  }\n}\n\nfragment MarketFields on Market {\n  code\n  name\n  currency\n  minorUnits\n  timeZone\n  vatBasisPoints\n  artistsMinimum\n  floor\n}\n\nfragment PersonRef on Person {\n  id\n  label\n}\n\nfragment SignatureFields on RequiredSignature {\n  role\n  conditions\n  why\n  signed\n}\n\nfragment SummaryFields on ChangeSummary {\n  id\n  kind\n  title\n  state\n  currentVersion\n  createdBy {\n    ...PersonRef\n  }\n  markets\n  requiredSignatures {\n    ...SignatureFields\n  }\n  updatedAt\n}",
 };
 
 export const WeekDocument: Operation<WeekQuery, WeekQueryVariables> = {
@@ -694,6 +780,30 @@ export const LaunchesDocument: Operation<LaunchesQuery, LaunchesQueryVariables> 
   name: "Launches",
   kind: "query",
   text: "query Launches {\n  overview {\n    launchesNext7Days {\n      title\n      state\n      atRisk\n      risk\n      starts {\n        market\n        local\n        utc\n      }\n      change {\n        id\n        currentVersion\n      }\n    }\n  }\n  markets {\n    ...MarketFields\n  }\n}\n\nfragment MarketFields on Market {\n  code\n  name\n  currency\n  minorUnits\n  timeZone\n  vatBasisPoints\n  artistsMinimum\n  floor\n}",
+};
+
+export const LaunchRunsDocument: Operation<LaunchRunsQuery, LaunchRunsQueryVariables> = {
+  name: "LaunchRuns",
+  kind: "query",
+  text: "query LaunchRuns($filter: LaunchFilter, $first: Int!, $after: String) {\n  launches(filter: $filter, first: $first, after: $after) {\n    nodes {\n      ...LaunchFields\n    }\n    next\n  }\n  markets {\n    ...MarketFields\n  }\n}\n\nfragment LaunchFields on LaunchRun {\n  id\n  run\n  title\n  kind\n  version\n  state\n  change {\n    id\n    currentVersion\n    state\n  }\n  starts {\n    market\n    local\n    utc\n  }\n  dueAt\n  startedAt\n  finishedAt\n  currentStep\n  attempts\n  cause\n  retryAt\n  resolution\n  snapshotBefore\n  snapshotAfter\n}\n\nfragment MarketFields on Market {\n  code\n  name\n  currency\n  minorUnits\n  timeZone\n  vatBasisPoints\n  artistsMinimum\n  floor\n}",
+};
+
+export const LaunchRunDocument: Operation<LaunchRunQuery, LaunchRunQueryVariables> = {
+  name: "LaunchRun",
+  kind: "query",
+  text: "query LaunchRun($id: ID!) {\n  launch(id: $id) {\n    ...LaunchDetailFields\n  }\n  markets {\n    ...MarketFields\n  }\n}\n\nfragment LaunchDetailFields on LaunchRun {\n  ...LaunchFields\n  steps {\n    name\n    purpose\n    state\n    startedAt\n    finishedAt\n    attempts\n    error\n    facts {\n      name\n      value\n    }\n  }\n  auditEventSeqs\n  incidents {\n    id\n    kind\n    state\n    summary\n    openedAt\n    closedAt\n    resolution\n  }\n}\n\nfragment LaunchFields on LaunchRun {\n  id\n  run\n  title\n  kind\n  version\n  state\n  change {\n    id\n    currentVersion\n    state\n  }\n  starts {\n    market\n    local\n    utc\n  }\n  dueAt\n  startedAt\n  finishedAt\n  currentStep\n  attempts\n  cause\n  retryAt\n  resolution\n  snapshotBefore\n  snapshotAfter\n}\n\nfragment MarketFields on Market {\n  code\n  name\n  currency\n  minorUnits\n  timeZone\n  vatBasisPoints\n  artistsMinimum\n  floor\n}",
+};
+
+export const RetryLaunchDocument: Operation<RetryLaunchMutation, RetryLaunchMutationVariables> = {
+  name: "RetryLaunch",
+  kind: "mutation",
+  text: "mutation RetryLaunch($launchId: ID!, $reason: String) {\n  retryLaunch(launchId: $launchId, reason: $reason) {\n    ...LaunchResultFields\n  }\n}\n\nfragment LaunchDetailFields on LaunchRun {\n  ...LaunchFields\n  steps {\n    name\n    purpose\n    state\n    startedAt\n    finishedAt\n    attempts\n    error\n    facts {\n      name\n      value\n    }\n  }\n  auditEventSeqs\n  incidents {\n    id\n    kind\n    state\n    summary\n    openedAt\n    closedAt\n    resolution\n  }\n}\n\nfragment LaunchFields on LaunchRun {\n  id\n  run\n  title\n  kind\n  version\n  state\n  change {\n    id\n    currentVersion\n    state\n  }\n  starts {\n    market\n    local\n    utc\n  }\n  dueAt\n  startedAt\n  finishedAt\n  currentStep\n  attempts\n  cause\n  retryAt\n  resolution\n  snapshotBefore\n  snapshotAfter\n}\n\nfragment LaunchResultFields on LaunchResult {\n  __typename\n  ... on LaunchRun {\n    ...LaunchDetailFields\n  }\n  ... on Refusal {\n    code\n    reason\n    facts {\n      name\n      value\n    }\n  }\n}",
+};
+
+export const CancelLaunchDocument: Operation<CancelLaunchMutation, CancelLaunchMutationVariables> = {
+  name: "CancelLaunch",
+  kind: "mutation",
+  text: "mutation CancelLaunch($launchId: ID!, $reason: String!) {\n  cancelLaunch(launchId: $launchId, reason: $reason) {\n    ...LaunchResultFields\n  }\n}\n\nfragment LaunchDetailFields on LaunchRun {\n  ...LaunchFields\n  steps {\n    name\n    purpose\n    state\n    startedAt\n    finishedAt\n    attempts\n    error\n    facts {\n      name\n      value\n    }\n  }\n  auditEventSeqs\n  incidents {\n    id\n    kind\n    state\n    summary\n    openedAt\n    closedAt\n    resolution\n  }\n}\n\nfragment LaunchFields on LaunchRun {\n  id\n  run\n  title\n  kind\n  version\n  state\n  change {\n    id\n    currentVersion\n    state\n  }\n  starts {\n    market\n    local\n    utc\n  }\n  dueAt\n  startedAt\n  finishedAt\n  currentStep\n  attempts\n  cause\n  retryAt\n  resolution\n  snapshotBefore\n  snapshotAfter\n}\n\nfragment LaunchResultFields on LaunchResult {\n  __typename\n  ... on LaunchRun {\n    ...LaunchDetailFields\n  }\n  ... on Refusal {\n    code\n    reason\n    facts {\n      name\n      value\n    }\n  }\n}",
 };
 
 export const PeopleDocument: Operation<PeopleQuery, PeopleQueryVariables> = {

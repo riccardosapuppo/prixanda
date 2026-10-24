@@ -65,6 +65,8 @@ describe("the team's table", () => {
       scheduleOffer: offer(METHOD_ROLES.ScheduleChange),
       cancelOffer: offer(METHOD_ROLES.CancelChange),
       suspend: METHOD_ROLES.SuspendChange,
+      retryLaunch: METHOD_ROLES.RetryLaunch,
+      cancelLaunch: METHOD_ROLES.CancelLaunch,
       verifyChain: METHOD_ROLES.VerifyChain,
       exportHead: METHOD_ROLES.ExportHead,
       readRevenue: FIELD_ROLES["Overview.monthlyRevenue"],

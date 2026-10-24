@@ -20,17 +20,18 @@ export function useGateway(): GatewayClient {
   return client;
 }
 
-export type QueryOptions = {
+export type QueryOptions<TData = unknown> = {
   readonly enabled?: boolean;
   readonly staleTime?: number;
   readonly keepPrevious?: boolean;
-  readonly refetchInterval?: number | false;
+  /** Milliseconds between readings, or false; a function decides from the data read last (a launch is read again while it runs). */
+  readonly refetchInterval?: number | false | ((data: TData | undefined) => number | false);
 };
 
 export function useGatewayQuery<TData, TVariables>(
   operation: Operation<TData, TVariables>,
   variables: TVariables,
-  options: QueryOptions = {},
+  options: QueryOptions<TData> = {},
 ): UseQueryResult<TData, Error> {
   const gateway = useGateway();
   return useQuery<TData, Error, TData, readonly unknown[]>({
@@ -38,7 +39,7 @@ export function useGatewayQuery<TData, TVariables>(
     queryFn: ({ signal }) => gateway.run(operation, variables, { signal }),
     enabled: options.enabled ?? true,
     ...(options.staleTime !== undefined ? { staleTime: options.staleTime } : {}),
-    ...(options.refetchInterval !== undefined ? { refetchInterval: options.refetchInterval } : {}),
+    ...(options.refetchInterval !== undefined ? { refetchInterval: typeof options.refetchInterval === "function" ? (query: { state: { data: TData | undefined } }) => (options.refetchInterval as (data: TData | undefined) => number | false)(query.state.data) : options.refetchInterval } : {}),
     // The previous page stays on screen while the next one loads (TanStack's own helper; its type is generic over any data).
     ...(options.keepPrevious ? { placeholderData: keepPreviousData as never } : {}),
   });

@@ -121,6 +121,12 @@ export function formatInstantIn(instant: string | Date, zone: string, options: {
   return `${day} ${time} ${zoneCity(zone)}`;
 }
 
+/** "10:31:55", the clock time of an instant in a zone. */
+export function formatClockIn(instant: string | Date, zone: string): string {
+  const date = typeof instant === "string" ? new Date(instant) : instant;
+  return formatter(zone, { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(date);
+}
+
 /** "Saturday 24 October", the day an instant falls on in a zone. */
 export function dayHeading(instant: Date, zone: string): string {
   return formatter(zone, { weekday: "long", day: "numeric", month: "long" }).format(instant).replace(",", "");

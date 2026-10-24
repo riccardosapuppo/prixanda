@@ -9,7 +9,10 @@
 // reads them. Below, the week as lanes.
 //
 // The first row has two columns that end together: the approvals, each with
-// what it changes, and beside them the launches above the incidents.
+// what it changes, and beside them the launches above the incidents. An open
+// incident (a scheduled change not live five minutes after its start, a
+// launch that failed or was refused) is also an alarm above everything, with
+// the way to its launch.
 import { BRAND, formatCount, formatMoney } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
@@ -22,6 +25,7 @@ import {
   can, conditionSigner, conditionWords, decide, decisionSentence, everyoneReadsWords, primaryRole, signerWords, waitingFor, whoDoes,
 } from "../../lib/permissions.ts";
 import { useMinute } from "../../lib/react/clock.tsx";
+import { INCIDENT_KIND, INCIDENT_LOOK, launchHref } from "../../lib/launch.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useViewer, type Viewer } from "../../lib/react/session.tsx";
 import { dayHeading, formatInstantIn, formatLocalWithUtc, nowLabel } from "../../lib/time.ts";
@@ -47,6 +51,7 @@ export function HomeScreen() {
           <ErrorPanel error={home.error} retry={() => void home.refetch()} />
         ) : (
           <>
+            <Alarm incidents={home.data.overview.incidentsToday.filter((incident) => incident.state === "OPEN")} />
             <div className="grid grid-cols-1 gap-8 xl:grid-cols-2 xl:gap-12">
               <div className="home-column">
                 <ApprovalsZone waiting={home.data.overview.waitingForApproval} markets={home.data.markets} viewer={viewer} />
@@ -192,25 +197,63 @@ function LaunchesZone({ launches, markets }: { readonly launches: Overview["laun
   );
 }
 
+type Incident = Overview["incidentsToday"][number];
+
+/** Where an incident leads: its launch, or the change when the engine has not begun to launch it. */
+function incidentHref(incident: Incident): string {
+  return incident.launchId ? launchHref(incident.launchId) : `/campaigns/approval/?id=${incident.change.id}`;
+}
+
+/** The open incidents, above everything: a scheduled change that is not live as planned. */
+function Alarm({ incidents }: { readonly incidents: readonly Incident[] }) {
+  if (incidents.length === 0) return null;
+  return (
+    <div role="alert" className="grid gap-3 border-2 border-madder bg-stone-0 px-4 py-3">
+      {incidents.map((incident) => (
+        <div key={`${incident.run}-${incident.openedAt}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1.5">
+          <p className="flex min-w-0 items-baseline gap-2">
+            <Icon name="warning" size={18} className="translate-y-0.5 text-madder" />
+            <span>
+              <b>{INCIDENT_KIND[incident.kind]}: {incident.title}.</b> {incident.summary}
+            </span>
+          </p>
+          <ButtonLink href={incidentHref(incident)} size="small" iconAfter="arrow-right">
+            {incident.launchId ? "Open its launch" : "Open the change"}<span className="sr-only">: {incident.title}</span>
+          </ButtonLink>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function IncidentsZone({ incidents }: { readonly incidents: Overview["incidentsToday"] }) {
   return (
     <section className="zone zone--listed" aria-labelledby="home-incidents">
       <ZoneHead id="home-incidents" count={formatCount(incidents.length)} title="Incidents today" />
       {incidents.length === 0 ? (
-        <Empty icon="shield-check">No incidents today. When an activation fails, it shows up here with what happened, step by step.</Empty>
+        <Empty icon="shield-check">No incidents today. When a launch fails, is refused or does not start, it shows up here with what happened, step by step.</Empty>
       ) : (
         <ul role="list" className="grid">
-          {incidents.map((incident) => (
-            <li key={incident.run} className="grid gap-1.5 border-t border-cord py-3 first:border-t-0 first:pt-1 last:pb-0">
-              <p className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
-                <Chip look={incident.state === "OPEN" ? "rejected" : "done"} icon={incident.state === "OPEN" ? "warning" : incident.state === "RECOVERED" ? "arrows-clockwise" : "check-circle"}>
-                  {incident.state === "OPEN" ? "Open" : incident.state === "RECOVERED" ? "Recovered on its own" : "Resolved by a person"}
-                </Chip>
-                Run {incident.run}
-              </p>
-              <p className="text-sm">{incident.title}: {incident.summary}</p>
-            </li>
-          ))}
+          {incidents.map((incident) => {
+            const look = INCIDENT_LOOK[incident.state];
+            return (
+              <li key={`${incident.run}-${incident.openedAt}`} className="grid gap-1.5 border-t border-cord py-3 first:border-t-0 first:pt-1 last:pb-0">
+                <p className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
+                  <Chip look={look.look} icon={look.icon}>{look.word}</Chip>
+                  <span className="font-semibold text-ink">{INCIDENT_KIND[incident.kind]}</span>
+                  Run {incident.run}
+                </p>
+                <p className="text-sm">{incident.title}: {incident.summary}</p>
+                {incident.resolution ? <p className="text-sm text-ink-2">{incident.resolution}</p> : null}
+                <p className="text-sm">
+                  <Link href={incidentHref(incident)} className="inline-flex items-center gap-1.5 font-semibold">
+                    See what happened<span className="sr-only">: {incident.title}</span>
+                    <Icon name="arrow-right" size={15} />
+                  </Link>
+                </p>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
