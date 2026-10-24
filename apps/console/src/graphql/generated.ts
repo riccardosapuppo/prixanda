@@ -519,6 +519,11 @@ export type WeekQuery = { readonly priceList: ReadonlyArray<{ readonly id: strin
             | { readonly __typename: 'ListPriceContent' }
            } } }> } };
 
+export type LaunchesQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type LaunchesQuery = { readonly overview: { readonly launchesNext7Days: ReadonlyArray<{ readonly title: string, readonly state: ChangeState, readonly atRisk: boolean, readonly risk: string | null, readonly starts: { readonly market: string, readonly local: string, readonly utc: string }, readonly change: { readonly id: string, readonly currentVersion: number } }> }, readonly markets: ReadonlyArray<{ readonly code: string, readonly name: string, readonly currency: string, readonly minorUnits: number, readonly timeZone: string, readonly vatBasisPoints: number, readonly artistsMinimum: { readonly amountMinor: string; readonly currency: string }, readonly floor: { readonly amountMinor: string; readonly currency: string } }> };
+
 export type SessionFieldsFragment = { readonly mode: SessionMode, readonly roles: ReadonlyArray<Role>, readonly csrfToken: string, readonly expiresAt: string, readonly person: { readonly id: string, readonly label: string, readonly roles: ReadonlyArray<Role> } };
 
 export type PeopleQueryVariables = Exact<{ [key: string]: never; }>;
@@ -670,6 +675,12 @@ export const WeekDocument: Operation<WeekQuery, WeekQueryVariables> = {
   name: "Week",
   kind: "query",
   text: "query Week($states: [ChangeState!]) {\n  priceList {\n    id\n    plan\n    market\n    amount\n    validFrom\n    validUntil\n  }\n  changes(filter: {kind: OFFER, states: $states}, first: 50) {\n    nodes {\n      id\n      title\n      state\n      currentVersion\n      details {\n        id\n        current {\n          version\n          content {\n            __typename\n            ... on OfferContent {\n              plan\n              periods {\n                market\n                startsLocal\n                endsLocal\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}",
+};
+
+export const LaunchesDocument: Operation<LaunchesQuery, LaunchesQueryVariables> = {
+  name: "Launches",
+  kind: "query",
+  text: "query Launches {\n  overview {\n    launchesNext7Days {\n      title\n      state\n      atRisk\n      risk\n      starts {\n        market\n        local\n        utc\n      }\n      change {\n        id\n        currentVersion\n      }\n    }\n  }\n  markets {\n    ...MarketFields\n  }\n}\n\nfragment MarketFields on Market {\n  code\n  name\n  currency\n  minorUnits\n  timeZone\n  vatBasisPoints\n  artistsMinimum\n  floor\n}",
 };
 
 export const PeopleDocument: Operation<PeopleQuery, PeopleQueryVariables> = {

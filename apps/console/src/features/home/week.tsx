@@ -12,9 +12,11 @@ import { type HomeQuery, WeekDocument } from "../../graphql/generated.ts";
 import { PLAN_ORDER } from "../../lib/markets.ts";
 import { useMinute } from "../../lib/react/clock.tsx";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
-import { type Align, buildWeek, type Lane, laneName, laneWords, type Sheet } from "../../lib/week.ts";
+import { type Align, buildWeek, type Lane, laneName, laneWords } from "../../lib/week.ts";
 
 const SHOWN_STATES = ["VALIDATED", "IN_APPROVAL", "APPROVED", "SCHEDULED", "ACTIVE"] as const;
+/** A lane draws its first few offers, each on its own row; the rest are counted. */
+const LANE_OFFERS = 3;
 
 export function WeekZone({ markets }: { readonly markets: HomeQuery["markets"] }) {
   const now = useMinute();
@@ -40,7 +42,7 @@ export function WeekZone({ markets }: { readonly markets: HomeQuery["markets"] }
     : null;
 
   return (
-    <section className="grid content-start gap-3" aria-labelledby={headingId}>
+    <section className="grid min-w-0 grid-cols-1 content-start gap-3" aria-labelledby={headingId}>
       <div className="zone-head">
         <h2 id={headingId}>This week, by market and plan</h2>
         <div className="flex flex-wrap items-center gap-2">
@@ -89,12 +91,6 @@ export function WeekZone({ markets }: { readonly markets: HomeQuery["markets"] }
   );
 }
 
-function sheetClass(sheet: Sheet): string {
-  if (sheet.kind === "price") return "top-0 h-[2.6rem] bg-silk-indigo shadow-[inset_0_2px_0_var(--color-indigo)]";
-  if (sheet.look === "waiting") return "bottom-0 h-[2.6rem] bg-stone-0 weave-open shadow-[inset_0_0_0_1.5px_var(--color-saffron)]";
-  return "bottom-0 h-[2.6rem] bg-silk-saffron shadow-[inset_0_-2px_0_var(--color-saffron)]";
-}
-
 function Lanes({ week, align }: { readonly week: NonNullable<ReturnType<typeof buildWeek>>; readonly align: Align }) {
   const pct = (value: number) => `${(value * 100).toFixed(3)}%`;
   return (
@@ -112,47 +108,54 @@ function Lanes({ week, align }: { readonly week: NonNullable<ReturnType<typeof b
             ))}
           </div>
         </div>
-        {week.lanes.map((lane) => (
-          <div key={`${lane.market.code}-${lane.plan}`} className="grid min-h-20 grid-cols-[var(--lane-head)_minmax(0,1fr)] border-b border-cord last:border-b-0">
-            <div className="sticky left-0 z-[3] grid content-center gap-1 border-r border-cord bg-stone-0 px-3 py-2">
-              <p className="font-archivo text-2xs font-medium uppercase leading-tight tracking-[0.12em] [font-stretch:125%]">{laneName(lane)}</p>
-              <p className="text-xs leading-snug text-ink-2"><b className="font-semibold text-ink">{lane.status.word}</b>: {lane.status.detail}</p>
-              <p className="sr-only">{laneWords(lane, formatMoney)}</p>
-            </div>
-            <div className="relative" aria-hidden="true">
-              {week.days.map((day) => (
-                <i key={day.label} className={`absolute top-0 bottom-0 border-l border-cord ${day.weekend ? "bg-stone" : ""}`} style={{ left: pct(day.at), width: pct(1 / week.days.length) }} />
-              ))}
-              <div className="absolute inset-x-0 top-1/2 h-[4.2rem] -translate-y-1/2">
-                {lane.sheets.map((sheet, index) => (
-                  <div key={index} className={`absolute ${sheetClass(sheet)}`} style={{ left: pct(sheet.from), width: pct(Math.max(sheet.to - sheet.from, 0.004)) }} />
+        {week.lanes.map((lane) => {
+          const prices = lane.sheets.filter((sheet) => sheet.kind === "price");
+          const offers = lane.sheets.filter((sheet) => sheet.kind === "offer");
+          const shown = offers.slice(0, LANE_OFFERS);
+          const height = `${2.9 + shown.length * 2.15}rem`;
+          return (
+            <div key={`${lane.market.code}-${lane.plan}`} className="grid grid-cols-[var(--lane-head)_minmax(0,1fr)] border-b border-cord last:border-b-0">
+              <div className="sticky left-0 z-[3] grid content-center gap-1 border-r border-cord bg-stone-0 px-3 py-2">
+                <p className="font-archivo text-2xs font-medium uppercase leading-tight tracking-[0.12em] [font-stretch:125%]">{laneName(lane)}</p>
+                <p className="text-xs leading-snug text-ink-2"><b className="font-semibold text-ink">{lane.status.word}</b>: {lane.status.detail}</p>
+                {offers.length > shown.length ? <p className="text-xs text-ink-2">{offers.length - shown.length} more offers in this lane</p> : null}
+                <p className="sr-only">{laneWords(lane, formatMoney)}</p>
+              </div>
+              <div className="relative" style={{ height }} aria-hidden="true">
+                {week.days.map((day) => (
+                  <i key={day.label} className={`absolute top-0 bottom-0 border-l border-cord ${day.weekend ? "bg-stone" : ""}`} style={{ left: pct(day.at), width: pct(1 / week.days.length) }} />
                 ))}
-                {lane.sheets.filter((sheet) => sheet.kind === "offer").map((sheet, index) => {
-                  const nearEnd = sheet.from > 0.62;
+                {prices.map((sheet, index) => (
+                  <div key={`p${index}`} className="absolute top-2 h-[2.3rem] bg-silk-indigo shadow-[inset_0_2px_0_var(--color-indigo)]" style={{ left: pct(sheet.from), width: pct(Math.max(sheet.to - sheet.from, 0.004)) }}>
+                    {sheet.amount ? (
+                      <span className={`absolute top-1 rounded-control border border-cord bg-stone-0 px-1.5 py-px text-xs font-semibold whitespace-nowrap ${sheet.to >= 0.999 ? "right-1" : "left-1"}`}>List price {formatMoney(sheet.amount)}</span>
+                    ) : null}
+                  </div>
+                ))}
+                {shown.map((sheet, index) => {
+                  const top = `${2.9 + index * 2.15}rem`;
+                  const nearEnd = sheet.from > 0.55;
                   return (
-                    <span
-                      key={`chip-${index}`}
-                      className="absolute bottom-1.5 z-[4] inline-flex max-w-[calc(100%-0.5rem)] items-center gap-1.5 rounded-control border border-cord bg-stone-0 px-1.5 py-px text-xs font-semibold whitespace-nowrap"
-                      style={nearEnd ? { right: "0.25rem" } : { left: `calc(${pct(sheet.from)} + 0.25rem)` }}
-                    >
-                      {sheet.label} v{sheet.version}
-                      <span className={`state ${sheet.look === "waiting" ? "state--waiting" : sheet.look === "live" ? "state--live" : "state--approved"} px-1 py-0 text-2xs`}>
-                        {sheet.look === "waiting" ? "Waiting" : sheet.look === "live" ? "Live" : "Approved"}
+                    <div key={`o${index}`}>
+                      <div className={`absolute h-[1.9rem] ${sheet.look === "waiting" ? "weave-open bg-stone-0 shadow-[inset_0_0_0_1.5px_var(--color-saffron)]" : "bg-silk-saffron shadow-[inset_0_-2px_0_var(--color-saffron)]"}`} style={{ top, left: pct(sheet.from), width: pct(Math.max(sheet.to - sheet.from, 0.004)) }} />
+                      <span
+                        className="absolute z-[4] mt-[0.2rem] inline-flex max-w-[calc(100%-0.5rem)] items-center gap-1.5 rounded-control border border-cord bg-stone-0 px-1.5 py-px text-xs font-semibold whitespace-nowrap"
+                        style={nearEnd ? { top, right: "0.25rem" } : { top, left: `calc(${pct(sheet.from)} + 0.25rem)` }}
+                      >
+                        {sheet.label} v{sheet.version}
+                        <span className={`state ${sheet.look === "waiting" ? "state--waiting" : sheet.look === "live" ? "state--live" : "state--approved"} px-1 py-0 text-2xs`}>
+                          {sheet.look === "waiting" ? "Waiting" : sheet.look === "live" ? "Live" : "Approved"}
+                        </span>
                       </span>
-                    </span>
+                    </div>
                   );
                 })}
-                {lane.sheets.filter((sheet) => sheet.kind === "price" && sheet.amount).map((sheet, index) => (
-                  <span key={`price-${index}`} className="absolute top-1.5 z-[4] rounded-control border border-cord bg-stone-0 px-1.5 py-px text-xs font-semibold whitespace-nowrap" style={sheet.to >= 0.999 ? { right: "0.25rem" } : { left: `calc(${pct(sheet.from)} + 0.25rem)` }}>
-                    List price {sheet.amount ? formatMoney(sheet.amount) : ""}
-                  </span>
-                ))}
+                <div className="absolute top-0 bottom-0 w-0 border-l-2 border-ink" style={{ left: pct(lane.now) }} />
+                {lane.clockChange ? <div className="absolute top-0 bottom-0 w-0 border-l-2 border-dashed border-ink-2" style={{ left: pct(lane.clockChange.at) }} /> : null}
               </div>
-              <div className="absolute top-0 bottom-0 w-0 border-l-2 border-ink" style={{ left: pct(lane.now) }} />
-              {lane.clockChange ? <div className="absolute top-0 bottom-0 w-0 border-l-2 border-dashed border-ink-2" style={{ left: pct(lane.clockChange.at) }} title={lane.clockChange.words} /> : null}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-1.5 border-t border-cord px-3 py-2 text-xs text-ink-2">
         <span className="inline-flex items-center gap-1.5"><i className="inline-block h-3 w-6 bg-silk-indigo shadow-[inset_0_2px_0_var(--color-indigo)]" />List price in force</span>

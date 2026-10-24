@@ -21,6 +21,12 @@ const config: NextConfig = {
   // folder; the repository keeps its documentation where it is.
   agentRules: false,
   devIndicators: false,
+  experimental: {
+    // next build would otherwise ask the npm registry about upgrades on its
+    // own, and stop the first time with a SecurityFatalError (README).
+    agentUpgrade: false,
+    agentFeedback: false,
+  },
   outputFileTracingRoot: repoRoot,
 };
 

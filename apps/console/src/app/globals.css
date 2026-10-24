@@ -143,9 +143,9 @@
   .callout--error > .icon { color: var(--color-madder); }
   .callout--good { border: 2px solid var(--color-indigo); }
   .callout--good > .icon { color: var(--color-indigo); }
-  .locked--plain { border: 0; background: transparent; padding: 0; min-height: 0; }
   .locked { display: flex; align-items: center; gap: 0.45rem; min-height: 2.5rem; padding: 0 0.65rem; border: 1px dashed var(--color-edge); border-radius: var(--radius-control); background: var(--color-stone); font-weight: 600; }
   .locked .icon { color: var(--color-ink-2); flex: none; }
+  .locked.locked--plain { border: 0; background: transparent; padding: 0; min-height: 0; }
   .code { font-size: var(--text-sm); word-break: break-all; padding: 0.4rem 0.55rem; background: var(--color-stone); border: 1px solid var(--color-cord); }
   .sentence { font-size: var(--text-2xl); font-weight: 650; line-height: 1.42; padding: 1rem 1.5rem; background: var(--color-stone-0); border: 1px solid var(--color-cord); text-wrap: pretty; }
   .said { padding: 0.75rem 1rem; background: var(--color-stone-0); border: 1px solid var(--color-cord); display: grid; gap: 0.3rem; }

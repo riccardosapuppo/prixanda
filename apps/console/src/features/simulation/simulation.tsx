@@ -241,7 +241,7 @@ function RetentionScale({ assumed, breakEven }: { readonly assumed: number; read
   const high = even === null ? assumed : Math.max(assumed, even);
   const margin = even !== null && assumed >= even;
   return (
-    <div className="relative grid max-w-[46rem] gap-1.5 py-11" role="img" aria-label={`Retention scale: ${formatPercent(assumed)} assumed${even === null ? ", no break-even" : `, break-even at ${formatPercent(even)}`}.`}>
+    <div className="relative mb-5 grid max-w-[46rem] gap-1.5 py-11" role="img" aria-label={`Retention scale: ${formatPercent(assumed)} assumed${even === null ? ", no break-even" : `, break-even at ${formatPercent(even)}`}.`}>
       <div className="relative h-3 bg-stone-2 shadow-[inset_0_0_0_1px_var(--color-edge)]">
         {even !== null ? (
           <div className={`absolute top-0 bottom-0 ${margin ? "bg-silk-saffron shadow-[inset_0_0_0_1px_var(--color-saffron)]" : "weave-cross bg-stone-0 shadow-[inset_0_0_0_1px_var(--color-ink)]"}`} style={{ left: at(low), width: `calc(${at(high)} - ${at(low)})` }} />
@@ -255,11 +255,11 @@ function RetentionScale({ assumed, breakEven }: { readonly assumed: number; read
           </div>
         ) : null}
       </div>
-      <div className="absolute inset-x-0 bottom-0 flex justify-between gap-3 text-2xs text-ink-2">
+      <div className="absolute inset-x-0 bottom-0 flex justify-between gap-3 text-2xs text-ink-2" aria-hidden="true">
         <span>0%</span>
-        <span className="max-md:hidden">Retention after the offer months</span>
         <span>100%</span>
       </div>
+      <p className="absolute right-0 bottom-[-1.4rem] left-0 text-center text-2xs text-ink-2">Retention after the offer months</p>
     </div>
   );
 }

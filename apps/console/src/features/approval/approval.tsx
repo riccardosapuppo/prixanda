@@ -150,7 +150,7 @@ function Evidence({ change, events, markets }: { readonly change: Change; readon
             {change.approvals.map((approval) => (
               <li key={`${approval.approver.id}-${approval.version}`} className="flex items-baseline gap-2">
                 <Icon name="signature" size={15} className="translate-y-0.5 text-indigo" />
-                {approval.approver.label} signed v{approval.version} as {ROLE_NAME[approval.role]} on {formatInstantIn(approval.decidedAt, CONSOLE_ZONE)}, fingerprint {short(approval.fingerprint)}.
+                Signed by {approval.approver.label}{approval.approver.label === ROLE_NAME[approval.role] ? "" : ` as ${ROLE_NAME[approval.role]}`}: v{approval.version}, fingerprint {short(approval.fingerprint)}, on {formatInstantIn(approval.decidedAt, CONSOLE_ZONE)}.
               </li>
             ))}
           </ul>

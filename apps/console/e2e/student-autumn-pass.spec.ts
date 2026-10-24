@@ -124,7 +124,7 @@ test("Marketing submits v1 with the reason that a negative contribution asks for
   }
   await page.getByLabel(/Why is it worth running\?/).fill("We are buying students now: at 55% retention after month 3 the pass pays for itself in the second year.");
   await submit.click();
-  await expect(page.getByText("v1 is in approval.")).toBeVisible();
+  await expect(page.getByText("v1 is in approval.", { exact: true })).toBeVisible();
 });
 
 test("Marketing cannot approve: no button, the page says why, and the same call by hand is refused", async () => {
@@ -162,15 +162,17 @@ test("Finance approves v1, after a confirmation that names the version and the f
   await expect(page.getByText("Approved", { exact: true }).first()).toBeVisible();
 });
 
-test("Marketing schedules the launch, and the home shows it among the next seven days", async () => {
+test("Marketing schedules the launch, and the launches show it among the next seven days", async () => {
   await switchTo(page, "Marketing");
   await page.goto(`/campaigns/approval/?id=${changeId}`);
   await page.getByRole("button", { name: "Schedule the launch" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Schedule the launch" }).click();
   await expect(page.getByText(/^Scheduled\. It starts at Italy:/)).toBeVisible();
   await page.goto("/");
-  const launches = page.getByRole("region", { name: /Launching in the next 7 days/ });
-  await expect(launches.getByRole("heading", { name: new RegExp(TITLE) })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Launching in the next 7 days/ })).toBeVisible();
+  await page.goto("/launches/");
+  const week = page.getByRole("region", { name: "Starting in the next 7 days" });
+  await expect(week.getByRole("listitem").filter({ hasText: TITLE })).toContainText("Scheduled");
 });
 
 test("the audit log holds every step, with the request ids born in the console; the auditor verifies and exports", async () => {

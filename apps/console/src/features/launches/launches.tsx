@@ -9,19 +9,40 @@ import Link from "next/link";
 import { useId } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Empty, ErrorPanel, Loading, StateChip } from "../../components/ui.tsx";
-import { ChangesDocument, MarketsDocument } from "../../graphql/generated.ts";
-import { marketName } from "../../lib/markets.ts";
+import { ChangesDocument, LaunchesDocument, MarketsDocument } from "../../graphql/generated.ts";
+import { marketName, marketZone } from "../../lib/markets.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
-import { formatInstantIn } from "../../lib/time.ts";
+import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
 
 export function LaunchesScreen() {
   const scheduled = useGatewayQuery(ChangesDocument, { filter: { states: ["SCHEDULED", "ACTIVE"] }, first: 50, after: null });
   const markets = useGatewayQuery(MarketsDocument, {}, { staleTime: 5 * 60_000 });
+  const upcoming = useGatewayQuery(LaunchesDocument, {});
   const headingId = useId();
+  const weekId = useId();
   return (
     <>
       <PageHead title="Launches" sub="What is scheduled to start, and what is live on the site." />
       <PageBody>
+        <section className="grid gap-3" aria-labelledby={weekId}>
+          <div className="zone-head"><h2 id={weekId}>Starting in the next 7 days</h2></div>
+          {upcoming.isPending ? <Loading what="the next seven days" /> : upcoming.isError ? <ErrorPanel error={upcoming.error} retry={() => void upcoming.refetch()} /> : upcoming.data.overview.launchesNext7Days.length === 0 ? (
+            <Empty icon="calendar-blank">Nothing has a start date in the next seven days.</Empty>
+          ) : (
+            <ul role="list" className="grid">
+              {upcoming.data.overview.launchesNext7Days.map((launch) => (
+                <li key={`${launch.change.id}-${launch.starts.market}`} className="grid gap-1.5 border-b border-cord py-3">
+                  <span className="flex flex-wrap items-center justify-between gap-3">
+                    <Link href={`/campaigns/approval/?id=${launch.change.id}`} className="font-bold">{launch.title} v{launch.change.currentVersion}</Link>
+                    <StateChip state={launch.state} />
+                  </span>
+                  <span className="text-sm text-ink-2">{marketName(upcoming.data.markets, launch.starts.market)}: {formatLocalWithUtc(launch.starts.local, marketZone(upcoming.data.markets, launch.starts.market))}</span>
+                  {launch.atRisk && launch.risk ? <span className="flex items-baseline gap-2 text-sm"><Icon name="warning" size={15} className="translate-y-0.5" />{launch.risk}</span> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         <section className="grid gap-3" aria-labelledby={headingId}>
           <div className="zone-head"><h2 id={headingId}>Scheduled and live</h2></div>
           {scheduled.isPending ? <Loading what="the launches" /> : scheduled.isError ? <ErrorPanel error={scheduled.error} retry={() => void scheduled.refetch()} /> : scheduled.data.changes.nodes.length === 0 ? (

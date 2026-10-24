@@ -86,7 +86,7 @@ function ApprovalsZone({ waiting, markets, viewer }: { readonly waiting: Overvie
         <Empty icon="seal-check">Nothing waiting. Changes submitted for approval show up here with who has to sign.</Empty>
       ) : (
         <ul role="list" className="grid">
-          {waiting.map((change) => {
+          {waiting.slice(0, SHOWN).map((change) => {
             const content = change.details.current.content;
             const plan = content.__typename === "OfferContent" || content.__typename === "ListPriceContent" ? content.plan : "";
             const decision = decide({
@@ -126,7 +126,22 @@ function ApprovalsZone({ waiting, markets, viewer }: { readonly waiting: Overvie
           })}
         </ul>
       )}
+      {waiting.length > SHOWN ? <MoreLink href="/approvals/" count={waiting.length - SHOWN} what="waiting for approval" /> : null}
     </section>
+  );
+}
+
+/** The home shows the first few of a queue; the rest are one link away. */
+const SHOWN = 3;
+
+function MoreLink({ href, count, what }: { readonly href: string; readonly count: number; readonly what: string }) {
+  return (
+    <p className="text-sm">
+      <Link href={href} className="inline-flex items-center gap-1.5 font-semibold">
+        {count} more {what}
+        <Icon name="arrow-right" size={15} />
+      </Link>
+    </p>
   );
 }
 
@@ -138,7 +153,7 @@ function LaunchesZone({ launches, markets }: { readonly launches: Overview["laun
         <Empty icon="calendar-blank">Nothing starts in the next seven days. An approved offer shows up here once it has a start date this week.</Empty>
       ) : (
         <ul role="list" className="grid">
-          {launches.map((launch) => (
+          {launches.slice(0, SHOWN).map((launch) => (
             <li key={`${launch.change.id}-${launch.starts.market}`} className="grid gap-1.5 border-b border-cord py-3 first:pt-1">
               <div className="flex items-baseline justify-between gap-3">
                 <h3 className="text-base font-bold leading-snug">
@@ -162,6 +177,7 @@ function LaunchesZone({ launches, markets }: { readonly launches: Overview["laun
           ))}
         </ul>
       )}
+      {launches.length > SHOWN ? <MoreLink href="/launches/" count={launches.length - SHOWN} what="launching this week" /> : null}
     </section>
   );
 }

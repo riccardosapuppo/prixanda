@@ -118,3 +118,27 @@ query Week($states: [ChangeState!]) {
     }
   }
 }
+
+# The launches page: what starts in the next seven days, at risk or not.
+query Launches {
+  overview {
+    launchesNext7Days {
+      title
+      state
+      atRisk
+      risk
+      starts {
+        market
+        local
+        utc
+      }
+      change {
+        id
+        currentVersion
+      }
+    }
+  }
+  markets {
+    ...MarketFields
+  }
+}
