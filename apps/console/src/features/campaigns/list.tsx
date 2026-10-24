@@ -5,13 +5,13 @@
 import { formatCount } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, ButtonLink, Chip, Empty, ErrorPanel, Loading, Locked, StateChip } from "../../components/ui.tsx";
 import { ChangesDocument, type ChangesQuery, type ChangeState, MarketsDocument } from "../../graphql/generated.ts";
 import { marketName } from "../../lib/markets.ts";
 import { approvesWithoutScheduling, asRole, can, primaryRole, waitingFor, whoDoes } from "../../lib/permissions.ts";
-import { useGatewayQuery } from "../../lib/react/gateway.tsx";
+import { useGatewayPages, useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn } from "../../lib/time.ts";
 
@@ -151,41 +151,77 @@ function ChangesPage({ states, after, labelledBy, last, onMore }: {
   );
 }
 
+/** The approvals' queues are read this many changes at a time. */
+export const QUEUE_PAGE = 50;
+
+/**
+ * One queue of the approvals, read a page at a time. The engine gives no
+ * total, so while it has more the count says "more than" what is shown, and
+ * the next page is one button away: no change of the queue is left out.
+ */
+function Queue({ title, states, what, empty, children }: {
+  readonly title: string;
+  readonly states: ChangeState[];
+  readonly what: string;
+  readonly empty: ReactNode;
+  readonly children?: ReactNode;
+}) {
+  const headingId = useId();
+  const queue = useGatewayPages(ChangesDocument, (after) => ({ filter: { states }, first: QUEUE_PAGE, after }), (page) => page.changes.next);
+  const rows = queue.data?.pages.flatMap((page) => page.changes.nodes) ?? [];
+  const more = queue.hasNextPage;
+  return (
+    <section className="grid gap-3" aria-labelledby={headingId}>
+      <div className="zone-head">
+        <h2 id={headingId}>
+          {queue.data ? (
+            <span className="count">
+              {more ? <span className="sr-only">More than </span> : null}
+              {formatCount(rows.length)}
+              {more ? <span aria-hidden="true">+</span> : null}
+            </span>
+          ) : null}
+          <span>{title}</span>
+        </h2>
+      </div>
+      {queue.isPending ? <Loading what={what} /> : queue.isError ? <ErrorPanel error={queue.error} retry={() => void queue.refetch()} /> : rows.length === 0 ? empty : (
+        <ChangesTable rows={rows} labelledBy={headingId} />
+      )}
+      {more ? (
+        <p className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <span>The first {formatCount(rows.length)} are shown, and there are more.</span>
+          <Button size="small" icon="arrow-down" busy={queue.isFetchingNextPage} onClick={() => void queue.fetchNextPage()}>
+            Show the next {QUEUE_PAGE}
+          </Button>
+        </p>
+      ) : null}
+      {children}
+    </section>
+  );
+}
+
 export function ApprovalsScreen() {
-  const waiting = useGatewayQuery(ChangesDocument, { filter: { states: ["IN_APPROVAL"] }, first: 50, after: null });
-  const approved = useGatewayQuery(ChangesDocument, { filter: { states: ["APPROVED", "SCHEDULED"] }, first: 50, after: null });
-  const waitingId = useId();
-  const approvedId = useId();
   return (
     <>
       <PageHead title="Approvals" sub="Every change is approved by someone other than its author, against the exact version and its fingerprint (§7.2, §7.4)." />
       <PageBody>
-        <section className="grid gap-3" aria-labelledby={waitingId}>
-          <div className="zone-head">
-            <h2 id={waitingId}>
-              <span className="count">{waiting.data ? formatCount(waiting.data.changes.nodes.length) : ""}</span>
-              <span>Waiting for a signature</span>
-            </h2>
-          </div>
-          {waiting.isPending ? <Loading what="the changes in approval" /> : waiting.isError ? <ErrorPanel error={waiting.error} retry={() => void waiting.refetch()} /> : waiting.data.changes.nodes.length === 0 ? (
-            <Empty icon="seal-check">Nothing waits for a signature. A change submitted for approval shows up here with who has to sign.</Empty>
-          ) : <ChangesTable rows={waiting.data.changes.nodes} labelledBy={waitingId} />}
-        </section>
-        <section className="grid gap-3" aria-labelledby={approvedId}>
-          <div className="zone-head">
-            <h2 id={approvedId}>
-              <span className="count">{approved.data ? formatCount(approved.data.changes.nodes.length) : ""}</span>
-              <span>Approved, not live yet</span>
-            </h2>
-          </div>
-          {approved.isPending ? <Loading what="the approved changes" /> : approved.isError ? <ErrorPanel error={approved.error} retry={() => void approved.refetch()} /> : approved.data.changes.nodes.length === 0 ? (
-            <Empty icon="calendar-blank">Nothing approved is waiting to start.</Empty>
-          ) : <ChangesTable rows={approved.data.changes.nodes} labelledBy={approvedId} />}
+        <Queue
+          title="Waiting for a signature"
+          states={["IN_APPROVAL"]}
+          what="the changes in approval"
+          empty={<Empty icon="seal-check">Nothing waits for a signature. A change submitted for approval shows up here with who has to sign.</Empty>}
+        />
+        <Queue
+          title="Approved, not live yet"
+          states={["APPROVED", "SCHEDULED"]}
+          what="the approved changes"
+          empty={<Empty icon="calendar-blank">Nothing approved is waiting to start.</Empty>}
+        >
           <p className="flex items-baseline gap-2 text-sm text-ink-2">
             <Icon name="info" size={15} className="translate-y-0.5" />
             An approved offer starts once {whoDoes("scheduleOffer", { one: "schedules it", many: "schedule it" }, { start: false, either: true })}; {approvesWithoutScheduling({ start: false })}.
           </p>
-        </section>
+        </Queue>
       </PageBody>
     </>
   );
