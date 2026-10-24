@@ -101,7 +101,7 @@ enum Role {
   AUDITOR
 }
 
-"Who wrote an audit event: a role of the book, or the engine's own jobs."
+"Who wrote an audit event: a role of the book, the engine's own jobs, or a subscriber of the site (§11.1)."
 enum ActorRole {
   MARKETING
   COMMERCIAL_LEAD
@@ -110,6 +110,7 @@ enum ActorRole {
   ON_CALL
   AUDITOR
   SYSTEM
+  SUBSCRIBER
 }
 
 "A person of the demo, named by role, never by a person's name (§12.1)."

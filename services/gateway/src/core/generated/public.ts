@@ -3,10 +3,11 @@
 import type { MoneyValue } from '../scalars.ts';
 import type { LocalDateTimeValue } from '../scalars.ts';
 import type { DateTimeValue } from '../scalars.ts';
+import type { DateValue } from '../scalars.ts';
 import type { MarketCodeValue } from '../scalars.ts';
 import type { PlanCodeValue } from '../scalars.ts';
 import type { GraphQLResolveInfo, GraphQLScalarType, GraphQLScalarTypeConfig } from 'graphql';
-import type { PublicMarketModel, PublicEntitlementsModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicQuoteRefusalModel } from '../models.ts';
+import type { PublicMarketModel, PublicEntitlementsModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel } from '../models.ts';
 import type { PublicContext } from '../context.ts';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
@@ -28,6 +29,8 @@ export type Scalars = {
   LocalDateTime: { input: LocalDateTimeValue; output: LocalDateTimeValue; }
   /** An instant, ISO 8601 in UTC: 2026-10-24T07:00:00Z. */
   DateTime: { input: DateTimeValue; output: DateTimeValue; }
+  /** A day in a market's calendar, ISO 8601: 2026-10-26. */
+  Date: { input: DateValue; output: DateValue; }
   /** A market's code, ISO 3166-1 alpha-2 in capitals: IT, FR, DE, GB. */
   MarketCode: { input: MarketCodeValue; output: MarketCodeValue; }
   /** A plan's code: lower-case letters, digits and dashes, starting with a letter. */
@@ -43,6 +46,10 @@ export type Query = {
   readonly prices: ReadonlyArray<ListPrice>;
   /** The offers on sale now in a market: shown if and only if their prices are in force (§7.5). */
   readonly offers: ReadonlyArray<Offer>;
+  /** The demo's listeners, for the site's entrance: invented people with simulated data. Needs no session. */
+  readonly demoListeners: ReadonlyArray<DemoListener>;
+  /** The listener signed in on this browser, with their account; null when nobody is. */
+  readonly me?: Maybe<Me>;
 };
 
 
@@ -65,9 +72,18 @@ export type Mutation = {
   readonly __typename?: 'Mutation';
   /**
    * A quote from the engine for a plan, with or without an offer (§4.5). The
-   * site shows it and confirms it later by its id; it expires.
+   * site shows it and confirms it later by its id; it expires. Signed in, it is
+   * the session's listener's quote, and the engine checks their eligibility.
    */
   readonly requestQuote: QuoteResult;
+  /** DEMONSTRATION MODE: become one of the demo's listeners. Not authentication. */
+  readonly signInAsListener: Me;
+  /** Ends the site's session; false when there was none. */
+  readonly signOutListener: Scalars['Boolean']['output'];
+  /** The simulated provider verifies the session's listener as a student, for 12 months (§10). */
+  readonly verifyStudent: VerificationResult;
+  /** Subscribes the session's listener at exactly the quoted price (§4.5). No money moves: the receipt is a demonstration. */
+  readonly confirmSubscription: SubscriptionResult;
 };
 
 
@@ -75,6 +91,16 @@ export type MutationRequestQuoteArgs = {
   plan: Scalars['PlanCode']['input'];
   market: Scalars['MarketCode']['input'];
   offerId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type MutationSignInAsListenerArgs = {
+  listenerId: Scalars['ID']['input'];
+};
+
+
+export type MutationConfirmSubscriptionArgs = {
+  quoteId: Scalars['ID']['input'];
 };
 
 export type Market = {
@@ -160,21 +186,126 @@ export type Quote = {
   readonly offerId?: Maybe<Scalars['ID']['output']>;
 };
 
-export type QuoteRefusalCode =
+/** One of the demo's listeners: an invented person, and what their simulated data shows. */
+export type DemoListener = {
+  readonly __typename?: 'DemoListener';
+  readonly id: Scalars['ID']['output'];
+  readonly market: Scalars['MarketCode']['output'];
+  /** A short name for the entrance: Student in Italy, verified. */
+  readonly title: Scalars['String']['output'];
+  /** What this listener shows, in a sentence that says the data is simulated. */
+  readonly label: Scalars['String']['output'];
+  /** The plan they are on now. */
+  readonly plan?: Maybe<Scalars['PlanCode']['output']>;
+  /** A student verification valid today in their market. */
+  readonly studentVerified: Scalars['Boolean']['output'];
+};
+
+/** The listener of this browser's session. DEMONSTRATION MODE: chosen at the entrance, not authenticated. */
+export type Me = {
+  readonly __typename?: 'Me';
+  readonly id: Scalars['ID']['output'];
+  readonly market: Scalars['MarketCode']['output'];
+  readonly title: Scalars['String']['output'];
+  /** Send it back in the X-CSRF-Token header with every mutation. */
+  readonly csrfToken: Scalars['String']['output'];
+  readonly expiresAt: Scalars['DateTime']['output'];
+  readonly account: Account;
+};
+
+export type Account = {
+  readonly __typename?: 'Account';
+  readonly market: Scalars['MarketCode']['output'];
+  /** The subscription running today in the listener's market. */
+  readonly subscription: Subscription;
+  /** The latest student verification; null when there has been none. */
+  readonly studentVerification?: Maybe<StudentVerification>;
+};
+
+/** A subscription and what it costs, month by month (§4.3, §6.1). Dates are in the market's calendar. */
+export type Subscription = {
+  readonly __typename?: 'Subscription';
+  readonly plan: Scalars['PlanCode']['output'];
+  readonly market: Scalars['MarketCode']['output'];
+  readonly paid: Scalars['Boolean']['output'];
+  /** What each month costs now: during an offer, the quoted offer price. */
+  readonly price: Scalars['Money']['output'];
+  readonly startedOn: Scalars['Date']['output'];
+  /** The day of the month it is charged on; null on the free plan. */
+  readonly billingDay?: Maybe<Scalars['Int']['output']>;
+  /** The offer it was taken with; null at the list price. */
+  readonly offerTitle?: Maybe<Scalars['String']['output']>;
+  /** Months at the offer price in all, and those still to come, the current one included. */
+  readonly offerMonths: Scalars['Int']['output'];
+  readonly offerMonthsLeft: Scalars['Int']['output'];
+  /** From this billing date the list price applies (§6.1); null without an offer. */
+  readonly fullPriceFrom?: Maybe<Scalars['Date']['output']>;
+  /** That list price, as the price list stands today; null without an offer. */
+  readonly fullPrice?: Maybe<Scalars['Money']['output']>;
+  /** The next charge and its amount; null on the free plan. */
+  readonly nextBillingOn?: Maybe<Scalars['Date']['output']>;
+  readonly nextCharge?: Maybe<Scalars['Money']['output']>;
+};
+
+/** A student verification (§10.2): valid from verifiedOn, until validUntil excluded. */
+export type StudentVerification = {
+  readonly __typename?: 'StudentVerification';
+  readonly verifiedOn: Scalars['Date']['output'];
+  readonly validUntil: Scalars['Date']['output'];
+  /** simulated: no real student record was checked. */
+  readonly provider: Scalars['String']['output'];
+  /** Valid today in the listener's market. */
+  readonly valid: Scalars['Boolean']['output'];
+};
+
+/** A receipt of the simulated payment provider. No money moved: demonstration is always true, and the note says so. */
+export type Receipt = {
+  readonly __typename?: 'Receipt';
+  readonly id: Scalars['ID']['output'];
+  readonly amount: Scalars['Money']['output'];
+  readonly issuedAt: Scalars['DateTime']['output'];
+  readonly provider: Scalars['String']['output'];
+  readonly providerReference: Scalars['String']['output'];
+  readonly demonstration: Scalars['Boolean']['output'];
+  readonly note: Scalars['String']['output'];
+};
+
+export type Confirmation = {
+  readonly __typename?: 'Confirmation';
+  readonly subscription: Subscription;
+  readonly receipt: Receipt;
+};
+
+export type RefusalCode =
   /** The offer is no longer on sale. */
   | 'OFFER_ENDED'
-  /** The person is not in the offer's audience. */
+  /** The quote expired, or its offer is no longer on sale: ask for a new quote. */
+  | 'QUOTE_EXPIRED'
+  /** The listener is not in the offer's audience, or the plan needs a student verification they lack. */
   | 'NOT_ELIGIBLE'
-  /** This plan cannot be quoted here now. */
+  /** A paid subscription of this listener is already running. */
+  | 'ALREADY_SUBSCRIBED'
+  /** The listener already took an offer that does not combine with this one (§10.3). */
+  | 'NOT_COMBINABLE'
+  /** The offer has been taken as many times as it can be (§6.1). */
+  | 'CAP_REACHED'
+  /** The payment provider declined the charge. */
+  | 'PAYMENT_DECLINED'
+  /** This cannot be done here now. */
   | 'NOT_AVAILABLE';
 
-export type QuoteRefusal = {
-  readonly __typename?: 'QuoteRefusal';
-  readonly code: QuoteRefusalCode;
+/** The rules said no: an answer, not an error. */
+export type Refusal = {
+  readonly __typename?: 'Refusal';
+  readonly code: RefusalCode;
   readonly reason: Scalars['String']['output'];
 };
 
-export type QuoteResult = Quote | QuoteRefusal;
+export type QuoteResult = Quote | Refusal;
+
+export type VerificationResult = StudentVerification | Refusal;
+
+export type SubscriptionResult = Confirmation | Refusal;
 
 
 
@@ -249,7 +380,15 @@ export type DirectiveResolverFn<TResult = Record<PropertyKey, never>, TParent = 
 export type ResolversUnionTypes<_RefType extends Record<string, unknown>> = {
   QuoteResult:
     | ( PublicQuoteModel )
-    | ( PublicQuoteRefusalModel )
+    | ( PublicRefusalModel )
+  ;
+  VerificationResult:
+    | ( PublicStudentVerificationModel )
+    | ( PublicRefusalModel )
+  ;
+  SubscriptionResult:
+    | ( PublicConfirmationModel )
+    | ( PublicRefusalModel )
   ;
 };
 
@@ -259,25 +398,35 @@ export type ResolversTypes = {
   Money: ResolverTypeWrapper<Scalars['Money']['output']>;
   LocalDateTime: ResolverTypeWrapper<Scalars['LocalDateTime']['output']>;
   DateTime: ResolverTypeWrapper<Scalars['DateTime']['output']>;
+  Date: ResolverTypeWrapper<Scalars['Date']['output']>;
   MarketCode: ResolverTypeWrapper<Scalars['MarketCode']['output']>;
   PlanCode: ResolverTypeWrapper<Scalars['PlanCode']['output']>;
   Query: ResolverTypeWrapper<Record<PropertyKey, never>>;
   Mutation: ResolverTypeWrapper<Record<PropertyKey, never>>;
   ID: ResolverTypeWrapper<Scalars['ID']['output']>;
+  Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
   Market: ResolverTypeWrapper<PublicMarketModel>;
   String: ResolverTypeWrapper<Scalars['String']['output']>;
   AudioQuality: AudioQuality;
   Entitlements: ResolverTypeWrapper<PublicEntitlementsModel>;
   Int: ResolverTypeWrapper<Scalars['Int']['output']>;
-  Boolean: ResolverTypeWrapper<Scalars['Boolean']['output']>;
   Plan: ResolverTypeWrapper<PublicPlanModel>;
   ListPrice: ResolverTypeWrapper<PublicListPriceModel>;
   MarketTime: ResolverTypeWrapper<PublicMarketTimeModel>;
   Offer: ResolverTypeWrapper<PublicOfferModel>;
   Quote: ResolverTypeWrapper<PublicQuoteModel>;
-  QuoteRefusalCode: QuoteRefusalCode;
-  QuoteRefusal: ResolverTypeWrapper<PublicQuoteRefusalModel>;
+  DemoListener: ResolverTypeWrapper<PublicDemoListenerModel>;
+  Me: ResolverTypeWrapper<PublicMeModel>;
+  Account: ResolverTypeWrapper<PublicAccountModel>;
+  Subscription: ResolverTypeWrapper<PublicSubscriptionModel>;
+  StudentVerification: ResolverTypeWrapper<PublicStudentVerificationModel>;
+  Receipt: ResolverTypeWrapper<PublicReceiptModel>;
+  Confirmation: ResolverTypeWrapper<PublicConfirmationModel>;
+  RefusalCode: RefusalCode;
+  Refusal: ResolverTypeWrapper<PublicRefusalModel>;
   QuoteResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['QuoteResult']>;
+  VerificationResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['VerificationResult']>;
+  SubscriptionResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['SubscriptionResult']>;
 };
 
 /** Mapping between all available schema types and the resolvers parents */
@@ -285,23 +434,33 @@ export type ResolversParentTypes = {
   Money: Scalars['Money']['output'];
   LocalDateTime: Scalars['LocalDateTime']['output'];
   DateTime: Scalars['DateTime']['output'];
+  Date: Scalars['Date']['output'];
   MarketCode: Scalars['MarketCode']['output'];
   PlanCode: Scalars['PlanCode']['output'];
   Query: Record<PropertyKey, never>;
   Mutation: Record<PropertyKey, never>;
   ID: Scalars['ID']['output'];
+  Boolean: Scalars['Boolean']['output'];
   Market: PublicMarketModel;
   String: Scalars['String']['output'];
   Entitlements: PublicEntitlementsModel;
   Int: Scalars['Int']['output'];
-  Boolean: Scalars['Boolean']['output'];
   Plan: PublicPlanModel;
   ListPrice: PublicListPriceModel;
   MarketTime: PublicMarketTimeModel;
   Offer: PublicOfferModel;
   Quote: PublicQuoteModel;
-  QuoteRefusal: PublicQuoteRefusalModel;
+  DemoListener: PublicDemoListenerModel;
+  Me: PublicMeModel;
+  Account: PublicAccountModel;
+  Subscription: PublicSubscriptionModel;
+  StudentVerification: PublicStudentVerificationModel;
+  Receipt: PublicReceiptModel;
+  Confirmation: PublicConfirmationModel;
+  Refusal: PublicRefusalModel;
   QuoteResult: ResolversUnionTypes<ResolversParentTypes>['QuoteResult'];
+  VerificationResult: ResolversUnionTypes<ResolversParentTypes>['VerificationResult'];
+  SubscriptionResult: ResolversUnionTypes<ResolversParentTypes>['SubscriptionResult'];
 };
 
 export interface MoneyScalarConfig extends GraphQLScalarTypeConfig<ResolversTypes['Money'], any> {
@@ -314,6 +473,10 @@ export interface LocalDateTimeScalarConfig extends GraphQLScalarTypeConfig<Resol
 
 export interface DateTimeScalarConfig extends GraphQLScalarTypeConfig<ResolversTypes['DateTime'], any> {
   name: 'DateTime';
+}
+
+export interface DateScalarConfig extends GraphQLScalarTypeConfig<ResolversTypes['Date'], any> {
+  name: 'Date';
 }
 
 export interface MarketCodeScalarConfig extends GraphQLScalarTypeConfig<ResolversTypes['MarketCode'], any> {
@@ -329,10 +492,16 @@ export type QueryResolvers<ContextType = PublicContext, ParentType extends Resol
   plans: Resolver<ReadonlyArray<ResolversTypes['Plan']>, ParentType, ContextType, RequireFields<QueryPlansArgs, 'market'>>;
   prices: Resolver<ReadonlyArray<ResolversTypes['ListPrice']>, ParentType, ContextType, RequireFields<QueryPricesArgs, 'market'>>;
   offers: Resolver<ReadonlyArray<ResolversTypes['Offer']>, ParentType, ContextType, RequireFields<QueryOffersArgs, 'market'>>;
+  demoListeners: Resolver<ReadonlyArray<ResolversTypes['DemoListener']>, ParentType, ContextType>;
+  me: Resolver<Maybe<ResolversTypes['Me']>, ParentType, ContextType>;
 };
 
 export type MutationResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Mutation'] = ResolversParentTypes['Mutation']> = {
   requestQuote: Resolver<ResolversTypes['QuoteResult'], ParentType, ContextType, RequireFields<MutationRequestQuoteArgs, 'plan' | 'market'>>;
+  signInAsListener: Resolver<ResolversTypes['Me'], ParentType, ContextType, RequireFields<MutationSignInAsListenerArgs, 'listenerId'>>;
+  signOutListener: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  verifyStudent: Resolver<ResolversTypes['VerificationResult'], ParentType, ContextType>;
+  confirmSubscription: Resolver<ResolversTypes['SubscriptionResult'], ParentType, ContextType, RequireFields<MutationConfirmSubscriptionArgs, 'quoteId'>>;
 };
 
 export type MarketResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Market'] = ResolversParentTypes['Market']> = {
@@ -399,20 +568,93 @@ export type QuoteResolvers<ContextType = PublicContext, ParentType extends Resol
   __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
 };
 
-export type QuoteRefusalResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['QuoteRefusal'] = ResolversParentTypes['QuoteRefusal']> = {
-  code: Resolver<ResolversTypes['QuoteRefusalCode'], ParentType, ContextType>;
+export type DemoListenerResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['DemoListener'] = ResolversParentTypes['DemoListener']> = {
+  id: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  market: Resolver<ResolversTypes['MarketCode'], ParentType, ContextType>;
+  title: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  label: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  plan: Resolver<Maybe<ResolversTypes['PlanCode']>, ParentType, ContextType>;
+  studentVerified: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+};
+
+export type MeResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Me'] = ResolversParentTypes['Me']> = {
+  id: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  market: Resolver<ResolversTypes['MarketCode'], ParentType, ContextType>;
+  title: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  csrfToken: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  expiresAt: Resolver<ResolversTypes['DateTime'], ParentType, ContextType>;
+  account: Resolver<ResolversTypes['Account'], ParentType, ContextType>;
+};
+
+export type AccountResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Account'] = ResolversParentTypes['Account']> = {
+  market: Resolver<ResolversTypes['MarketCode'], ParentType, ContextType>;
+  subscription: Resolver<ResolversTypes['Subscription'], ParentType, ContextType>;
+  studentVerification: Resolver<Maybe<ResolversTypes['StudentVerification']>, ParentType, ContextType>;
+};
+
+export type SubscriptionResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Subscription'] = ResolversParentTypes['Subscription']> = {
+  plan: Resolver<ResolversTypes['PlanCode'], ParentType, ContextType>;
+  market: Resolver<ResolversTypes['MarketCode'], ParentType, ContextType>;
+  paid: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  price: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  startedOn: Resolver<ResolversTypes['Date'], ParentType, ContextType>;
+  billingDay: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
+  offerTitle: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  offerMonths: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  offerMonthsLeft: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  fullPriceFrom: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
+  fullPrice: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
+  nextBillingOn: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
+  nextCharge: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
+};
+
+export type StudentVerificationResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['StudentVerification'] = ResolversParentTypes['StudentVerification']> = {
+  verifiedOn: Resolver<ResolversTypes['Date'], ParentType, ContextType>;
+  validUntil: Resolver<ResolversTypes['Date'], ParentType, ContextType>;
+  provider: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  valid: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
+};
+
+export type ReceiptResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Receipt'] = ResolversParentTypes['Receipt']> = {
+  id: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  amount: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  issuedAt: Resolver<ResolversTypes['DateTime'], ParentType, ContextType>;
+  provider: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  providerReference: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  demonstration: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
+  note: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+};
+
+export type ConfirmationResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Confirmation'] = ResolversParentTypes['Confirmation']> = {
+  subscription: Resolver<ResolversTypes['Subscription'], ParentType, ContextType>;
+  receipt: Resolver<ResolversTypes['Receipt'], ParentType, ContextType>;
+  __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
+};
+
+export type RefusalResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Refusal'] = ResolversParentTypes['Refusal']> = {
+  code: Resolver<ResolversTypes['RefusalCode'], ParentType, ContextType>;
   reason: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
 };
 
 export type QuoteResultResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['QuoteResult'] = ResolversParentTypes['QuoteResult']> = {
-  __resolveType: TypeResolveFn<'Quote' | 'QuoteRefusal', ParentType, ContextType>;
+  __resolveType: TypeResolveFn<'Quote' | 'Refusal', ParentType, ContextType>;
+};
+
+export type VerificationResultResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['VerificationResult'] = ResolversParentTypes['VerificationResult']> = {
+  __resolveType: TypeResolveFn<'StudentVerification' | 'Refusal', ParentType, ContextType>;
+};
+
+export type SubscriptionResultResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['SubscriptionResult'] = ResolversParentTypes['SubscriptionResult']> = {
+  __resolveType: TypeResolveFn<'Confirmation' | 'Refusal', ParentType, ContextType>;
 };
 
 export type Resolvers<ContextType = PublicContext> = {
   Money: GraphQLScalarType;
   LocalDateTime: GraphQLScalarType;
   DateTime: GraphQLScalarType;
+  Date: GraphQLScalarType;
   MarketCode: GraphQLScalarType;
   PlanCode: GraphQLScalarType;
   Query: QueryResolvers<ContextType>;
@@ -424,7 +666,16 @@ export type Resolvers<ContextType = PublicContext> = {
   MarketTime: MarketTimeResolvers<ContextType>;
   Offer: OfferResolvers<ContextType>;
   Quote: QuoteResolvers<ContextType>;
-  QuoteRefusal: QuoteRefusalResolvers<ContextType>;
+  DemoListener: DemoListenerResolvers<ContextType>;
+  Me: MeResolvers<ContextType>;
+  Account: AccountResolvers<ContextType>;
+  Subscription: SubscriptionResolvers<ContextType>;
+  StudentVerification: StudentVerificationResolvers<ContextType>;
+  Receipt: ReceiptResolvers<ContextType>;
+  Confirmation: ConfirmationResolvers<ContextType>;
+  Refusal: RefusalResolvers<ContextType>;
   QuoteResult: QuoteResultResolvers<ContextType>;
+  VerificationResult: VerificationResultResolvers<ContextType>;
+  SubscriptionResult: SubscriptionResultResolvers<ContextType>;
 };
 

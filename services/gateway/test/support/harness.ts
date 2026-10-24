@@ -1,8 +1,8 @@
 // What the gateway's tests share: a clock they move by hand, the ports asked
 // to the system before use, the fake engine and the real gateway started
-// together, and an HTTP client that behaves like the console's page (it keeps
-// the session cookie and sends the CSRF token back). Everything a test starts
-// it stops, and nothing is written to disk.
+// together, and an HTTP client that behaves like the console's page, or the
+// site's (it keeps its API's session cookie and sends the CSRF token back).
+// Everything a test starts it stops, and nothing is written to disk.
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { request as httpRequest } from "node:http";
@@ -14,7 +14,7 @@ import { type GatewayConfig, loadConfig } from "../../src/node/config.ts";
 import { type Gateway, startGateway } from "../../src/node/gateway.ts";
 import { connectEngine, type EngineConnection } from "../../src/node/grpc.ts";
 import { createLogger } from "../../src/node/log.ts";
-import { COOKIE } from "../../src/node/sessions.ts";
+import { COOKIE, SITE_COOKIE } from "../../src/node/sessions.ts";
 import { FAKE_ENGINE_PORT, FakeEngine, type FakeEngineOptions } from "./fake-engine.ts";
 
 /**
@@ -72,20 +72,25 @@ export async function assertPortsFree(ports: readonly number[]): Promise<void> {
 
 export type Answer = { status: number; headers: Record<string, string | string[] | undefined>; text: string; body: any };
 
-/** An HTTP client like the console's page: it keeps the session cookie and sends back the CSRF token it was given. */
+/**
+ * An HTTP client like the console's page, or the site's: it keeps its API's
+ * session cookie (`cookieName`) and sends back the CSRF token it was given.
+ */
 export class Client {
   readonly url: string;
+  readonly cookieName: string;
   cookie: string | null = null;
   csrf: string | null = null;
 
-  constructor(url: string) {
+  constructor(url: string, cookieName = COOKIE) {
     this.url = url;
+    this.cookieName = cookieName;
   }
 
   async raw(options: { method?: string; path?: string; headers?: Record<string, string>; body?: string }): Promise<Answer> {
     const target = new URL(options.path ?? "", this.url);
     const headers: Record<string, string> = { ...options.headers };
-    if (this.cookie !== null && headers["cookie"] === undefined) headers["cookie"] = `${COOKIE}=${this.cookie}`;
+    if (this.cookie !== null && headers["cookie"] === undefined) headers["cookie"] = `${this.cookieName}=${this.cookie}`;
     return new Promise((resolve, reject) => {
       const outgoing = httpRequest(target, { method: options.method ?? "POST", headers, agent: false }, (incoming) => {
         let text = "";
@@ -94,8 +99,8 @@ export class Client {
         incoming.on("end", () => {
           for (const line of incoming.headers["set-cookie"] ?? []) {
             const [pair = ""] = line.split(";");
-            const value = pair.slice(COOKIE.length + 1);
-            if (pair.startsWith(`${COOKIE}=`)) this.cookie = /Max-Age=0/.test(line) ? null : value;
+            const value = pair.slice(this.cookieName.length + 1);
+            if (pair.startsWith(`${this.cookieName}=`)) this.cookie = /Max-Age=0/.test(line) ? null : value;
           }
           let body: unknown = null;
           try {
@@ -128,6 +133,15 @@ export class Client {
     this.csrf = token;
     return answer;
   }
+
+  /** On the site: becomes one of the demo's listeners, and keeps the session's CSRF token. */
+  async signInAsListener(listenerId: string): Promise<Answer> {
+    const answer = await this.graphql("mutation Enter($id: ID!) { signInAsListener(listenerId: $id) { id csrfToken } }", { variables: { id: listenerId } });
+    const token = answer.body?.data?.signInAsListener?.csrfToken;
+    if (typeof token !== "string") throw new Error(`could not sign in as listener ${listenerId}: ${answer.text}`);
+    this.csrf = token;
+    return answer;
+  }
 }
 
 export type Harness = {
@@ -138,6 +152,7 @@ export type Harness = {
   readonly logs: Array<Record<string, any>>;
   /** A fresh client of the console's API: a new browser, with no cookie. */
   console(): Client;
+  /** A fresh client of the site's API, which keeps the site's cookie. */
   site(): Client;
   close(): Promise<void>;
 };
@@ -191,7 +206,7 @@ export async function startHarness(options: {
       clock,
       logs,
       console: () => new Client(gateway.internal?.url ?? "http://127.0.0.1:1/"),
-      site: () => new Client(gateway.public?.url ?? "http://127.0.0.1:1/"),
+      site: () => new Client(gateway.public?.url ?? "http://127.0.0.1:1/", SITE_COOKIE),
       async close() {
         await gateway.close();
         engineConnection.close();

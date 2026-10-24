@@ -7,7 +7,8 @@
 // contract and the coordinator's conventions say, so that no resolver can
 // forget it: x-request-id always; x-actor and x-actor-role on every method
 // that acts for a person, never on the public ones; idempotency-key on the
-// methods that change something, and only there.
+// methods that change something, and only there; and, on the subscriber's
+// methods, the subscriber id of the site's session, whatever the request said.
 import { type CallOptions, type Client, Code, ConnectError, createClient, type Transport } from "@connectrpc/connect";
 import { AuditService } from "contracts/commerce/v1/audit";
 import { CatalogService } from "contracts/commerce/v1/catalog";
@@ -15,8 +16,9 @@ import { ChangeService } from "contracts/commerce/v1/changes";
 import { OverviewService, PeopleService } from "contracts/commerce/v1/overview";
 import { QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
+import { SubscriberService } from "contracts/commerce/v1/subscriptions";
 import { fromEngine, gatewayError } from "./errors.ts";
-import { anyKind, METHOD_ROLES, type MethodName, PUBLIC_METHODS, type RoleName } from "./roles.ts";
+import { anyKind, METHOD_ROLES, type MethodName, PUBLIC_METHODS, type RoleName, SUBSCRIBER_METHODS } from "./roles.ts";
 
 export const SERVICES = {
   catalog: CatalogService,
@@ -26,6 +28,7 @@ export const SERVICES = {
   audit: AuditService,
   overview: OverviewService,
   people: PeopleService,
+  subscribers: SubscriberService,
 } as const;
 
 type Services = typeof SERVICES;
@@ -41,18 +44,19 @@ export function createEngineClient(transport: Transport): EngineClient {
     audit: createClient(AuditService, transport),
     overview: createClient(OverviewService, transport),
     people: createClient(PeopleService, transport),
+    subscribers: createClient(SubscriberService, transport),
   };
 }
 
 /**
  * The methods that change something carry an idempotency key, and the engine
  * refuses them without one (the engine's behaviour 2): ChangeService's
- * writes, GetQuote, which saves a quote, and ExportHead, which writes
- * audit.exported.
+ * writes, GetQuote, which saves a quote, ExportHead, which writes
+ * audit.exported, and the subscriber's VerifyStudent and ConfirmQuote.
  */
 export const IDEMPOTENT_METHODS = [
   "CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange",
-  "ScheduleChange", "CancelChange", "SuspendChange", "GetQuote", "ExportHead",
+  "ScheduleChange", "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent", "ConfirmQuote",
 ] as const;
 
 export type Actor = { readonly id: string; readonly role: RoleName };
@@ -84,6 +88,7 @@ type Unary<F> = F extends (request: infer R, options?: CallOptions) => Promise<i
 export type EngineCalls = { readonly [K in keyof EngineClient]: { readonly [M in keyof EngineClient[K]]: Unary<EngineClient[K][M]> } };
 
 const isPublic = (name: string) => (PUBLIC_METHODS as readonly string[]).includes(name);
+const isSubscriber = (name: string) => (SUBSCRIBER_METHODS as readonly string[]).includes(name);
 const isIdempotent = (name: string) => (IDEMPOTENT_METHODS as readonly string[]).includes(name);
 const isRestricted = (name: string): name is MethodName => Object.hasOwn(METHOD_ROLES, name);
 
@@ -92,18 +97,34 @@ const isRestricted = (name: string): name is MethodName => Object.hasOwn(METHOD_
  * public site, or before anyone has signed in. A method that acts for a
  * person refuses to start without one, and with a role the matrix does not
  * allow for it: the gateway never sends the engine a call it knows is wrong.
+ * The subscriber's methods act for `subscriber()`, the listener of the site's
+ * session when the call starts, and refuse to start without one; the
+ * subscriber id they send is that one, whatever the request carried.
  */
-export function engineCalls(client: EngineClient, settings: CallSettings, actor: Actor | null): EngineCalls {
+export function engineCalls(
+  client: EngineClient,
+  settings: CallSettings,
+  actor: Actor | null,
+  subscriber: () => string | null = () => null,
+): EngineCalls {
   const bound: Record<string, Record<string, (request: unknown) => Promise<unknown>>> = {};
   for (const [key, service] of Object.entries(SERVICES) as Array<[keyof Services, Services[keyof Services]]>) {
     const methods: Record<string, (request: unknown) => Promise<unknown>> = {};
     const raw = client[key] as unknown as Record<string, (request: unknown, options: CallOptions) => Promise<unknown>>;
     for (const method of service.methods) {
       const name = method.name;
-      if (!isPublic(name) && !isRestricted(name)) throw new Error(`the role matrix (roles.ts) does not list the engine method ${name}`);
+      if (!isPublic(name) && !isSubscriber(name) && !isRestricted(name)) {
+        throw new Error(`the role matrix (roles.ts) does not list the engine method ${name}`);
+      }
       const writes = isIdempotent(name);
-      methods[method.localName] = async (request) => {
+      methods[method.localName] = async (given) => {
+        let request = given;
         const headers: Record<string, string> = { "x-request-id": settings.requestId };
+        if (isSubscriber(name)) {
+          const subscriberId = subscriber();
+          if (subscriberId === null) throw gatewayError("UNAUTHENTICATED", "Choose a listener first: this needs the site's session.");
+          request = { ...(given as object), subscriberId };
+        }
         if (isRestricted(name)) {
           if (actor === null) throw gatewayError("UNAUTHENTICATED", "Sign in first: this needs a session.");
           if (!anyKind(METHOD_ROLES[name]).includes(actor.role)) {

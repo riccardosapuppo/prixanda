@@ -7,19 +7,24 @@ import { type Actor, type CallSettings, type EngineCalls, type EngineClient, eng
 import { createLoaders } from "./loaders.ts";
 import type { RoleName } from "./roles.ts";
 
-/** Who the session says is asking: a person of the demo and the roles the engine lists for them. */
+/** Who the console's session says is asking: a person of the demo and the roles the engine lists for them. */
 export type Viewer = { readonly personId: string; readonly label: string; readonly roles: readonly RoleName[] };
 
-export type SessionInfo = { readonly viewer: Viewer; readonly csrfToken: string; readonly expiresAt: Date };
+/** Who the site's session says is asking: one of the demo's listeners, as the engine listed them at the entrance. */
+export type Listener = { readonly subscriberId: string; readonly market: string; readonly title: string };
+
+/** A session of either API: who it is for, the CSRF token its mutations carry, and when it ends. */
+export type SessionInfo<W = Viewer> = { readonly viewer: W; readonly csrfToken: string; readonly expiresAt: Date };
 
 /**
  * The session of the request, kept by the shell: a signed cookie in the Node
  * server, the page's own state in the browser of stage 8. DEMONSTRATION MODE:
- * start() takes a person of the demo and is not authentication.
+ * start() takes a person of the demo, or one of the demo's listeners, and is
+ * not authentication.
  */
-export interface Sessions {
-  current(): SessionInfo | null;
-  start(viewer: Viewer): SessionInfo;
+export interface Sessions<W = Viewer> {
+  current(): SessionInfo<W> | null;
+  start(viewer: W): SessionInfo<W>;
   /** False when there was no session. */
   end(): boolean;
 }
@@ -43,7 +48,13 @@ export type InternalContext = {
 export type PublicContext = {
   readonly endpoint: "public";
   readonly requestId: string;
-  /** The site acts for nobody: only the engine's public methods answer it. */
+  /** The listener chosen at the site's entrance; null where the site has no sessions (in production). */
+  readonly sessions: Sessions<Listener> | null;
+  /**
+   * The engine's public methods, which act for nobody, and the subscriber's,
+   * which act for the session's listener: their subscriber id is written from
+   * the session at the moment of the call, never from the request.
+   */
   readonly engine: EngineCalls;
 };
 
@@ -71,6 +82,13 @@ export function createInternalContext(options: {
   };
 }
 
-export function createPublicContext(options: { client: EngineClient; settings: CallSettings }): PublicContext {
-  return { endpoint: "public", requestId: options.settings.requestId, engine: engineCalls(options.client, options.settings, null) };
+export function createPublicContext(options: { client: EngineClient; settings: CallSettings; sessions: Sessions<Listener> | null }): PublicContext {
+  const { client, settings, sessions } = options;
+  return {
+    endpoint: "public",
+    requestId: settings.requestId,
+    sessions,
+    // Read when each call starts: a listener who signs in during a request is the one the next call acts for.
+    engine: engineCalls(client, settings, null, () => sessions?.current()?.viewer.subscriberId ?? null),
+  };
 }

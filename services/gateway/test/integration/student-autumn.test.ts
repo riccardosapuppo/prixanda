@@ -21,6 +21,7 @@ import { loadConfig } from "../../src/node/config.ts";
 import { type Gateway, startGateway } from "../../src/node/gateway.ts";
 import { connectEngine, type EngineConnection } from "../../src/node/grpc.ts";
 import { createLogger } from "../../src/node/log.ts";
+import { SITE_COOKIE } from "../../src/node/sessions.ts";
 import { assertPortsFree, Client, codes, CONSOLE_ORIGIN, SITE_ORIGIN, TestClock } from "../support/harness.ts";
 
 const DATABASE_URL = process.env["INTEGRATION_DATABASE_URL"] ?? "";
@@ -173,7 +174,7 @@ const state = {
 function client(endpoint: "internal" | "public"): Client {
   const url = endpoint === "internal" ? gateway?.internal?.url : gateway?.public?.url;
   if (!url) throw new Error("the gateway is not running");
-  return new Client(url);
+  return endpoint === "internal" ? new Client(url) : new Client(url, SITE_COOKIE);
 }
 
 /** A request id of this test, kept to be found again in the audit log. */
@@ -336,7 +337,7 @@ describe("the Student Autumn Pass through the engine and the gateway (§14.1)", 
     assert.equal(offer.audience, "Verified students in Italy who have never had a paid plan");
     // A visitor not signed in: the engine quotes, and checks who they are when they subscribe (stage 5).
     const quoted = await site.graphql(`mutation ($offer: ID!) { requestQuote(plan: "student", market: "IT", offerId: $offer) {
-      __typename ... on Quote { id price listPrice monthsAtPrice thenPrice expiresAt offerId } ... on QuoteRefusal { code reason } } }`, { variables: { offer: state.changeId } });
+      __typename ... on Quote { id price listPrice monthsAtPrice thenPrice expiresAt offerId } ... on Refusal { code reason } } }`, { variables: { offer: state.changeId } });
     const quote = quoted.body.data.requestQuote;
     assert.equal(quote.__typename, "Quote", quoted.text);
     assert.deepEqual(

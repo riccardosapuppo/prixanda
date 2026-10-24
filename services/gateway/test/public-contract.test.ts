@@ -12,24 +12,34 @@ import {
   isUnionType, specifiedScalarTypes,
 } from "graphql";
 import { buildPublicSchema } from "../src/core/schemas.ts";
-import { SENTINEL } from "./support/fake-engine.ts";
+import { connectEngine } from "../src/node/grpc.ts";
+import { LISTENERS, SENTINEL } from "./support/fake-engine.ts";
 import { codes, type Harness, SITE_ORIGIN, startHarness } from "./support/harness.ts";
 
 /** Everything the site's API may show, and nothing else. */
 const ALLOWED = [
+  "scalar Date",
   "scalar DateTime",
   "scalar LocalDateTime",
   "scalar MarketCode",
   "scalar Money",
   "scalar PlanCode",
   "enum AudioQuality: STANDARD, LOSSLESS",
-  "enum QuoteRefusalCode: OFFER_ENDED, NOT_ELIGIBLE, NOT_AVAILABLE",
-  "union QuoteResult = Quote | QuoteRefusal",
+  "enum RefusalCode: OFFER_ENDED, QUOTE_EXPIRED, NOT_ELIGIBLE, ALREADY_SUBSCRIBED, NOT_COMBINABLE, CAP_REACHED, PAYMENT_DECLINED, NOT_AVAILABLE",
+  "union QuoteResult = Quote | Refusal",
+  "union VerificationResult = StudentVerification | Refusal",
+  "union SubscriptionResult = Confirmation | Refusal",
   "Query.markets: [Market!]!",
   "Query.plans(market: MarketCode!): [Plan!]!",
   "Query.prices(market: MarketCode!, plan: PlanCode): [ListPrice!]!",
   "Query.offers(market: MarketCode!): [Offer!]!",
+  "Query.demoListeners: [DemoListener!]!",
+  "Query.me: Me",
   "Mutation.requestQuote(plan: PlanCode!, market: MarketCode!, offerId: ID): QuoteResult!",
+  "Mutation.signInAsListener(listenerId: ID!): Me!",
+  "Mutation.signOutListener: Boolean!",
+  "Mutation.verifyStudent: VerificationResult!",
+  "Mutation.confirmSubscription(quoteId: ID!): SubscriptionResult!",
   "Market.code: MarketCode!",
   "Market.name: String!",
   "Market.currency: String!",
@@ -72,8 +82,50 @@ const ALLOWED = [
   "Quote.thenPrice: Money!",
   "Quote.expiresAt: DateTime!",
   "Quote.offerId: ID",
-  "QuoteRefusal.code: QuoteRefusalCode!",
-  "QuoteRefusal.reason: String!",
+  // Stage 5, the subscriber's side: the demo's listeners, the site's session, the account.
+  "DemoListener.id: ID!",
+  "DemoListener.market: MarketCode!",
+  "DemoListener.title: String!",
+  "DemoListener.label: String!",
+  "DemoListener.plan: PlanCode",
+  "DemoListener.studentVerified: Boolean!",
+  "Me.id: ID!",
+  "Me.market: MarketCode!",
+  "Me.title: String!",
+  "Me.csrfToken: String!",
+  "Me.expiresAt: DateTime!",
+  "Me.account: Account!",
+  "Account.market: MarketCode!",
+  "Account.subscription: Subscription!",
+  "Account.studentVerification: StudentVerification",
+  "Subscription.plan: PlanCode!",
+  "Subscription.market: MarketCode!",
+  "Subscription.paid: Boolean!",
+  "Subscription.price: Money!",
+  "Subscription.startedOn: Date!",
+  "Subscription.billingDay: Int",
+  "Subscription.offerTitle: String",
+  "Subscription.offerMonths: Int!",
+  "Subscription.offerMonthsLeft: Int!",
+  "Subscription.fullPriceFrom: Date",
+  "Subscription.fullPrice: Money",
+  "Subscription.nextBillingOn: Date",
+  "Subscription.nextCharge: Money",
+  "StudentVerification.verifiedOn: Date!",
+  "StudentVerification.validUntil: Date!",
+  "StudentVerification.provider: String!",
+  "StudentVerification.valid: Boolean!",
+  "Receipt.id: ID!",
+  "Receipt.amount: Money!",
+  "Receipt.issuedAt: DateTime!",
+  "Receipt.provider: String!",
+  "Receipt.providerReference: String!",
+  "Receipt.demonstration: Boolean!",
+  "Receipt.note: String!",
+  "Confirmation.subscription: Subscription!",
+  "Confirmation.receipt: Receipt!",
+  "Refusal.code: RefusalCode!",
+  "Refusal.reason: String!",
 ];
 
 /** The internal vocabulary: economics, workflow, people and the log. None of it may name anything public. */
@@ -137,9 +189,12 @@ describe("the site's schema, as written", () => {
   test("names nothing with a word of the internal vocabulary", () => {
     const all = names(schema);
     assert.ok(all.length > 60, `only ${all.length} names were read: the check would pass on nothing`);
-    // The one exception, named: a visitor may be told they are not eligible for
-    // an offer; how many people are eligible is the console's.
-    const exceptions = ["NOT_ELIGIBLE"];
+    // The exceptions, named. A visitor may be told they are not eligible for
+    // an offer; how many people are eligible is the console's. A listener
+    // signs in and out of the site's demonstration, which is no signature of
+    // an approval, and their page sends back its own session's CSRF token. A
+    // listener is told their charge was declined; payment costs are the console's.
+    const exceptions = ["NOT_ELIGIBLE", "signInAsListener", "signOutListener", "csrfToken", "PAYMENT_DECLINED"];
     assert.deepEqual(all.filter((name) => INTERNAL_WORDS.test(name) && !exceptions.includes(name)), []);
     assert.deepEqual(exceptions.filter((name) => !all.includes(name)), [], "an exception for a name the schema no longer has");
   });
@@ -184,29 +239,46 @@ describe("the site's API, answered by an engine that plants marked values in eve
       const args = field.args.map((arg) => `${arg.name}: ${arg.name === "market" ? '"IT"' : '"student"'}`).join(", ");
       return `${field.name}${args ? `(${args})` : ""} ${everything(getNamedType(field.type))}`;
     }).join(" ");
+    const all = (name: string) => everything(schema.getType(name) as GraphQLNamedType);
     const site = harness.site();
+    // A listener of the demo, so that me, its account, the verification and the subscription answer too.
+    await site.signInAsListener(LISTENERS.verified);
     const answers = [
       await site.graphql(`{ ${selection} }`),
-      await site.graphql(`mutation { requestQuote(plan: "student", market: "IT", offerId: "9001") ${everything(schema.getType("QuoteResult") as GraphQLNamedType)} }`),
-      await site.graphql(`mutation { requestQuote(plan: "family", market: "IT") ${everything(schema.getType("QuoteResult") as GraphQLNamedType)} }`),
-      await site.graphql(`mutation { requestQuote(plan: "student", market: "IT", offerId: "424") ${everything(schema.getType("QuoteResult") as GraphQLNamedType)} }`),
+      await site.graphql(`mutation { requestQuote(plan: "student", market: "IT", offerId: "9001") ${all("QuoteResult")} }`),
+      await site.graphql(`mutation { requestQuote(plan: "family", market: "IT") ${all("QuoteResult")} }`),
+      await site.graphql(`mutation { requestQuote(plan: "student", market: "IT", offerId: "424") ${all("QuoteResult")} }`),
+      await site.graphql(`mutation { verifyStudent ${all("VerificationResult")} }`),
     ];
+    const quoteId: unknown = answers[1]?.body?.data?.requestQuote?.id;
+    assert.equal(typeof quoteId, "string", answers[1]?.text);
+    answers.push(await site.graphql(`mutation ($q: ID!) { confirmSubscription(quoteId: $q) ${all("SubscriptionResult")} }`, { variables: { q: quoteId } }));
+    answers.push(await site.graphql(`{ me ${all("Me")} }`));
     for (const answer of answers) assert.equal(answer.body.errors, undefined, answer.text);
     // The answers are full: the check below is not passing on empty data.
-    const [catalog, quote, plain, ended] = answers.map((answer) => answer.body.data);
+    const [catalog, quote, plain, ended, verified, confirmed, after] = answers.map((answer) => answer.body.data);
     assert.equal(catalog.markets.length, 4);
     assert.equal(catalog.plans.length, 5);
     assert.ok(catalog.prices.length >= 1);
     assert.deepEqual(catalog.offers[0].price, { amountMinor: "299", currency: "EUR" });
+    assert.equal(catalog.demoListeners.length, 4);
+    assert.equal(catalog.me.id, LISTENERS.verified);
+    assert.equal(catalog.me.account.subscription.plan, "free");
+    assert.equal(catalog.me.account.studentVerification.valid, true);
     assert.deepEqual(quote.requestQuote.price, { amountMinor: "299", currency: "EUR" });
     assert.equal(plain.requestQuote.__typename, "Quote");
-    assert.deepEqual(ended.requestQuote, { __typename: "QuoteRefusal", code: "OFFER_ENDED", reason: "This offer is no longer on sale." });
+    assert.deepEqual(ended.requestQuote, { __typename: "Refusal", code: "OFFER_ENDED", reason: "This offer is no longer on sale." });
+    assert.equal(verified.verifyStudent.__typename, "StudentVerification");
+    assert.equal(confirmed.confirmSubscription.__typename, "Confirmation");
+    assert.deepEqual(confirmed.confirmSubscription.receipt.amount, { amountMinor: "299", currency: "EUR" });
+    assert.equal(after.me.account.subscription.paid, true);
     // The engine's messages carried the marks in floors, minimums, breakdowns,
-    // price-list change ids, below-floor flags, top-ups and offer versions.
-    const engineSent = JSON.stringify(harness.engine.calls.length);
-    assert.ok(Number(engineSent) >= 4);
+    // price-list change ids, below-floor flags, top-ups and offer versions,
+    // and in the subscriber's ids of subscriptions and accounts and the
+    // verifier's references.
+    assert.ok(harness.engine.calls.length >= 8);
     for (const answer of answers) {
-      for (const mark of [String(SENTINEL.amount), SENTINEL.changeId, "987654", "belowFloor", "breakdown", "floor"]) {
+      for (const mark of [String(SENTINEL.amount), SENTINEL.changeId, "987654", SENTINEL.text, "belowFloor", "breakdown", "floor"]) {
         assert.ok(!answer.text.includes(mark), `the public answer carries ${mark}: ${answer.text.slice(0, 400)}`);
       }
     }
@@ -217,6 +289,17 @@ describe("the site's API, answered by an engine that plants marked values in eve
     await reader.signIn("finance-1");
     const internal = await reader.graphql(`{ markets { floor } plans(market: "IT") { breakdown { companyKeeps } } priceList(market: "IT") { belowFloor topUp } }`);
     assert.ok(internal.text.includes(String(SENTINEL.amount)), internal.text.slice(0, 300));
+    // The subscriber's messages, read from the engine itself: the console has no field for them.
+    const engine = connectEngine(harness.engine.url, harness.engine.token);
+    try {
+      const headers = { "x-request-id": "marks-are-there-0001" };
+      const { account } = await engine.client.subscribers.getAccount({ subscriberId: LISTENERS.verified }, { headers });
+      assert.equal(account?.subscriberId, SENTINEL.changeId);
+      assert.equal(account?.subscription?.subscriptionId, SENTINEL.changeId);
+      assert.equal(account?.studentVerification?.reference, SENTINEL.text);
+    } finally {
+      engine.close();
+    }
   });
 
   test("a refusal the site was not written for reads the gateway's fixed sentence", async () => {
@@ -235,12 +318,13 @@ describe("the site's API, answered by an engine that plants marked values in eve
     }
   });
 
-  test("the site's CORS answers its own origin only, and never with credentials", async () => {
+  test("the site's CORS answers its own origin only, with credentials for the site's own session cookie", async () => {
     const site = harness.site();
     const allowed = await site.raw({ method: "OPTIONS", headers: { origin: SITE_ORIGIN, "access-control-request-method": "POST" } });
     assert.equal(allowed.status, 204);
     assert.equal(allowed.headers["access-control-allow-origin"], SITE_ORIGIN);
-    assert.equal(allowed.headers["access-control-allow-credentials"], undefined);
+    // In production the site keeps no sessions, and sends no credentials header (test/site-sessions.test.ts).
+    assert.equal(allowed.headers["access-control-allow-credentials"], "true");
     const console = await site.raw({ method: "OPTIONS", headers: { origin: "http://console.test:4631", "access-control-request-method": "POST" } });
     assert.equal(console.status, 403);
     assert.equal(console.headers["access-control-allow-origin"], undefined);

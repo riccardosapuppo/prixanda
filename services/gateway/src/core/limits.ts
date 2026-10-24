@@ -31,12 +31,13 @@ export type Limits = {
 };
 
 // The depths are the schemas' own deepest paths (deepestPath(), checked by a
-// test). The costs leave room for the console's largest page of changes with
+// test): on the site, a listener's account and its subscription's fields, four
+// deep. The costs leave room for the console's largest page of changes with
 // their details (about 22,400) and for the site's whole catalog of a market
 // (about 330), and none for the same fields asked again and again through
 // aliases: on the site each alias of a list is one more call to the engine.
 export const INTERNAL_LIMITS: Limits = { maxDepth: 8, maxCost: 25_000, assumedListSize: 10, maxPage: 100 };
-export const PUBLIC_LIMITS: Limits = { maxDepth: 3, maxCost: 600, assumedListSize: 10, maxPage: 100 };
+export const PUBLIC_LIMITS: Limits = { maxDepth: 4, maxCost: 600, assumedListSize: 10, maxPage: 100 };
 
 type Measure = { depth: number; cost: number };
 

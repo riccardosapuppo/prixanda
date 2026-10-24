@@ -76,9 +76,12 @@ describe("the console's schema", () => {
       assert.ok(engine.length >= 3, `${name}: the engine's values were read`);
       assert.deepEqual(type.getValues().map((value) => value.name), engine, name);
     }
+    // An event's author is a role of the book, the engine's own jobs, or a subscriber of the site (stage 5).
     const actorRole = schema.getType("ActorRole");
     assert.ok(isEnumType(actorRole));
-    assert.deepEqual(actorRole.getValues().map((value) => value.name), [...RoleSchema.values.filter((value) => value.number !== 0).map((value) => value.localName), "SYSTEM"]);
+    assert.deepEqual(actorRole.getValues().map((value) => value.name), [
+      ...RoleSchema.values.filter((value) => value.number !== 0).map((value) => value.localName), "SYSTEM", "SUBSCRIBER",
+    ]);
   });
 });
 

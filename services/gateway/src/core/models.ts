@@ -12,7 +12,8 @@ import type { LocalTime, Refusal } from "contracts/commerce/v1/common";
 import type { GetOverviewResponse, Incident, Launch, MarketRevenue, Person, SubscriberCount } from "contracts/commerce/v1/overview";
 import type { Quote } from "contracts/commerce/v1/quotes";
 import type { Assumption, FinanceCondition, SimulationResult, Totals } from "contracts/commerce/v1/simulation";
-import type { SessionInfo } from "./context.ts";
+import type { Account, Confirmation, DemoListener, Receipt, StudentVerification, Subscription } from "contracts/commerce/v1/subscriptions";
+import type { Listener, SessionInfo } from "./context.ts";
 
 // The console's schema.
 export type PersonModel = Person;
@@ -67,8 +68,19 @@ export type PublicListPriceModel = PriceListEntry;
 export type PublicMarketTimeModel = LocalTime;
 export type PublicOfferModel = PublishedOffer;
 export type PublicQuoteModel = Quote;
-export type PublicQuoteRefusalModel = {
-  readonly $typeName: "gateway.QuoteRefusal";
-  readonly code: "OFFER_ENDED" | "NOT_ELIGIBLE" | "NOT_AVAILABLE";
+export type PublicDemoListenerModel = DemoListener;
+/** The site's session: the listener chosen at the entrance, its CSRF token and expiry. */
+export type PublicMeModel = SessionInfo<Listener>;
+export type PublicAccountModel = Account;
+export type PublicSubscriptionModel = Subscription;
+export type PublicStudentVerificationModel = StudentVerification;
+export type PublicReceiptModel = Receipt;
+export type PublicConfirmationModel = Confirmation;
+/** A refusal as the site may say it: a public code, and a sentence written for a visitor. */
+export type PublicRefusalModel = {
+  readonly $typeName: "gateway.PublicRefusal";
+  readonly code: PublicRefusalCode;
   readonly reason: string;
 };
+export type PublicRefusalCode =
+  | "OFFER_ENDED" | "QUOTE_EXPIRED" | "NOT_ELIGIBLE" | "ALREADY_SUBSCRIBED" | "NOT_COMBINABLE" | "CAP_REACHED" | "PAYMENT_DECLINED" | "NOT_AVAILABLE";

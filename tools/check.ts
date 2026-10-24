@@ -208,7 +208,7 @@ const SUITES: Suite[] = [
   },
   {
     name: "gw-tests",
-    what: "the gateway against a fake engine over gRPC: resolvers, roles, sessions, CSRF, idempotency, request ids, limits",
+    what: "the gateway against a fake engine over gRPC: resolvers, roles, both APIs' sessions, CSRF, idempotency, request ids, limits, the subscriber's side",
     needsDatabase: false,
     async run() {
       const files = (await readdir(join(gatewayDir, "test"))).filter((name) => name.endsWith(".test.ts") && !name.includes("contract"))
@@ -287,7 +287,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 44, coreFiles: 19, generated: 3, schemaTests: 18, tests: 149, dataloaderOffers: 25, integrationTests: 7, integrationAuditEvents: 7,
+  files: 46, coreFiles: 19, generated: 3, schemaTests: 18, tests: 179, dataloaderOffers: 25, integrationTests: 7, integrationAuditEvents: 7,
 };
 
 /**

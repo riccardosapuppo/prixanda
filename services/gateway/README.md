@@ -12,7 +12,7 @@ the console's schema at all:
 | | Schema | Port | For |
 |---|---|---|---|
 | Console's API | `schema/internal.graphql` | 4621 | changes, approvals, simulations, the audit log, the home's numbers |
-| Site's API | `schema/public.graphql` | 4622 | markets, plans, list prices, offers on sale, quotes |
+| Site's API | `schema/public.graphql` | 4622 | markets, plans, list prices, offers on sale, quotes; the demo's listeners, a student verification, a subscription, the account |
 
 Both answer at `/graphql`, with `/health` next to it.
 
@@ -34,17 +34,29 @@ What is real behind it:
 - the engine checks the person and the role once more on every call, and
   the database enforces separation of duties a third time.
 
+The site's API has the same kind of sign-in for its visitors:
+`signInAsListener(listenerId)` picks one of the demo's listeners (invented
+people with simulated data, as the engine lists them, each labelled with
+what it shows), and the gateway keeps which one in a session of the site's
+own. From then on the session says who the site acts for: no argument of the
+site's schema names a subscriber, and the gateway writes the session's
+listener into every call of the engine's subscriber service itself, over
+whatever a request might carry (`src/core/engine.ts`). Only the demo's
+listeners can be chosen, never another subscriber.
+
 The gateway refuses to start in any other mode (`GATEWAY_AUTH` accepts
 `demo` only), and refuses to serve the console's API in production
 (`GATEWAY_ENV=production` or `NODE_ENV=production`), because there the
 browser must never choose its own privileges. In production it can serve the
-site's API alone (`GATEWAY_ENDPOINTS=public`).
+site's API alone (`GATEWAY_ENDPOINTS=public`), and that API keeps no
+sessions: the entrance lists nobody, `signInAsListener` answers `FORBIDDEN`,
+and only the catalog and anonymous quotes remain.
 
 A real deployment needs OpenID Connect: an identity provider that signs ID
 tokens; the gateway verifying issuer, audience, expiry and signature; roles
 taken from the provider's claims or a server-side directory, never from the
-browser; and sessions bound to the verified identity. None of that exists
-here.
+browser; and sessions bound to the verified identity, the site's listeners'
+as well. None of that exists here.
 
 ## Running it
 
@@ -65,8 +77,8 @@ start, so a misspelt setting never passes for a default.
 |---|---|---|
 | `ENGINE_URL` | `http://127.0.0.1:4611` | the engine |
 | `COMMERCE_INTERNAL_TOKEN` | `.data/internal-token` in development | secret shared with the engine |
-| `GATEWAY_SESSION_SECRET` | `.data/gateway-session-secret` in development | secret that signs session cookies, 64 hex digits or more |
-| `GATEWAY_ENV` | `development` | `production` turns introspection off and the console's API away |
+| `GATEWAY_SESSION_SECRET` | `.data/gateway-session-secret` in development | secret that signs both APIs' session cookies, 64 hex digits or more |
+| `GATEWAY_ENV` | `development` | `production` turns introspection off, the console's API away and the site's sessions off |
 | `GATEWAY_AUTH` | `demo` | the only mode there is |
 | `GATEWAY_HOST` | `127.0.0.1` | |
 | `GATEWAY_INTERNAL_PORT`, `GATEWAY_PUBLIC_PORT` | 4621, 4622 | |
@@ -82,8 +94,8 @@ The two secrets are never written in the code or the log. In development,
 when they are not set, each lives in a file in `.data/` (ignored by git),
 created once with 32 random bytes by whoever starts first, the engine or the
 gateway; the second one reads it. In production the engine's token must be
-set; the session key is not needed there, because the console's API does not
-run in production.
+set; the session key is not needed there, because neither the console's API
+nor the site's sessions run in production.
 
 With no origin configured, no browser page on another origin can call
 either API. The console and the site of stages 4 and 5 will set theirs.
@@ -101,20 +113,39 @@ generated files differ from a fresh generation.
 
 ## What the site's schema shows
 
-Plans and their entitlements, list prices, offers on sale, quotes. Nothing
-about floors, the artists' pool, top-ups or margins, no changes, versions or
-approvals, no people, no audit log. Three tests check it, each from another
-angle (`test/public-contract.test.ts`):
+Plans and their entitlements, list prices, offers on sale, quotes; and, since
+stage 5, the subscriber's side: the demo's listeners (`demoListeners`), the
+session's listener and their account (`me { account }`: plan, price, the
+offer's months left, the day the list price applies from, the next charge,
+the student verification and its end), `verifyStudent`, and
+`confirmSubscription(quoteId)`, which subscribes at exactly the quoted price
+and answers with the subscription and a receipt that says it is a
+demonstration (no money moves). Nothing about floors, the artists' pool,
+top-ups or margins, no changes, versions or approvals, no people, no audit
+log, no ids of subscriptions or of the verifier's records. Three tests check
+it, each from another angle (`test/public-contract.test.ts`):
 
 1. the whole surface of the schema (types, fields, arguments, enum values,
    union members) equals a list written in the test, in both directions;
-2. no name in it belongs to the internal vocabulary (with one exception,
-   named in the test: a visitor may be told `NOT_ELIGIBLE`);
+2. no name in it belongs to the internal vocabulary (with exceptions, each
+   named in the test with its reason: a visitor may be told `NOT_ELIGIBLE` or
+   `PAYMENT_DECLINED`, signs in and out as a listener, and sends back their
+   session's `csrfToken`);
 3. an engine that plants marked values in every internal field of its
-   messages answers every public field, and none of the marks comes out.
+   messages, the subscriber's included, answers every public field, signed in
+   as a listener who verifies and subscribes, and none of the marks comes out.
 
 No argument or input of the site's schema can carry money: the price is
 always the engine's (§4.5).
+
+A refusal on the site is `Refusal { code reason }`, with the site's codes:
+`OFFER_ENDED` (asking for a quote of an offer no longer on sale),
+`QUOTE_EXPIRED`, `NOT_ELIGIBLE`, `ALREADY_SUBSCRIBED`, `NOT_COMBINABLE`,
+`CAP_REACHED`, `PAYMENT_DECLINED`, and `NOT_AVAILABLE` for any other. The
+engine's sentence travels only where it names nothing the site does not
+already show; for `NOT_COMBINABLE`, `CAP_REACHED` and `PAYMENT_DECLINED`,
+whose sentences name an offer's group, its cap or the provider's words, and
+for `NOT_AVAILABLE`, the gateway writes its own.
 
 ## Answers and errors
 
@@ -128,7 +159,7 @@ Errors carry `extensions.code`:
 
 | Code | When |
 |---|---|
-| `UNAUTHENTICATED` | no session, or it ended |
+| `UNAUTHENTICATED` | no session, or it ended; on the site, no listener chosen for what acts for one |
 | `FORBIDDEN` | the session's roles may not read this; a wrong CSRF token; a refused origin |
 | `NOT_FOUND` | no such change, offer or plan |
 | `BAD_USER_INPUT` | malformed arguments, scalars or headers; the engine refused the request as malformed |
@@ -154,12 +185,24 @@ are for finance and the commercial lead only; the other roles get
   again replaces the session with a new id; signing out ends it on the
   server. A session ends after an hour without requests, or eight hours in
   all. A restart ends every session.
+- The site's sessions work the same way, in a store of their own with a
+  cookie of their own (`site_session`, the console's being
+  `gateway_session`). Browsers keep cookies by host, not by port, so both
+  APIs on one host receive both cookies: each reads its own only, and each
+  store signs with a scope of its own, so a cookie or a CSRF token of one
+  never verifies in the other.
 - While a session exists, every mutation must carry its CSRF token in
-  `X-CSRF-Token` (the token comes with `signIn` and `session`). Requests must
-  be JSON, which a page of another site cannot send without a preflight.
+  `X-CSRF-Token` (the token comes with `signIn` and `session` on the console,
+  `signInAsListener` and `me` on the site). Requests must be JSON, which a
+  page of another site cannot send without a preflight.
 - CORS answers only the configured origins: the console's on the console's
-  port (with credentials), the site's on the site's. Any other `Origin` is
-  refused with 403 before anything else happens.
+  port, the site's on the site's, with credentials where the API keeps
+  sessions. Any other `Origin` is refused with 403 before anything else
+  happens.
+- On the site, what acts for a listener (`verifyStudent`,
+  `confirmSubscription`, `me { account }`) needs the site's session; without
+  one it is `UNAUTHENTICATED`, before the engine hears anything
+  (`PUBLIC_ACCESS` in `src/core/policy.ts`, a rule for every root field).
 
 ## Idempotency and request ids
 
@@ -180,7 +223,7 @@ The engine writes it into the audit log (§11.1).
 
 | | Console | Site |
 |---|---|---|
-| Depth | 8 fields | 3 fields |
+| Depth | 8 fields | 4 fields |
 | Cost | 25,000 | 600 |
 | Tokens in the document | 5,000 | 1,500 |
 | Body | 64 KiB | 64 KiB |
@@ -267,14 +310,18 @@ npm run check -- --only gw-types,gw-codegen,gw-schemas,gw-tests,dataloader
 ```
 
 `gw-schemas` runs the contract tests of the two schemas, `gw-tests` the rest:
-resolvers, roles, sessions, CSRF, CORS, idempotency, request ids, limits,
-scalars, errors, configuration, and the start of `npm run gateway` itself.
-They run the real gateway over HTTP against a fake engine
-(`test/support/fake-engine.ts`): every service of the contract, in memory,
-served over real gRPC on 127.0.0.1:4613, with the engine's behaviours as the
-coordinator fixed them (codes, metadata, idempotency, refusals, the role
-matrix written again on its own). The clock is injected, so sessions expire
-and rate limits refill without waiting.
+resolvers, roles, both APIs' sessions, CSRF, CORS, idempotency, request ids,
+limits, scalars, errors, configuration, the start of `npm run gateway`
+itself, and the subscriber's side (`test/site-sessions.test.ts`,
+`test/subscriptions.test.ts`). They run the real gateway over HTTP against a
+fake engine (`test/support/fake-engine.ts`): every service of the contract,
+in memory, served over real gRPC on 127.0.0.1:4613, with the engine's
+behaviours as the coordinator fixed them (codes, metadata, idempotency,
+refusals, the role matrix written again on its own) and, for the
+subscriber's service, the engine's own order of checks, its four demo
+listeners and its billing schedule. The clock is injected, so sessions
+expire, quotes run out and subscriptions reach their list price without
+waiting.
 
 The tests listen on 127.0.0.1: the fake engine on 4613, the gateway on 4621
 and 4622, after asking the system that nobody else listens there. Two copies

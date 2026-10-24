@@ -220,7 +220,7 @@ export type Role =
   | 'ON_CALL'
   | 'AUDITOR';
 
-/** Who wrote an audit event: a role of the book, or the engine's own jobs. */
+/** Who wrote an audit event: a role of the book, the engine's own jobs, or a subscriber of the site (§11.1). */
 export type ActorRole =
   | 'MARKETING'
   | 'COMMERCIAL_LEAD'
@@ -228,7 +228,8 @@ export type ActorRole =
   | 'CATALOG_MANAGER'
   | 'ON_CALL'
   | 'AUDITOR'
-  | 'SYSTEM';
+  | 'SYSTEM'
+  | 'SUBSCRIBER';
 
 /** A person of the demo, named by role, never by a person's name (§12.1). */
 export type Person = {

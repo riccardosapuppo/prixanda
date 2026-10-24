@@ -13,7 +13,8 @@ import { ChangeService, ChangeState } from "contracts/commerce/v1/changes";
 import { OverviewService, PeopleService } from "contracts/commerce/v1/overview";
 import { QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
-import { anyKind, FIELD_ROLES, isByKind, METHOD_ROLES, PUBLIC_METHODS, ROLES } from "../src/core/roles.ts";
+import { SubscriberService } from "contracts/commerce/v1/subscriptions";
+import { anyKind, FIELD_ROLES, isByKind, METHOD_ROLES, PUBLIC_METHODS, ROLES, SUBSCRIBER_METHODS } from "../src/core/roles.ts";
 import { type Harness, startHarness } from "./support/harness.ts";
 
 const BOOK = join(import.meta.dirname, "..", "..", "..", "docs", "business.md");
@@ -109,17 +110,20 @@ describe("the role matrix", () => {
     assert.deepEqual(sorted(METHOD_ROLES.GetOverview.slice(0, readers.length)), sorted(readers));
   });
 
-  test("covers every method of the contract: public or in the matrix, never both", () => {
-    const contract = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService]
+  test("covers every method of the contract: public, the subscriber's, or in the matrix, exactly one of them", () => {
+    const contract = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService, SubscriberService]
       .flatMap((service) => service.methods.map((method) => method.name));
-    // Catalog 4, Change 12, Quote 1, Simulation 1, Audit 3, Overview 1, People 1.
-    assert.equal(contract.length, 23, "the contract's methods were all read");
-    assert.deepEqual([...PUBLIC_METHODS].sort(), ["GetPriceList", "GetQuote", "ListMarkets", "ListOffers", "ListPeople", "ListPlans"]);
+    // Catalog 4, Change 12, Quote 1, Simulation 1, Audit 3, Overview 1, People 1, Subscriber 4.
+    assert.equal(contract.length, 27, "the contract's methods were all read");
+    assert.deepEqual([...PUBLIC_METHODS].sort(), ["GetPriceList", "GetQuote", "ListDemoListeners", "ListMarkets", "ListOffers", "ListPeople", "ListPlans"]);
+    // The brief of stage 5: these act for the listener of the site's session, with no x-actor.
+    assert.deepEqual([...SUBSCRIBER_METHODS].sort(), ["ConfirmQuote", "GetAccount", "VerifyStudent"]);
     for (const method of contract) {
-      const isPublic = (PUBLIC_METHODS as readonly string[]).includes(method);
-      assert.notEqual(isPublic, Object.hasOwn(matrix, method), `${method} must be either public or in the matrix`);
+      const kinds = [(PUBLIC_METHODS as readonly string[]).includes(method), (SUBSCRIBER_METHODS as readonly string[]).includes(method), Object.hasOwn(matrix, method)];
+      assert.equal(kinds.filter(Boolean).length, 1, `${method} must be public, the subscriber's, or in the matrix, and only one of them`);
     }
-    assert.deepEqual(Object.keys(matrix).filter((method) => !contract.includes(method)), [], "the matrix names no method the contract lacks");
+    const listed = [...PUBLIC_METHODS, ...SUBSCRIBER_METHODS, ...Object.keys(matrix)];
+    assert.deepEqual(listed.filter((method) => !contract.includes(method)), [], "the lists name no method the contract lacks");
   });
 });
 
