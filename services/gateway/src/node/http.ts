@@ -179,7 +179,6 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
     nodeEnv: config.production ? "production" : "development",
     validationRules: limitRules(internal ? INTERNAL_LIMITS : PUBLIC_LIMITS),
     parseOptions: { maxTokens: internal ? 5_000 : 1_500 },
-    status400ForVariableCoercionErrors: true,
     formatError,
     logger: {
       debug: () => {},

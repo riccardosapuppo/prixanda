@@ -441,7 +441,8 @@ export class FakeEngine {
               throw new ConnectError("this idempotency-key was used for another request", Code.InvalidArgument);
             }
             this.replays += 1;
-            const replay = { ...kept.response, header: new Headers(), trailer: new Headers() };
+            // The stored answer, with its protocol headers, under this request's id.
+            const replay = { ...kept.response, header: new Headers(kept.response.header), trailer: new Headers(kept.response.trailer) };
             echo(replay.header);
             echo(replay.trailer);
             return replay;
