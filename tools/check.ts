@@ -367,6 +367,60 @@ const SUITES: Suite[] = [
       return passed(`${counted}, API ${SITE_CHECK_API}`, `${html.length} bytes of index.html`);
     },
   },
+  // The site's end-to-end test: the real engine on CHECK_ENGINE_PORT, the real
+  // gateway on the gateway's test ports, the site's build on CHECK_SITE_PORT,
+  // and a headless Chromium through the Student Autumn Pass, from its launch to
+  // a student's demo subscription. Needs the build of site-build.
+  {
+    name: "site-e2e",
+    what: "the whole system and a real browser: §14.1 launched, on the site within a measured time, a student subscribed at the right price, every step in the audit log, axe on every page",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      if (!(await chromiumInstalled())) return notRun("no Chromium for playwright 1.62.1: npx playwright install chromium (it downloads the browser)");
+      const database = "commerce_site_e2e";
+      await createDatabase(cluster, database, TEMPLATE);
+      try {
+        const commerce = join(repoRoot, "services", "commerce");
+        const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), "--size", "small", "--seed", "7"], {
+          cwd: commerce, env: { ...process.env, PYTHONPATH: join(commerce, "src") },
+        });
+        if (generated.code !== 0) return failed("-", generated.output.slice(-3000));
+        const summaryFile = join(reports, "site-e2e.json");
+        await rm(summaryFile, { force: true });
+        const report = join(reports, "site-e2e.xml");
+        const ran = await run(process.execPath, ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`,
+          "--test-reporter=spec", "--test-reporter-destination=stdout", join("e2e", "student-autumn.e2e.ts")], {
+          cwd: siteDir,
+          echo: true,
+          env: { ...process.env, SITE_E2E_DATABASE_URL: cluster.url(database, "app"), SITE_E2E_SUMMARY: summaryFile },
+        });
+        if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
+        const xml = await readFile(report, "utf8");
+        const tests = [...xml.matchAll(/<testcase\b/g)].length;
+        const failures = [...xml.matchAll(/<failure\b/g)].length;
+        if (!existsSync(summaryFile)) return failed(`${tests} tests, ${failures} failed`, "the test wrote no summary");
+        const summary = JSON.parse(await readFile(summaryFile, "utf8")) as {
+          activationMs: number | null; siteMs: number | null; paymentMs: number | null; auditEvents: number; pagesChecked: number;
+          seriousViolations: number; otherViolations: number; externalRequests: number; engineExit: number | null;
+        };
+        const seconds = (ms: number | null) => (ms === null ? "never" : `${(ms / 1000).toFixed(1)} s`);
+        const counted = `${tests} tests, ${failures} failed; published ${seconds(summary.activationMs)} and on the open page ${seconds(summary.siteMs)} after 09:00;`
+          + ` paid ${seconds(summary.paymentMs)} after the confirmation; ${summary.auditEvents} audit events; axe on ${summary.pagesChecked} pages,`
+          + ` ${summary.seriousViolations} serious, ${summary.otherViolations} other`;
+        if (ran.code !== 0 || failures > 0) return failed(counted, `node --test exited ${ran.code}`);
+        if (tests < SITE_FLOOR.e2eTests) return failed(counted, `fewer than ${SITE_FLOOR.e2eTests} tests`);
+        if (summary.auditEvents < SITE_FLOOR.e2eAuditEvents) return failed(counted, `fewer than ${SITE_FLOOR.e2eAuditEvents} audit events of the journey`);
+        if (summary.pagesChecked < SITE_FLOOR.e2ePagesChecked) return failed(counted, `axe ran on fewer than ${SITE_FLOOR.e2ePagesChecked} pages`);
+        if (summary.externalRequests > 0) return failed(counted, `${summary.externalRequests} requests to other hosts`);
+        if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
+        return passed(counted);
+      } finally {
+        await cluster.sql("postgres", `drop database if exists ${database} with (force)`);
+      }
+    },
+  },
 ];
 
 // pytest's JUnit report: the totals of its test suites.
@@ -416,9 +470,19 @@ async function nodeTests(suite: string, files: string[], floor: number, env: Rec
 // pages its static build must hold. Its build calls the gateway's public API
 // where the end-to-end test starts it (CHECK_GATEWAY_PUBLIC_PORT).
 const siteDir = join(repoRoot, "apps", "site");
-const SITE_FLOOR = { files: 23, nodeFiles: 16, operations: 4, unitTests: 42 };
+const SITE_FLOOR = { files: 30, nodeFiles: 21, operations: 10, unitTests: 42, e2eTests: 7, e2eAuditEvents: 9, e2ePagesChecked: 7 };
 const SITE_PAGES = ["index.html", "campaign/index.html", "account/index.html", "404.html"];
 const SITE_CHECK_API = `http://127.0.0.1:${PORTS.gatewayCheckPublic}/graphql`;
+
+/** Whether the Chromium of the site's Playwright is on this machine: the check never downloads it. */
+async function chromiumInstalled(): Promise<boolean> {
+  try {
+    const { chromium } = await import("playwright");
+    return existsSync(chromium.executablePath());
+  } catch {
+    return false;
+  }
+}
 
 /** Node's test runner over the site's unit tests, counting the cases of its JUnit report. */
 async function siteNodeTests(suite: string, files: string[], floor: number): Promise<Omit<Result, "suite" | "seconds">> {

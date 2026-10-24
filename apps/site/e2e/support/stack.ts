@@ -11,6 +11,10 @@
 // Ports, each asked to the system before use: CHECK_POSTGRES_PORT,
 // CHECK_ENGINE_PORT, CHECK_GATEWAY_INTERNAL_PORT, CHECK_GATEWAY_PUBLIC_PORT
 // and CHECK_SITE_PORT (4602, 4612, 4621, 4622, 4632 when unset).
+//
+// Inside npm run check, the check's own cluster is already running: the
+// check prepares a database with the data and hands its URL in
+// SITE_E2E_DATABASE_URL, and the stack starts no cluster of its own.
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -19,7 +23,7 @@ import type { Server } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { flyway } from "../../../../tools/lib/flyway.ts";
-import { commerceDir, dataDir, repoRoot, venvPython } from "../../../../tools/lib/paths.ts";
+import { commerceDir, dataDir, PORTS, repoRoot, venvPython } from "../../../../tools/lib/paths.ts";
 import { assertFree } from "../../../../tools/lib/ports.ts";
 import { type Cluster, createDatabase, startCluster } from "../../../../tools/lib/postgres.ts";
 import { run } from "../../../../tools/lib/run.ts";
@@ -29,12 +33,14 @@ const siteDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const clockedServer = join(commerceDir, "tests", "clocked_server.py");
 
 export const STACK_PORTS = {
-  postgres: Number(process.env["CHECK_POSTGRES_PORT"] ?? 4602),
-  engine: Number(process.env["CHECK_ENGINE_PORT"] ?? 4612),
-  internal: Number(process.env["CHECK_GATEWAY_INTERNAL_PORT"] ?? 4621),
-  public: Number(process.env["CHECK_GATEWAY_PUBLIC_PORT"] ?? 4622),
+  postgres: PORTS.postgresCheck,
+  engine: PORTS.engineCheck,
+  internal: PORTS.gatewayCheckInternal,
+  public: PORTS.gatewayCheckPublic,
   site: Number(process.env["CHECK_SITE_PORT"] ?? 4632),
 } as const;
+
+const preparedDatabase = process.env["SITE_E2E_DATABASE_URL"] ?? "";
 
 export const SITE_URL = `http://127.0.0.1:${STACK_PORTS.site}`;
 export const PUBLIC_API = `http://127.0.0.1:${STACK_PORTS.public}/graphql`;
@@ -99,8 +105,8 @@ export async function assertBuiltFor(api: string): Promise<void> {
 }
 
 function startEngine(databaseUrl: string, token: string, startAt: string): { child: ChildProcessWithoutNullStreams; engine: Engine } {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [name, value] of Object.entries(process.env)) if (!name.startsWith("COMMERCE_")) env[name] = value;
+  const env = { ...process.env };
+  for (const name of Object.keys(env)) if (name.startsWith("COMMERCE_")) delete env[name];
   const child = spawn(venvPython, [clockedServer, startAt], {
     cwd: commerceDir,
     windowsHide: true,
@@ -149,8 +155,8 @@ function startEngine(databaseUrl: string, token: string, startAt: string): { chi
 }
 
 function startGateway(token: string): { child: ChildProcessWithoutNullStreams; log: LogLine[] } {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [name, value] of Object.entries(process.env)) if (!name.startsWith("GATEWAY_") && !name.startsWith("COMMERCE_")) env[name] = value;
+  const env = { ...process.env };
+  for (const name of Object.keys(env)) if (name.startsWith("GATEWAY_") || name.startsWith("COMMERCE_")) delete env[name];
   const child = spawn(process.execPath, [join(repoRoot, "services", "gateway", "src", "node", "main.ts")], {
     cwd: repoRoot,
     windowsHide: true,
@@ -188,7 +194,10 @@ export async function startStack(startAt: string): Promise<Stack> {
   if (!existsSync(venvPython)) throw new Error("no Python environment for the engine: npm run setup");
   if (!existsSync(clockedServer)) throw new Error(`the engine's clocked launcher is missing: ${clockedServer}`);
   await assertBuiltFor(PUBLIC_API);
-  for (const [what, port] of Object.entries(STACK_PORTS)) await assertFree(port, `the site's end-to-end test (${what})`);
+  for (const [what, port] of Object.entries(STACK_PORTS)) {
+    if (what === "postgres" && preparedDatabase) continue;
+    await assertFree(port, `the site's end-to-end test (${what})`);
+  }
 
   let cluster: Cluster | null = null;
   let engineChild: ChildProcessWithoutNullStreams | null = null;
@@ -203,20 +212,24 @@ export async function startStack(startAt: string): Promise<Stack> {
   };
 
   try {
-    say(`PostgreSQL 18 on 127.0.0.1:${STACK_PORTS.postgres}, the migrations and the small data (seed 7)`);
-    cluster = await startCluster({ dataDir: join(dataDir, "site-e2e"), port: STACK_PORTS.postgres, ephemeral: true, fast: true });
-    const database = "commerce_site_e2e";
-    await createDatabase(cluster, database);
-    const migrated = await flyway("migrate", { port: cluster.port, database, user: cluster.owner.user, password: cluster.owner.password });
-    if (migrated.code !== 0) throw new Error(`the migrations failed:\n${migrated.output.slice(-2000)}`);
-    const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), "--size", "small", "--seed", "7"], {
-      cwd: commerceDir, env: { ...process.env, PYTHONPATH: join(commerceDir, "src") },
-    });
-    if (generated.code !== 0) throw new Error(`the generator failed:\n${generated.output.slice(-2000)}`);
+    let appUrl = preparedDatabase;
+    if (!appUrl) {
+      say(`PostgreSQL 18 on 127.0.0.1:${STACK_PORTS.postgres}, the migrations and the small data (seed 7)`);
+      cluster = await startCluster({ dataDir: join(dataDir, "site-e2e"), port: STACK_PORTS.postgres, ephemeral: true, fast: true });
+      const database = "commerce_site_e2e";
+      await createDatabase(cluster, database);
+      const migrated = await flyway("migrate", { port: cluster.port, database, user: cluster.owner.user, password: cluster.owner.password });
+      if (migrated.code !== 0) throw new Error(`the migrations failed:\n${migrated.output.slice(-2000)}`);
+      const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), "--size", "small", "--seed", "7"], {
+        cwd: commerceDir, env: { ...process.env, PYTHONPATH: join(commerceDir, "src") },
+      });
+      if (generated.code !== 0) throw new Error(`the generator failed:\n${generated.output.slice(-2000)}`);
+      appUrl = cluster.url(database, "app");
+    }
 
     const token = randomBytes(32).toString("hex");
     say(`the engine on 127.0.0.1:${STACK_PORTS.engine}, its clock at ${startAt}`);
-    const started = startEngine(cluster.url(database, "app"), token, startAt);
+    const started = startEngine(appUrl, token, startAt);
     engineChild = started.child;
     await until(() => started.engine.log.find((entry) => entry["event"] === "listening"), 60_000, started.child, "the engine");
 
