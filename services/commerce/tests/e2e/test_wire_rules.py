@@ -103,7 +103,7 @@ def free_port() -> int:
 async def test_without_its_database_the_engine_says_so(world):
     # A pool on a port where nothing listens: the engine starts, health says
     # NOT_SERVING, and a call is UNAVAILABLE rather than a crash.
-    database = await AsyncpgDatabase.connect(f"postgresql://commerce:x@127.0.0.1:{free_port()}/commerce")
+    database = await AsyncpgDatabase.connect(f"postgresql://commerce@127.0.0.1:{free_port()}/commerce")
     engine = Engine(database, FixedClock(T0))
     logs = io.StringIO()
     token = secrets.token_hex(32)
