@@ -6,13 +6,20 @@ travels in the response's outcome as a typed Refusal, and when a call has an
 idempotency key the refusal is recorded like any other outcome.
 
 An EngineError is not an answer: the call could not be served as asked. The
-gRPC layer maps its status to the status code of the same name. Nothing of an
+gRPC layer maps its status to the status code of the same name, and the
+browser's demo, which has no gRPC, to its number (CODES). Nothing of an
 EngineError's internals reaches the caller beyond its message.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+
+# gRPC's status codes (google.rpc.Code) by name, for the callers with no gRPC library (browser/sandbox.py).
+CODES = {
+    "OK": 0, "INVALID_ARGUMENT": 3, "NOT_FOUND": 5, "PERMISSION_DENIED": 7, "FAILED_PRECONDITION": 9, "ABORTED": 10,
+    "UNIMPLEMENTED": 12, "INTERNAL": 13, "UNAVAILABLE": 14, "UNAUTHENTICATED": 16,
+}
 
 
 class EngineError(Exception):
