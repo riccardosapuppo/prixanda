@@ -32,6 +32,10 @@ class RefusalCode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     REFUSAL_CODE_AMBIGUOUS_LOCAL_TIME: _ClassVar[RefusalCode]
     REFUSAL_CODE_QUOTE_EXPIRED: _ClassVar[RefusalCode]
     REFUSAL_CODE_NOT_ELIGIBLE: _ClassVar[RefusalCode]
+    REFUSAL_CODE_ALREADY_SUBSCRIBED: _ClassVar[RefusalCode]
+    REFUSAL_CODE_NOT_COMBINABLE: _ClassVar[RefusalCode]
+    REFUSAL_CODE_CAP_REACHED: _ClassVar[RefusalCode]
+    REFUSAL_CODE_PAYMENT_DECLINED: _ClassVar[RefusalCode]
 ROLE_UNSPECIFIED: Role
 ROLE_MARKETING: Role
 ROLE_COMMERCIAL_LEAD: Role
@@ -52,6 +56,10 @@ REFUSAL_CODE_REASON_REQUIRED: RefusalCode
 REFUSAL_CODE_AMBIGUOUS_LOCAL_TIME: RefusalCode
 REFUSAL_CODE_QUOTE_EXPIRED: RefusalCode
 REFUSAL_CODE_NOT_ELIGIBLE: RefusalCode
+REFUSAL_CODE_ALREADY_SUBSCRIBED: RefusalCode
+REFUSAL_CODE_NOT_COMBINABLE: RefusalCode
+REFUSAL_CODE_CAP_REACHED: RefusalCode
+REFUSAL_CODE_PAYMENT_DECLINED: RefusalCode
 
 class Money(_message.Message):
     __slots__ = ("amount_minor", "currency")

@@ -480,6 +480,14 @@ enum RefusalCode {
   QUOTE_EXPIRED
   "The person is not in the offer's audience."
   NOT_ELIGIBLE
+  "A paid subscription of this listener is already running."
+  ALREADY_SUBSCRIBED
+  "The listener already took an offer of the same non-combinability group (§10.3)."
+  NOT_COMBINABLE
+  "The offer's cap on redemptions is reached (§6.1)."
+  CAP_REACHED
+  "The payment provider declined the charge (the simulated one never does)."
+  PAYMENT_DECLINED
 }
 
 "The rules said no: an answer, not an error."

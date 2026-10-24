@@ -295,6 +295,35 @@ export enum RefusalCode {
    * @generated from enum value: REFUSAL_CODE_NOT_ELIGIBLE = 12;
    */
   NOT_ELIGIBLE = 12,
+
+  /**
+   * A paid subscription of this listener is already running.
+   *
+   * @generated from enum value: REFUSAL_CODE_ALREADY_SUBSCRIBED = 13;
+   */
+  ALREADY_SUBSCRIBED = 13,
+
+  /**
+   * The listener already took an offer of the same non-combinability group (§10.3).
+   *
+   * @generated from enum value: REFUSAL_CODE_NOT_COMBINABLE = 14;
+   */
+  NOT_COMBINABLE = 14,
+
+  /**
+   * The offer's cap on redemptions is reached (§6.1).
+   *
+   * @generated from enum value: REFUSAL_CODE_CAP_REACHED = 15;
+   */
+  CAP_REACHED = 15,
+
+  /**
+   * The payment provider declined the charge. The simulated provider never
+   * does; a real one can, and the engine answers with this.
+   *
+   * @generated from enum value: REFUSAL_CODE_PAYMENT_DECLINED = 16;
+   */
+  PAYMENT_DECLINED = 16,
 }
 
 /**
