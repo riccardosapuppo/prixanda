@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import pytest
 
 from commerce.engine.errors import InvalidArgument, NotFound
-from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, quotes_pb2
+from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, quotes_pb2, subscriptions_pb2
 from engine_support import (
     FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, nordflur, past_validation_by_hand, scheduled, student_autumn,
 )
@@ -150,3 +150,22 @@ async def test_an_offer_that_comes_to_nothing_is_not_on_sale(world):
     assert list((await world.call("ListOffers", catalog_pb2.ListOffersRequest(market="IT"), PUBLIC)).offers) == []
     refused = await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="student", market="IT", offer_id=change.id), PUBLIC)
     assert refused.refusal.code == REFUSAL.REFUSAL_CODE_QUOTE_EXPIRED and "€0.00" in refused.refusal.reason
+
+
+async def test_the_price_after_the_offer_is_the_one_the_account_will_charge(world):
+    # The pass taken on 31 October: charged that day, then on the 28th of each month (a start late in the month bills
+    # on the 28th), so after its three months the list price begins on 28 January 2027, read as that day begins. A new
+    # Student price from 30 January does not concern it, though 31 January, three calendar months on, would.
+    change = await scheduled(world, student_autumn(), MARKETING, FINANCE)
+    world.clock.at = at(2026, 10, 26, 7, 59, 30)
+    await world.engine.run_launches()
+    await world.owner.execute("update list_price set valid = tsrange(lower(valid), '2027-01-30') "
+                              "where plan_id = 'student' and market = 'IT'")
+    await world.owner.execute("insert into list_price (plan_id, market, currency, amount_minor, valid) "
+                              "values ('student', 'IT', 'EUR', 629, tsrange('2027-01-30', null))")
+    world.clock.at = at(2026, 10, 31, 9, 0)  # 10:00 in Rome
+    q = (await quote(world, plan="student", market="IT", offer_id=change.id, subscriber_id=101)).quote
+    assert (q.months_at_price, q.then_price.amount_minor) == (3, 579)
+    await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(quote_id=q.quote_id, subscriber_id=101), PUBLIC)
+    s = (await world.call("GetAccount", subscriptions_pb2.GetAccountRequest(subscriber_id=101), PUBLIC)).account.subscription
+    assert (s.full_price_from, s.full_price) == ("2027-01-28", q.then_price)

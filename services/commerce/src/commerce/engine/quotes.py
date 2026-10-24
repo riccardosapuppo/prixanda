@@ -18,11 +18,12 @@ import secrets
 from datetime import timedelta
 
 from commerce.domain.economics import Book
-from commerce.domain.localtime import add_months, format_instant, to_local
+from commerce.domain import billing
+from commerce.domain.localtime import format_instant, to_local
 from commerce.domain.offers import Audience, ListeningRule
 from commerce.domain.money import format_money
 from commerce.domain.validation import on_sale, resolve_price
-from commerce.engine import contract, eligibility, reference
+from commerce.engine import charging, contract, eligibility, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.catalog import LIVE_OFFER, Catalog, breakdown, list_price_at, live_offer, market_code, plan_id
 from commerce.engine.database import Connection
@@ -95,7 +96,10 @@ class Quotes:
                 raise Refused("NOT_ELIGIBLE", f"Subscriber #{subscriber} is not among {offer.audience_words.lower()}.",
                               {"offer_id": offer.change_id, "audience": offer.audience_words})
             months = offer.months
-            then = await list_price_at(tx, plan.id, market, add_months(local_now, months)) or list_price
+            # The list price the account will charge after the offer's months: from the charge that ends them, on
+            # the billing day of a subscription starting today, read as that day begins (charging.py).
+            ends = billing.billing_date(today, billing.billing_day_for(today), months)
+            then = await charging.full_price(tx, market, plan.id, ends)
         else:
             price, months, then = list_price, 0, list_price
 
