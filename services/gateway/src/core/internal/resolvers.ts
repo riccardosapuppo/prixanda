@@ -8,6 +8,7 @@ import {
   SegmentSchema, SeveritySchema,
 } from "contracts/commerce/v1/changes";
 import { RefusalCodeSchema, RoleSchema } from "contracts/commerce/v1/common";
+import { LaunchStateSchema, LaunchStepStateSchema } from "contracts/commerce/v1/launches";
 import { PersonSchema } from "contracts/commerce/v1/overview";
 import type { InternalContext } from "../context.ts";
 import {
@@ -15,10 +16,10 @@ import {
 } from "../convert.ts";
 import { breach, contractBroken, gatewayError } from "../errors.ts";
 import type {
-  ActorRole, AssumptionName, AudioQuality, IncidentState, ListPriceInput, OfferInput, Resolvers, Role,
+  ActorRole, AssumptionName, AudioQuality, IncidentKind, IncidentState, ListPriceInput, OfferInput, Resolvers, Role,
 } from "../generated/internal.ts";
 import { positiveId } from "../ids.ts";
-import type { ChangeModel, RefusalModel } from "../models.ts";
+import type { ChangeModel, LaunchRunModel, RefusalModel } from "../models.ts";
 import { actorFor, actorForChange } from "../policy.ts";
 import { METHOD_ROLES, type RoleName } from "../roles.ts";
 import {
@@ -129,6 +130,28 @@ const roleOf = (role: number): Role => enumName<Role>(RoleSchema, role, "role");
 
 const AUDIO: Record<string, AudioQuality> = { standard: "STANDARD", lossless: "LOSSLESS" };
 const INCIDENT: Record<string, IncidentState> = { recovered: "RECOVERED", open: "OPEN", resolved: "RESOLVED" };
+const INCIDENT_KIND: Record<string, IncidentKind> = { late: "LATE", failed: "FAILED", refused: "REFUSED" };
+
+/**
+ * A launch mutation's answer. The change the launch is about may have moved
+ * (a cancelled launch cancels its change): the request's loader forgets it,
+ * so a field read after the mutation sees the engine's state now.
+ */
+function launchAnswer(outcome: { case: "launch"; value: LaunchRunModel } | { case: "refusal"; value: RefusalModel["refusal"] } | { case: undefined; value?: undefined },
+  context: InternalContext): LaunchRunModel | RefusalModel {
+  if (outcome.case === "launch") {
+    context.loaders.change.clear(outcome.value.changeId);
+    return outcome.value;
+  }
+  if (outcome.case === "refusal") return { $typeName: "gateway.Refusal", refusal: outcome.value, changeId: null };
+  throw contractBroken("a launch mutation answered with neither a launch nor a refusal");
+}
+
+function launchId(value: string): string {
+  const id = positiveId(value);
+  if (id === null) throw gatewayError("BAD_USER_INPUT", `${JSON.stringify(value.slice(0, 40))} is not a launch id`);
+  return id;
+}
 const ACTOR_ROLES: readonly ActorRole[] = ["MARKETING", "COMMERCIAL_LEAD", "FINANCE", "CATALOG_MANAGER", "ON_CALL", "AUDITOR", "SYSTEM", "SUBSCRIBER"];
 const ASSUMPTIONS: readonly AssumptionName[] = ["ELIGIBLE", "TAKE_UP", "INCREMENTAL", "RETENTION", "HORIZON_MONTHS"];
 
@@ -198,6 +221,19 @@ export const internalResolvers: Resolvers = {
       return context.engine(actorFor(context, METHOD_ROLES.VerifyChain)).audit.verifyChain(
         anchor && seq ? { anchor: { seq, hash: bytes(anchor.hash) } } : {},
       );
+    },
+    // Keyset pages, newest first: the cursor is the engine's (the last launch's id), opaque here.
+    launches: async (_root, { filter, first, after }, context) => {
+      const answer = await context.engine(actorFor(context, METHOD_ROLES.ListLaunches)).launches.listLaunches({
+        state: filter?.state ? enumNumber(LaunchStateSchema, filter.state) : 0,
+        changeId: filter?.changeId ? changeId(filter.changeId) : "0",
+        page: { size: pageSize(first, 20), after: cursor(after) },
+      });
+      return { nodes: answer.launches, next: orNull(answer.page?.next ?? "") };
+    },
+    launch: async (_root, { id }, context) => {
+      const answer = await context.engine(actorFor(context, METHOD_ROLES.GetLaunch)).launches.getLaunch({ launchId: launchId(id) });
+      return answer.launch ?? breach("GetLaunch answered without a launch");
     },
   },
 
@@ -286,6 +322,15 @@ export const internalResolvers: Resolvers = {
       if (exported.outcome.case === "head") return exported.outcome.value;
       if (exported.outcome.case === "refusal") return { $typeName: "gateway.Refusal", refusal: exported.outcome.value, changeId: null };
       throw contractBroken("ExportHead answered with neither a head nor a refusal");
+    },
+    retryLaunch: async (_root, { launchId: id, reason }, context) => {
+      const engine = context.engine(actorFor(context, METHOD_ROLES.RetryLaunch));
+      return launchAnswer((await engine.launches.retryLaunch({ launchId: launchId(id), reason: reason ?? "" })).outcome, context);
+    },
+    // An empty reason reaches the engine, which refuses it with REASON_REQUIRED, as for cancelChange.
+    cancelLaunch: async (_root, { launchId: id, reason }, context) => {
+      const engine = context.engine(actorFor(context, METHOD_ROLES.CancelLaunch));
+      return launchAnswer((await engine.launches.cancelLaunch({ launchId: launchId(id), reason })).outcome, context);
     },
   },
 
@@ -511,6 +556,60 @@ export const internalResolvers: Resolvers = {
     run: (incident) => incident.run,
     state: (incident) => lookup(INCIDENT, incident.state, "incident state"),
     summary: (incident) => incident.summary,
+    launchId: (incident) => idOrNull(incident.launchId),
+    kind: (incident) => lookup(INCIDENT_KIND, incident.kind, "incident kind"),
+    openedAt: (incident) => incident.openedAt || breach(`incident of ${incident.run} has no opening`),
+    closedAt: (incident) => orNull(incident.closedAt),
+    resolution: (incident) => orNull(incident.resolution),
+  },
+  LaunchPage: {
+    nodes: (page) => page.nodes,
+    next: (page) => page.next,
+  },
+  LaunchRun: {
+    id: (launch) => launch.launchId,
+    run: (launch) => launch.run,
+    change: (launch, _args, context) => context.loaders.change.load(launch.changeId),
+    title: (launch) => launch.title,
+    kind: (launch) => enumName(ChangeKindSchema, launch.kind, "change kind"),
+    version: (launch) => launch.version,
+    state: (launch) => enumName(LaunchStateSchema, launch.state, "launch state"),
+    starts: (launch) => launch.starts ?? breach(`${launch.run} has no start`),
+    dueAt: (launch) => launch.dueAt || breach(`${launch.run} has no due time`),
+    startedAt: (launch) => orNull(launch.startedAt),
+    finishedAt: (launch) => orNull(launch.finishedAt),
+    currentStep: (launch) => orNull(launch.currentStep),
+    attempts: (launch) => launch.attempts,
+    cause: (launch) => orNull(launch.cause),
+    retryAt: (launch) => orNull(launch.retryAt),
+    snapshotBefore: (launch) => idOrNull(launch.snapshotBefore),
+    snapshotAfter: (launch) => idOrNull(launch.snapshotAfter),
+    resolution: (launch) => orNull(launch.resolution),
+    steps: (launch) => launch.steps,
+    auditEventSeqs: (launch) => launch.auditEvents,
+    incidents: (launch) => launch.incidents,
+  },
+  LaunchStep: {
+    name: (step) => step.name,
+    purpose: (step) => step.purpose,
+    state: (step) => enumName(LaunchStepStateSchema, step.state, "launch step state"),
+    startedAt: (step) => orNull(step.startedAt),
+    finishedAt: (step) => orNull(step.finishedAt),
+    attempts: (step) => step.attempts,
+    error: (step) => orNull(step.error),
+    facts: (step) => facts(step.facts),
+  },
+  LaunchIncident: {
+    id: (incident) => incident.incidentId,
+    kind: (incident) => lookup(INCIDENT_KIND, incident.kind, "incident kind"),
+    state: (incident) => lookup(INCIDENT, incident.state, "incident state"),
+    summary: (incident) => incident.summary,
+    openedAt: (incident) => incident.openedAt || breach(`incident ${incident.incidentId} has no opening`),
+    closedAt: (incident) => orNull(incident.closedAt),
+    resolution: (incident) => orNull(incident.resolution),
+  },
+  LaunchResult: {
+    __resolveType: (result) => (result.$typeName === "gateway.Refusal" ? "Refusal" : "LaunchRun"),
   },
   SubscriberCount: {
     market: (row) => row.market,

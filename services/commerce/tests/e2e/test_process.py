@@ -69,8 +69,8 @@ async def test_the_engine_listens_answers_and_stops_in_order(world):
     try:
         listening = await lines_until(process.stderr, "listening", seen)
         assert listening["address"] == f"127.0.0.1:{port}" and listening["serving"] is True
-        password = urlsplit(APP_URL).password
-        assert password and password not in json.dumps(seen) and token not in json.dumps(seen)
+        from_url = urlsplit(APP_URL).password
+        assert from_url and from_url not in json.dumps(seen) and token not in json.dumps(seen)
         async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
             health = await health_pb2_grpc.HealthStub(channel).Check(health_pb2.HealthCheckRequest(service=""))
             assert health.status == health_pb2.HealthCheckResponse.SERVING

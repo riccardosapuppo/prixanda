@@ -7,7 +7,7 @@ import type { MarketCodeValue } from '../scalars.ts';
 import type { PlanCodeValue } from '../scalars.ts';
 import type { Sha256Value } from '../scalars.ts';
 import type { GraphQLResolveInfo, GraphQLScalarType, GraphQLScalarTypeConfig } from 'graphql';
-import type { PersonModel, SessionModel, MarketModel, EntitlementsModel, PriceBreakdownModel, PlanModel, PriceListEntryModel, ChangePageModel, ChangeSummaryModel, ChangeModel, ChangeVersionModel, OfferContentModel, ListPriceContentModel, AudienceModel, ListeningRuleModel, OfferPriceModel, OfferPeriodModel, OfferPageModel, ApprovalModel, RequiredSignatureModel, FactModel, ValidationFindingModel, ValidationReportModel, RefusalModel, OverviewModel, MarketTimeModel, LaunchModel, IncidentModel, SubscriberCountModel, MarketRevenueModel, AssumptionModel, TotalsModel, FinanceConditionModel, SimulationModel, AuditEventModel, AuditPageModel, ChainHeadModel, ChainVerificationModel } from '../models.ts';
+import type { PersonModel, SessionModel, MarketModel, EntitlementsModel, PriceBreakdownModel, PlanModel, PriceListEntryModel, ChangePageModel, ChangeSummaryModel, ChangeModel, ChangeVersionModel, OfferContentModel, ListPriceContentModel, AudienceModel, ListeningRuleModel, OfferPriceModel, OfferPeriodModel, OfferPageModel, ApprovalModel, RequiredSignatureModel, FactModel, ValidationFindingModel, ValidationReportModel, RefusalModel, OverviewModel, MarketTimeModel, LaunchModel, IncidentModel, SubscriberCountModel, MarketRevenueModel, AssumptionModel, TotalsModel, FinanceConditionModel, SimulationModel, AuditEventModel, AuditPageModel, ChainHeadModel, ChainVerificationModel, LaunchPageModel, LaunchRunModel, LaunchStepModel, LaunchIncidentModel } from '../models.ts';
 import type { InternalContext } from '../context.ts';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
@@ -63,6 +63,10 @@ export type Query = {
   readonly auditEvents: AuditPage;
   /** Recomputes the log's chain; with an exported head, also checks that the chain still leads to it (§11.3). */
   readonly verifyAuditChain: ChainVerification;
+  /** The engine's launches, newest first, a page at a time (first: 1 to 100). Every role reads them (§12.2). */
+  readonly launches: LaunchPage;
+  /** One launch, step by step, with its incidents and the audit events it wrote; null when there is none. */
+  readonly launch?: Maybe<LaunchRun>;
 };
 
 
@@ -114,6 +118,18 @@ export type QueryVerifyAuditChainArgs = {
   anchor?: InputMaybe<ChainHeadInput>;
 };
 
+
+export type QueryLaunchesArgs = {
+  filter?: InputMaybe<LaunchFilter>;
+  first?: Scalars['Int']['input'];
+  after?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type QueryLaunchArgs = {
+  id: Scalars['ID']['input'];
+};
+
 export type Mutation = {
   readonly __typename?: 'Mutation';
   /** DEMONSTRATION MODE: become one of the demo's people. Not authentication. */
@@ -137,6 +153,20 @@ export type Mutation = {
   readonly suspendChange: ChangeResult;
   /** The head of the log's chain, to keep outside the database (§11.3). */
   readonly exportAuditHead: ExportHeadResult;
+  /**
+   * The on-call engineer runs a failed or refused launch again from the step
+   * that stopped it, or a waiting one now (§12); the reason is optional: what
+   * was done so that it can go through. Refused with WRONG_STATE for a launch
+   * that is running a step, done or cancelled.
+   */
+  readonly retryLaunch: LaunchResult;
+  /**
+   * The on-call engineer gives up a launch that has not published: its change
+   * is cancelled with the reason, which is required (§7.1, §12). A launch that
+   * has published is refused with WRONG_STATE: suspendChange takes its change
+   * off the site.
+   */
+  readonly cancelLaunch: LaunchResult;
 };
 
 
@@ -209,6 +239,18 @@ export type MutationCancelChangeArgs = {
 
 export type MutationSuspendChangeArgs = {
   changeId: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
+};
+
+
+export type MutationRetryLaunchArgs = {
+  launchId: Scalars['ID']['input'];
+  reason?: InputMaybe<Scalars['String']['input']>;
+};
+
+
+export type MutationCancelLaunchArgs = {
+  launchId: Scalars['ID']['input'];
   reason: Scalars['String']['input'];
 };
 
@@ -683,14 +725,142 @@ export type IncidentState =
   /** A person retried or cancelled the launch. */
   | 'RESOLVED';
 
+/** Why an incident opened. */
+export type IncidentKind =
+  /** A scheduled change not live 5 minutes after its start: the alarm. */
+  | 'LATE'
+  /** A step of the launch failed 5 times. */
+  | 'FAILED'
+  /** The launch's check found a clash or a later price. */
+  | 'REFUSED';
+
+/** An incident of a launch (§7.5): a launch that failed or was refused, or a scheduled change not live 5 minutes after its start. */
 export type Incident = {
   readonly __typename?: 'Incident';
   readonly change: Change;
   readonly title: Scalars['String']['output'];
+  /** The launch's run identifier, as its audit events and log lines carry it: launch-12. */
   readonly run: Scalars['String']['output'];
   readonly state: IncidentState;
   readonly summary: Scalars['String']['output'];
+  /** The launch it is about; launch(id) reads it. Null for a late start the engine has not begun to launch. */
+  readonly launchId?: Maybe<Scalars['ID']['output']>;
+  readonly kind: IncidentKind;
+  readonly openedAt: Scalars['DateTime']['output'];
+  /** Null while it is open. */
+  readonly closedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** How it closed: published at ..., cancelled by on-call-1: ...; null while it is open. */
+  readonly resolution?: Maybe<Scalars['String']['output']>;
 };
+
+export type LaunchFilter = {
+  readonly state?: InputMaybe<LaunchState>;
+  readonly changeId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type LaunchPage = {
+  readonly __typename?: 'LaunchPage';
+  readonly nodes: ReadonlyArray<LaunchRun>;
+  /** The cursor of the next page; null on the last one. */
+  readonly next?: Maybe<Scalars['String']['output']>;
+};
+
+/** Where a launch stands. */
+export type LaunchState =
+  /** Steps remain: the engine works on them, or waits to try a failed one again. */
+  | 'RUNNING'
+  /** Published, the site told, the live catalog checked. */
+  | 'DONE'
+  /** A step failed 5 times. Nothing was published unless its publish step is done. */
+  | 'FAILED'
+  /** The check found a clash or a later price: nothing was published, and the change stays scheduled. */
+  | 'REFUSED'
+  /** Given up before it published: its change is cancelled. */
+  | 'CANCELLED';
+
+export type LaunchStepState =
+  | 'PENDING'
+  /** Started and not finished: running now, or stopped by a fault and to be resumed. */
+  | 'RUNNING'
+  | 'DONE'
+  /** Its last attempt failed. */
+  | 'FAILED';
+
+/**
+ * A launch (§7.5, §14.6): the engine's job that activates a scheduled change,
+ * step by step, each step in a transaction of its own. It begins a minute
+ * before the change's first start; a step that fails is tried again after a
+ * growing wait, and after 5 failures the launch fails and opens an incident.
+ */
+export type LaunchRun = {
+  readonly __typename?: 'LaunchRun';
+  readonly id: Scalars['ID']['output'];
+  /** The identifier its audit events and log lines carry: launch-12. */
+  readonly run: Scalars['String']['output'];
+  readonly change: Change;
+  readonly title: Scalars['String']['output'];
+  readonly kind: ChangeKind;
+  /** The version that was approved and scheduled. */
+  readonly version: Scalars['Int']['output'];
+  readonly state: LaunchState;
+  /** The change's first start. */
+  readonly starts: MarketTime;
+  /** When it was due: a minute before the start. */
+  readonly dueAt: Scalars['DateTime']['output'];
+  /** When the engine began it; null before. */
+  readonly startedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** When it stopped: done, failed, refused or cancelled; null while it runs. */
+  readonly finishedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** The step it is on, or stopped at; null when done. */
+  readonly currentStep?: Maybe<Scalars['String']['output']>;
+  /** Attempts of all its steps together. */
+  readonly attempts: Scalars['Int']['output'];
+  /** Why it stopped, or waits: the last error, the clash; null when all went well. */
+  readonly cause?: Maybe<Scalars['String']['output']>;
+  /** When the engine tries the failed step again; null otherwise. */
+  readonly retryAt?: Maybe<Scalars['DateTime']['output']>;
+  /** The live catalog snapshot before the launch published, and after; null until known. */
+  readonly snapshotBefore?: Maybe<Scalars['ID']['output']>;
+  readonly snapshotAfter?: Maybe<Scalars['ID']['output']>;
+  /** How it ended, and what people did: published at ..., retried by on-call-1 at ...; null before. */
+  readonly resolution?: Maybe<Scalars['String']['output']>;
+  /** Its steps in order: check, prepare, publish, notify, verify. Read through launch(id): empty in a page of launches. */
+  readonly steps: ReadonlyArray<LaunchStep>;
+  /** The sequence numbers of the audit events it wrote (§11). Read through launch(id): empty in a page of launches. */
+  readonly auditEventSeqs: ReadonlyArray<Scalars['ID']['output']>;
+  readonly incidents: ReadonlyArray<LaunchIncident>;
+};
+
+export type LaunchStep = {
+  readonly __typename?: 'LaunchStep';
+  /** check, prepare, publish, notify, verify. */
+  readonly name: Scalars['String']['output'];
+  /** What the step does, in a sentence. */
+  readonly purpose: Scalars['String']['output'];
+  readonly state: LaunchStepState;
+  /** When its last attempt started; null before the first. */
+  readonly startedAt?: Maybe<Scalars['DateTime']['output']>;
+  /** When it was done, or its last attempt failed; null while it runs. */
+  readonly finishedAt?: Maybe<Scalars['DateTime']['output']>;
+  readonly attempts: Scalars['Int']['output'];
+  /** The last attempt's error; null once the step is done. */
+  readonly error?: Maybe<Scalars['String']['output']>;
+  /** What it found or did: the snapshot it wrote, the offers it published. */
+  readonly facts: ReadonlyArray<Fact>;
+};
+
+export type LaunchIncident = {
+  readonly __typename?: 'LaunchIncident';
+  readonly id: Scalars['ID']['output'];
+  readonly kind: IncidentKind;
+  readonly state: IncidentState;
+  readonly summary: Scalars['String']['output'];
+  readonly openedAt: Scalars['DateTime']['output'];
+  readonly closedAt?: Maybe<Scalars['DateTime']['output']>;
+  readonly resolution?: Maybe<Scalars['String']['output']>;
+};
+
+export type LaunchResult = LaunchRun | Refusal;
 
 export type SubscriberCount = {
   readonly __typename?: 'SubscriberCount';
@@ -900,6 +1070,10 @@ export type ResolversUnionTypes<_RefType extends Record<string, unknown>> = {
     | ( ChangeModel )
     | ( RefusalModel )
   ;
+  LaunchResult:
+    | ( LaunchRunModel )
+    | ( RefusalModel )
+  ;
   SimulationOutcome:
     | ( SimulationModel )
     | ( RefusalModel )
@@ -972,7 +1146,16 @@ export type ResolversTypes = {
   MarketTime: ResolverTypeWrapper<MarketTimeModel>;
   Launch: ResolverTypeWrapper<LaunchModel>;
   IncidentState: IncidentState;
+  IncidentKind: IncidentKind;
   Incident: ResolverTypeWrapper<IncidentModel>;
+  LaunchFilter: LaunchFilter;
+  LaunchPage: ResolverTypeWrapper<LaunchPageModel>;
+  LaunchState: LaunchState;
+  LaunchStepState: LaunchStepState;
+  LaunchRun: ResolverTypeWrapper<LaunchRunModel>;
+  LaunchStep: ResolverTypeWrapper<LaunchStepModel>;
+  LaunchIncident: ResolverTypeWrapper<LaunchIncidentModel>;
+  LaunchResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['LaunchResult']>;
   SubscriberCount: ResolverTypeWrapper<SubscriberCountModel>;
   MarketRevenue: ResolverTypeWrapper<MarketRevenueModel>;
   AssumptionName: AssumptionName;
@@ -1043,6 +1226,12 @@ export type ResolversParentTypes = {
   MarketTime: MarketTimeModel;
   Launch: LaunchModel;
   Incident: IncidentModel;
+  LaunchFilter: LaunchFilter;
+  LaunchPage: LaunchPageModel;
+  LaunchRun: LaunchRunModel;
+  LaunchStep: LaunchStepModel;
+  LaunchIncident: LaunchIncidentModel;
+  LaunchResult: ResolversUnionTypes<ResolversParentTypes>['LaunchResult'];
   SubscriberCount: SubscriberCountModel;
   MarketRevenue: MarketRevenueModel;
   AssumptionInput: AssumptionInput;
@@ -1096,6 +1285,8 @@ export type QueryResolvers<ContextType = InternalContext, ParentType extends Res
   simulateOffer: Resolver<ResolversTypes['SimulationOutcome'], ParentType, ContextType, RequireFields<QuerySimulateOfferArgs, 'changeId' | 'version' | 'market'>>;
   auditEvents: Resolver<ResolversTypes['AuditPage'], ParentType, ContextType, RequireFields<QueryAuditEventsArgs, 'first'>>;
   verifyAuditChain: Resolver<ResolversTypes['ChainVerification'], ParentType, ContextType, Partial<QueryVerifyAuditChainArgs>>;
+  launches: Resolver<ResolversTypes['LaunchPage'], ParentType, ContextType, RequireFields<QueryLaunchesArgs, 'first'>>;
+  launch: Resolver<Maybe<ResolversTypes['LaunchRun']>, ParentType, ContextType, RequireFields<QueryLaunchArgs, 'id'>>;
 };
 
 export type MutationResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['Mutation'] = ResolversParentTypes['Mutation']> = {
@@ -1113,6 +1304,8 @@ export type MutationResolvers<ContextType = InternalContext, ParentType extends 
   cancelChange: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationCancelChangeArgs, 'changeId' | 'reason'>>;
   suspendChange: Resolver<ResolversTypes['ChangeResult'], ParentType, ContextType, RequireFields<MutationSuspendChangeArgs, 'changeId' | 'reason'>>;
   exportAuditHead: Resolver<ResolversTypes['ExportHeadResult'], ParentType, ContextType>;
+  retryLaunch: Resolver<ResolversTypes['LaunchResult'], ParentType, ContextType, RequireFields<MutationRetryLaunchArgs, 'launchId'>>;
+  cancelLaunch: Resolver<ResolversTypes['LaunchResult'], ParentType, ContextType, RequireFields<MutationCancelLaunchArgs, 'launchId' | 'reason'>>;
 };
 
 export type PersonResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['Person'] = ResolversParentTypes['Person']> = {
@@ -1363,6 +1556,66 @@ export type IncidentResolvers<ContextType = InternalContext, ParentType extends 
   run: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   state: Resolver<ResolversTypes['IncidentState'], ParentType, ContextType>;
   summary: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  launchId: Resolver<Maybe<ResolversTypes['ID']>, ParentType, ContextType>;
+  kind: Resolver<ResolversTypes['IncidentKind'], ParentType, ContextType>;
+  openedAt: Resolver<ResolversTypes['DateTime'], ParentType, ContextType>;
+  closedAt: Resolver<Maybe<ResolversTypes['DateTime']>, ParentType, ContextType>;
+  resolution: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+};
+
+export type LaunchPageResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['LaunchPage'] = ResolversParentTypes['LaunchPage']> = {
+  nodes: Resolver<ReadonlyArray<ResolversTypes['LaunchRun']>, ParentType, ContextType>;
+  next: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+};
+
+export type LaunchRunResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['LaunchRun'] = ResolversParentTypes['LaunchRun']> = {
+  id: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  run: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  change: Resolver<ResolversTypes['Change'], ParentType, ContextType>;
+  title: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  kind: Resolver<ResolversTypes['ChangeKind'], ParentType, ContextType>;
+  version: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  state: Resolver<ResolversTypes['LaunchState'], ParentType, ContextType>;
+  starts: Resolver<ResolversTypes['MarketTime'], ParentType, ContextType>;
+  dueAt: Resolver<ResolversTypes['DateTime'], ParentType, ContextType>;
+  startedAt: Resolver<Maybe<ResolversTypes['DateTime']>, ParentType, ContextType>;
+  finishedAt: Resolver<Maybe<ResolversTypes['DateTime']>, ParentType, ContextType>;
+  currentStep: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  attempts: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  cause: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  retryAt: Resolver<Maybe<ResolversTypes['DateTime']>, ParentType, ContextType>;
+  snapshotBefore: Resolver<Maybe<ResolversTypes['ID']>, ParentType, ContextType>;
+  snapshotAfter: Resolver<Maybe<ResolversTypes['ID']>, ParentType, ContextType>;
+  resolution: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  steps: Resolver<ReadonlyArray<ResolversTypes['LaunchStep']>, ParentType, ContextType>;
+  auditEventSeqs: Resolver<ReadonlyArray<ResolversTypes['ID']>, ParentType, ContextType>;
+  incidents: Resolver<ReadonlyArray<ResolversTypes['LaunchIncident']>, ParentType, ContextType>;
+  __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
+};
+
+export type LaunchStepResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['LaunchStep'] = ResolversParentTypes['LaunchStep']> = {
+  name: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  purpose: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  state: Resolver<ResolversTypes['LaunchStepState'], ParentType, ContextType>;
+  startedAt: Resolver<Maybe<ResolversTypes['DateTime']>, ParentType, ContextType>;
+  finishedAt: Resolver<Maybe<ResolversTypes['DateTime']>, ParentType, ContextType>;
+  attempts: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  error: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  facts: Resolver<ReadonlyArray<ResolversTypes['Fact']>, ParentType, ContextType>;
+};
+
+export type LaunchIncidentResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['LaunchIncident'] = ResolversParentTypes['LaunchIncident']> = {
+  id: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  kind: Resolver<ResolversTypes['IncidentKind'], ParentType, ContextType>;
+  state: Resolver<ResolversTypes['IncidentState'], ParentType, ContextType>;
+  summary: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  openedAt: Resolver<ResolversTypes['DateTime'], ParentType, ContextType>;
+  closedAt: Resolver<Maybe<ResolversTypes['DateTime']>, ParentType, ContextType>;
+  resolution: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+};
+
+export type LaunchResultResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['LaunchResult'] = ResolversParentTypes['LaunchResult']> = {
+  __resolveType: TypeResolveFn<'LaunchRun' | 'Refusal', ParentType, ContextType>;
 };
 
 export type SubscriberCountResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['SubscriberCount'] = ResolversParentTypes['SubscriberCount']> = {
@@ -1494,6 +1747,11 @@ export type Resolvers<ContextType = InternalContext> = {
   MarketTime: MarketTimeResolvers<ContextType>;
   Launch: LaunchResolvers<ContextType>;
   Incident: IncidentResolvers<ContextType>;
+  LaunchPage: LaunchPageResolvers<ContextType>;
+  LaunchRun: LaunchRunResolvers<ContextType>;
+  LaunchStep: LaunchStepResolvers<ContextType>;
+  LaunchIncident: LaunchIncidentResolvers<ContextType>;
+  LaunchResult: LaunchResultResolvers<ContextType>;
   SubscriberCount: SubscriberCountResolvers<ContextType>;
   MarketRevenue: MarketRevenueResolvers<ContextType>;
   Assumption: AssumptionResolvers<ContextType>;

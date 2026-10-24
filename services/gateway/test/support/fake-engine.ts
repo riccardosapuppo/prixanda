@@ -26,6 +26,7 @@ import {
   Severity, ValidationReportSchema, type ValidationReport,
 } from "contracts/commerce/v1/changes";
 import { type Money, MoneySchema, type Refusal, RefusalCode, RefusalSchema, Role } from "contracts/commerce/v1/common";
+import { LaunchService, LaunchState, LaunchStepState, type LaunchRun, LaunchRunSchema } from "contracts/commerce/v1/launches";
 import { IncidentSchema, OverviewService, PeopleService, PersonSchema, type Person } from "contracts/commerce/v1/overview";
 import { QuoteSchema, QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
@@ -48,10 +49,10 @@ const PUBLIC = new Set([
 ]);
 const IDEMPOTENT = new Set([
   "CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange", "ScheduleChange",
-  "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent", "ConfirmQuote",
+  "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent", "ConfirmQuote", "RetryLaunch", "CancelLaunch",
 ]);
 /** Reads without an outcome: a role that may not call them gets PERMISSION_DENIED instead of a refusal. */
-const READS = new Set(["GetChange", "BatchGetChanges", "ListChanges", "GetOverview", "ListEvents", "VerifyChain"]);
+const READS = new Set(["GetChange", "BatchGetChanges", "ListChanges", "GetOverview", "ListEvents", "VerifyChain", "ListLaunches", "GetLaunch"]);
 
 type Kind = "offer" | "listPrice";
 /** The coordinator's table (§4 of the brief), transcribed here on its own. */
@@ -73,6 +74,11 @@ const MAY: Record<string, (role: string, kind: Kind | null) => boolean> = {
   ListEvents: () => true,
   VerifyChain: (role) => ["auditor", "on_call"].includes(role),
   ExportHead: (role) => role === "auditor",
+  // Stage 6 (launches.proto): every role reads the launches; only on_call retries or cancels one.
+  ListLaunches: () => true,
+  GetLaunch: () => true,
+  RetryLaunch: (role) => role === "on_call",
+  CancelLaunch: (role) => role === "on_call",
 };
 
 const ROLE_NUMBER: Record<string, Role> = {
@@ -129,6 +135,38 @@ type StoredChange = {
   validation: ValidationReport | undefined;
   required: RequiredSignature[];
   authorReason: string;
+};
+
+// ----- the launches (stage 6), as the engine keeps them -----
+
+const LAUNCH_STEPS = ["check", "prepare", "publish", "notify", "verify"] as const;
+const LAUNCH_PURPOSES: Record<(typeof LAUNCH_STEPS)[number], string> = {
+  check: "The change is still scheduled at its approved version, and nothing clashes with it.",
+  prepare: "The new catalog snapshot is written, not yet live.",
+  publish: "In one transaction: the change becomes active, the snapshot goes live, and the audit events and the site's notice are written.",
+  notify: "The outbox delivers the notice to the site's inbox.",
+  verify: "The live catalog, or the price list, shows the change as approved.",
+};
+
+export type StoredLaunch = {
+  id: string;
+  changeId: string;
+  state: "running" | "done" | "failed" | "refused" | "cancelled";
+  dueAt: string;
+  startedAt: string;
+  finishedAt: string;
+  cause: string;
+  retryAt: string;
+  snapshotBefore: string;
+  snapshotAfter: string;
+  resolution: string;
+  steps: Array<{
+    name: (typeof LAUNCH_STEPS)[number]; state: "pending" | "running" | "done" | "failed"; startedAt: string; finishedAt: string;
+    attempts: number; error: string; facts: Record<string, string>;
+  }>;
+  /** The audit events it wrote, by sequence number. */
+  auditEvents: string[];
+  incidents: Array<{ id: string; kind: "late" | "failed" | "refused"; state: "open" | "recovered" | "resolved"; summary: string; openedAt: string; closedAt: string; resolution: string }>;
 };
 
 // ----- the subscriber's side (stage 5), as the engine keeps it -----
@@ -348,6 +386,9 @@ export class FakeEngine {
   readonly quotes = new Map<string, StoredQuote>();
   /** The home's incidents of today, as GetOverview answers them; none unless a test adds them. */
   readonly incidents: MessageInitShape<typeof IncidentSchema>[] = [];
+  /** The launches, by id; none unless a test seeds them (the fake engine runs no jobs). */
+  readonly launches = new Map<string, StoredLaunch>();
+  #nextLaunch = 1;
   readonly receipts: Array<{ id: string; subscriptionId: string; quoteId: string; subscriberId: string }> = [];
   /** Idempotency keys and what they answered (the engine's behaviour 2). */
   readonly #idempotency = new Map<string, { method: string; actor: string; role: string; fingerprint: string; response: UnaryResponse }>();
@@ -376,7 +417,7 @@ export class FakeEngine {
       listPrice: money(579n, "EUR"),
       monthsAtOfferPrice: 3,
       takeableUntil: { market: "IT", local: "2026-11-30T23:59", utc: "2026-11-30T22:59:00Z" },
-      audience: "Verified students who have never paid",
+      audience: "Verified students in Italy who have never had a paid plan",
       needsStudentCheck: true,
       // §14.1: €1.47 of the artists' €3.00 comes from the subscriber, and the music service adds €1.53.
       breakdown: breakdownOf(299n, MARKETS[0]),
@@ -480,6 +521,63 @@ export class FakeEngine {
     listener.subscriptions.push({
       id: String(this.#nextSubscription++), plan: "free", paid: false, priceMinor: 0n, startedOn: today, endedOn: null,
       billingDay: 0, quoteId: null, offerId: null, offerMonths: 0,
+    });
+  }
+
+  /**
+   * A launch of an offer of its own, as the engine leaves one: done (five
+   * steps, published), failed at its publish step after 5 attempts, refused
+   * at its check by a clash, or waiting to try its publish step again. A
+   * failed or refused launch has its incident open, and its change stays
+   * scheduled; a done one has its change active.
+   */
+  seedLaunch(shape: "done" | "failed" | "refused" | "waiting", title = `Launched offer ${this.#nextLaunch}`): StoredLaunch {
+    const change = this.seedOffer(title, "marketing-1", shape === "done" ? ChangeState.ACTIVE : ChangeState.SCHEDULED);
+    const id = String(this.#nextLaunch++);
+    // Due at 07:59 UTC, a minute before a start at 09:00 in Rome; each step ten seconds after the one before.
+    const at = (step: number) => `2026-11-02T07:59:${String(step * 10).padStart(2, "0")}Z`;
+    const stopAt: Record<typeof shape, number> = { done: LAUNCH_STEPS.length, failed: 2, refused: 0, waiting: 2 };
+    const steps = LAUNCH_STEPS.map((name, index) => {
+      const stopped = index === stopAt[shape];
+      const done = index < stopAt[shape];
+      return {
+        name, state: done ? "done" as const : stopped ? "failed" as const : "pending" as const,
+        startedAt: done || stopped ? at(index) : "", finishedAt: done || stopped ? at(index) : "",
+        attempts: done ? 1 : stopped ? (shape === "failed" ? 5 : shape === "waiting" ? 2 : 1) : 0,
+        error: stopped ? (shape === "refused" ? "Another offer of the group student is live for the same people (§6.4)." : "the connection to the database was cut") : "",
+        facts: name === "prepare" && done ? { snapshot: "42", offers: "3" } : name === "publish" && done ? { snapshot: "42", change: change.id } : {},
+      };
+    });
+    const launch: StoredLaunch = {
+      id, changeId: change.id, state: shape === "waiting" ? "running" : shape, dueAt: "2026-11-02T07:59:00Z", startedAt: at(0),
+      finishedAt: shape === "waiting" ? "" : at(stopAt[shape]), cause: shape === "done" ? "" : steps[stopAt[shape]]?.error ?? "",
+      retryAt: shape === "waiting" ? "2026-11-02T08:03:15Z" : "", snapshotBefore: shape === "refused" ? "" : "41",
+      snapshotAfter: shape === "done" ? "42" : "", resolution: shape === "done" ? `published at ${at(2)}` : "", steps,
+      auditEvents: [], incidents: [],
+    };
+    if (shape === "failed" || shape === "refused") {
+      launch.incidents.push({
+        id: String(100 + Number(id)), kind: shape, state: "open", summary: `launch-${id} ${shape === "failed" ? "failed at its publish step" : "was refused at its check"}.`,
+        openedAt: at(stopAt[shape]), closedAt: "", resolution: "",
+      });
+    }
+    if (shape === "done") launch.auditEvents.push(...this.#seedEvents(launch, ["change.activated", "catalog.published"]));
+    this.launches.set(id, launch);
+    return launch;
+  }
+
+  /** Audit events written by a launch's own job, as the engine writes them: actor activation, its run as the request id. */
+  #seedEvents(launch: StoredLaunch, actions: string[]): string[] {
+    return actions.map((action) => {
+      const previous = this.audit.at(-1);
+      const seq = String(this.audit.length + 1);
+      const prevHash = previous?.hash ?? new Uint8Array(32);
+      const fields = {
+        seq, at: this.#now(), actor: "activation", actorRole: "system", action,
+        subject: action.startsWith("change.") ? `change:${launch.changeId}` : "catalog", requestId: `launch-${launch.id}`, reason: "", bodyJson: "{}",
+      };
+      this.audit.push(create(AuditEventSchema, { ...fields, prevHash, hash: sha256(Buffer.concat([prevHash, Buffer.from(JSON.stringify(fields))])) }));
+      return seq;
     });
   }
 
@@ -712,6 +810,34 @@ export class FakeEngine {
     }
     message.nextCharge = nextCharge;
     return message;
+  }
+
+  /** A launch as the engine answers it: its steps and audit events only in GetLaunch (detail), its incidents always. */
+  #launchMessage(launch: StoredLaunch, detail: boolean): LaunchRun {
+    const change = this.#stored(launch.changeId);
+    const current = change.versions.at(-1);
+    const states = { running: LaunchState.RUNNING, done: LaunchState.DONE, failed: LaunchState.FAILED, refused: LaunchState.REFUSED, cancelled: LaunchState.CANCELLED };
+    const stepStates = { pending: LaunchStepState.PENDING, running: LaunchStepState.RUNNING, done: LaunchStepState.DONE, failed: LaunchStepState.FAILED };
+    return create(LaunchRunSchema, {
+      launchId: launch.id, changeId: launch.changeId, title: current?.content.title ?? "",
+      kind: change.kind === "offer" ? ChangeKind.OFFER : ChangeKind.LIST_PRICE, version: current?.version ?? 0, state: states[launch.state],
+      starts: { market: "IT", local: "2026-11-02T09:00", utc: "2026-11-02T08:00:00Z" },
+      dueAt: launch.dueAt, startedAt: launch.startedAt, finishedAt: launch.finishedAt,
+      currentStep: launch.state === "done" ? "" : launch.steps.find((step) => step.state !== "done")?.name ?? "",
+      attempts: launch.steps.reduce((sum, step) => sum + step.attempts, 0), cause: launch.cause, retryAt: launch.retryAt,
+      snapshotBefore: launch.snapshotBefore || "0", snapshotAfter: launch.snapshotAfter || "0", resolution: launch.resolution, run: `launch-${launch.id}`,
+      steps: detail
+        ? launch.steps.map((step) => ({
+          name: step.name, purpose: LAUNCH_PURPOSES[step.name], state: stepStates[step.state], startedAt: step.startedAt,
+          finishedAt: step.finishedAt, attempts: step.attempts, error: step.error, facts: step.facts,
+        }))
+        : [],
+      auditEvents: detail ? launch.auditEvents : [],
+      incidents: launch.incidents.map((incident) => ({
+        incidentId: incident.id, kind: incident.kind, state: incident.state, summary: incident.summary, openedAt: incident.openedAt,
+        closedAt: incident.closedAt, resolution: incident.resolution,
+      })),
+    });
   }
 
   /** A payment as the engine of stage 6 answers it, with its receipt once it succeeded. */
@@ -1234,6 +1360,90 @@ export class FakeEngine {
             : {}),
           exchangeRateNote: "1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026)",
         };
+      },
+    });
+    // The engine's LaunchService (commerce/engine/launches.py), its checks in their order.
+    router.service(LaunchService, {
+      listLaunches: (request) => {
+        const after = request.page?.after ?? "";
+        if (after !== "" && !/^\d{1,18}$/.test(after)) throw new ConnectError("page.after is not a cursor this engine gave", Code.InvalidArgument);
+        if ((request.page?.size ?? 0) < 0) throw new ConnectError("page.size is a positive number", Code.InvalidArgument);
+        const size = Math.min(request.page?.size || 50, 200);
+        const state = request.state === LaunchState.UNSPECIFIED ? null : LaunchState[request.state]?.toLowerCase();
+        const matching = [...this.launches.values()]
+          .filter((launch) => state === null || launch.state === state)
+          .filter((launch) => request.changeId === "0" || request.changeId === "" || launch.changeId === request.changeId)
+          .filter((launch) => after === "" || Number(launch.id) < Number(after))
+          .sort((a, b) => Number(b.id) - Number(a.id));
+        const page = matching.slice(0, size);
+        return { launches: page.map((launch) => this.#launchMessage(launch, false)), page: { next: matching.length > size ? (page.at(-1)?.id ?? "") : "" } };
+      },
+      getLaunch: (request) => {
+        const launch = this.launches.get(request.launchId);
+        if (launch === undefined) throw new ConnectError(`no launch #${request.launchId}`, Code.NotFound);
+        return { launch: this.#launchMessage(launch, true) };
+      },
+      retryLaunch: (request, context) => {
+        const launch = this.launches.get(request.launchId);
+        if (launch === undefined) throw new ConnectError(`no launch #${request.launchId}`, Code.NotFound);
+        const refused = this.#mayNot("RetryLaunch", context, null);
+        if (refused) return refused;
+        const reason = request.reason.trim();
+        if (reason.length > 2_000) throw new ConnectError("a reason is at most 2000 characters", Code.InvalidArgument);
+        const waiting = launch.state === "running" && launch.retryAt !== "";
+        if (launch.state !== "failed" && launch.state !== "refused" && !waiting) {
+          return this.#refuse(RefusalCode.WRONG_STATE, `launch-${launch.id} is ${launch.state}: only a failed, refused or waiting launch is retried.`, { state: launch.state });
+        }
+        const change = this.#stored(launch.changeId);
+        const published = launch.steps.find((step) => step.name === "publish")?.state === "done";
+        if (!published && change.state !== ChangeState.SCHEDULED) {
+          return this.#refuse(RefusalCode.WRONG_STATE, `Change #${change.id} is no longer scheduled: its launch has nothing left to do.`, { state: launch.state });
+        }
+        const from = launch.state;
+        const actor = context.requestHeader.get("x-actor") ?? "";
+        launch.state = "running";
+        launch.finishedAt = "";
+        launch.retryAt = "";
+        launch.resolution = `retried by ${actor} at ${this.#now()}${reason ? `: ${reason}` : ""}`;
+        this.#log(context, "launch.retried", `launch:${launch.id}`, reason, { launch: launch.id, change: launch.changeId, from, to: "running" });
+        launch.auditEvents.push(this.audit.at(-1)?.seq ?? "");
+        return { outcome: { case: "launch" as const, value: this.#launchMessage(launch, true) } };
+      },
+      cancelLaunch: (request, context) => {
+        const launch = this.launches.get(request.launchId);
+        if (launch === undefined) throw new ConnectError(`no launch #${request.launchId}`, Code.NotFound);
+        const refused = this.#mayNot("CancelLaunch", context, null);
+        if (refused) return refused;
+        const reason = request.reason.trim();
+        if (reason === "") return this.#refuse(RefusalCode.REASON_REQUIRED, "Say why you cancel the launch: its change is cancelled with that reason (§7.1).");
+        if (reason.length > 2_000) throw new ConnectError("a reason is at most 2000 characters", Code.InvalidArgument);
+        if (launch.steps.find((step) => step.name === "publish")?.state === "done") {
+          return this.#refuse(RefusalCode.WRONG_STATE, `launch-${launch.id} has published: change #${launch.changeId} is live, and SuspendChange takes it off the site.`, {
+            state: launch.state, published: "yes",
+          });
+        }
+        if (launch.state === "done" || launch.state === "cancelled") return this.#refuse(RefusalCode.WRONG_STATE, `launch-${launch.id} is ${launch.state}.`, { state: launch.state });
+        const change = this.#stored(launch.changeId);
+        if (change.state !== ChangeState.SCHEDULED) {
+          return this.#refuse(RefusalCode.WRONG_STATE, `Change #${change.id} is not scheduled.`, { state: launch.state });
+        }
+        const actor = context.requestHeader.get("x-actor") ?? "";
+        change.state = ChangeState.CANCELLED;
+        change.stateReason = reason;
+        this.#log(context, "change.cancelled", `change:${change.id}`, reason, { change: change.id, from: "scheduled", to: "cancelled", launch: launch.id });
+        launch.state = "cancelled";
+        launch.finishedAt = this.#now();
+        launch.resolution = `cancelled by ${actor}: ${reason}`;
+        for (const incident of launch.incidents) {
+          if (incident.state !== "open") continue;
+          incident.state = "resolved";
+          incident.closedAt = this.#now();
+          incident.resolution = launch.resolution;
+        }
+        launch.auditEvents.push(this.audit.at(-1)?.seq ?? "");
+        this.#log(context, "launch.cancelled", `launch:${launch.id}`, reason, { launch: launch.id, change: change.id });
+        launch.auditEvents.push(this.audit.at(-1)?.seq ?? "");
+        return { outcome: { case: "launch" as const, value: this.#launchMessage(launch, true) } };
       },
     });
     router.service(AuditService, {

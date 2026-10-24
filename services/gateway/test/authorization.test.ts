@@ -42,6 +42,11 @@ const OPERATIONS: Record<string, { query: string; variables?: Record<string, unk
   cancelChange: { query: 'mutation { cancelChange(changeId: "ID", reason: "Stop.") { __typename ... on Refusal { code } } }', method: "CancelChange" },
   suspendChange: { query: 'mutation { suspendChange(changeId: "ID", reason: "Stop.") { __typename ... on Refusal { code } } }', method: "SuspendChange" },
   exportAuditHead: { query: "mutation { exportAuditHead { __typename ... on Refusal { code } } }", method: "ExportHead" },
+  // Stage 6: "LAUNCH" is replaced by a failed launch of the fake engine's.
+  launches: { query: "{ launches { nodes { id } } }", method: "ListLaunches" },
+  launch: { query: '{ launch(id: "LAUNCH") { id } }', method: "GetLaunch" },
+  retryLaunch: { query: 'mutation { retryLaunch(launchId: "LAUNCH") { __typename ... on Refusal { code } } }', method: "RetryLaunch" },
+  cancelLaunch: { query: 'mutation { cancelLaunch(launchId: "LAUNCH", reason: "Stop.") { __typename ... on Refusal { code } } }', method: "CancelLaunch" },
 };
 
 /** Who may, per operation, from the coordinator's table (any kind of change). */
@@ -67,6 +72,10 @@ const MAY: Record<string, string[]> = {
   cancelChange: ["marketing", "commercial_lead", "on_call"],
   suspendChange: ["on_call"],
   exportAuditHead: ["auditor"],
+  launches: ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"],
+  launch: ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"],
+  retryLaunch: ["on_call"],
+  cancelLaunch: ["on_call"],
 };
 
 const PEOPLE: Record<string, string> = {
@@ -82,8 +91,8 @@ after(async () => {
   await harness.close();
 });
 
-function withId(operation: { query: string }, id: string): string {
-  return operation.query.replaceAll('"ID"', `"${id}"`);
+function withId(operation: { query: string }, id: string, launch = "1"): string {
+  return operation.query.replaceAll('"ID"', `"${id}"`).replaceAll('"LAUNCH"', `"${launch}"`);
 }
 
 describe("without a session", () => {
@@ -128,8 +137,9 @@ describe("each role against each operation", () => {
           scheduleChange: ChangeState.APPROVED, cancelChange: ChangeState.SCHEDULED, suspendChange: ChangeState.ACTIVE,
         };
         const id = harness.engine.seedOffer(`${role} ${name}`, "marketing-2", states[name] ?? ChangeState.DRAFT).id;
+        const launch = operation.query.includes('"LAUNCH"') ? harness.engine.seedLaunch("failed").id : "1";
         harness.engine.clearCalls();
-        const answer = await client.graphql(withId(operation, id), operation.variables ? { variables: operation.variables } : {});
+        const answer = await client.graphql(withId(operation, id, launch), operation.variables ? { variables: operation.variables } : {});
         const allowed = MAY[name]?.includes(role) ?? false;
         const reached = harness.engine.calls.filter((call) => call.method === operation.method);
         if (allowed) {

@@ -70,6 +70,13 @@ export const METHOD_ROLES = {
   // The on-call engineer verifies the chain when the runbook says it does not add up.
   VerifyChain: ["auditor", "on_call"],
   ExportHead: ["auditor"],
+  // Every role reads the launches (stage 6); only the on-call engineer
+  // retries or cancels a launch that stopped (§12: "retry or cancel a launch
+  // that stopped (roll back a launch)").
+  ListLaunches: ALL,
+  GetLaunch: ALL,
+  RetryLaunch: ["on_call"],
+  CancelLaunch: ["on_call"],
 } as const satisfies Record<string, Allowed | ByKind>;
 
 export type MethodName = keyof typeof METHOD_ROLES;

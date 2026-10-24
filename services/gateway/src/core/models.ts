@@ -9,6 +9,7 @@ import type {
   OfferPrice, RequiredSignature, ValidationFinding, ValidationReport,
 } from "contracts/commerce/v1/changes";
 import type { LocalTime, Refusal } from "contracts/commerce/v1/common";
+import type { LaunchIncident, LaunchRun, LaunchStep } from "contracts/commerce/v1/launches";
 import type { GetOverviewResponse, Incident, Launch, MarketRevenue, Person, SubscriberCount } from "contracts/commerce/v1/overview";
 import type { Quote } from "contracts/commerce/v1/quotes";
 import type { Assumption, FinanceCondition, SimulationResult, Totals } from "contracts/commerce/v1/simulation";
@@ -59,6 +60,10 @@ export type AuditEventModel = AuditEvent;
 export type AuditPageModel = { readonly nodes: readonly AuditEvent[]; readonly next: string | null };
 export type ChainHeadModel = ChainHead;
 export type ChainVerificationModel = VerifyChainResponse;
+export type LaunchPageModel = { readonly nodes: readonly LaunchRun[]; readonly next: string | null };
+export type LaunchRunModel = LaunchRun;
+export type LaunchStepModel = LaunchStep;
+export type LaunchIncidentModel = LaunchIncident;
 
 // The site's schema: the same messages, read through fewer fields.
 export type PublicMarketModel = Market;

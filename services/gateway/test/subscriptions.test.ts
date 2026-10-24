@@ -242,15 +242,15 @@ describe("verifying a student", () => {
     assert.ok(entrance.body.data.demoListeners.some((entry: { id: string; studentVerified: boolean }) => entry.id === "5002" && entry.studentVerified));
   });
 
-  test("the simulated provider finds no student record for the Free listener in France: a refusal, in the engine's words", async () => {
+  test("the simulated provider finds no student record for the Free listener in France: a refusal, in the site's words", async () => {
     const answer = await (await listener(harness, LISTENERS.freeInFrance)).graphql(VERIFY);
     assert.deepEqual(answer.body.data.verifyStudent, {
-      __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "The simulated provider found no student record for this listener.",
+      __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "The student verification found no student record for you.",
     });
   });
 });
 
-describe("the engine's refusals, in the site's words", () => {
+describe("the engine's refusals, in the site's words and never the engine's", () => {
   let harness: Harness;
   before(async () => {
     harness = await startHarness();
@@ -266,6 +266,8 @@ describe("the engine's refusals, in the site's words", () => {
   after(async () => {
     await harness.close();
   });
+
+  const EXPIRED = "This quote has expired, or its offer is no longer on sale: ask for a new quote.";
 
   const refusal = async (client: Client, quoteId: string) => {
     const answer = await client.graphql(CONFIRM, { variables: { q: quoteId } });
@@ -287,9 +289,7 @@ describe("the engine's refusals, in the site's words", () => {
     const quoteId = await quote(student, "9001");
     harness.clock.advance(16 * 60_000);
     const refreshed = await listener(harness, LISTENERS.verified);
-    const answer = await refusal(refreshed, quoteId);
-    assert.equal(answer.code, "QUOTE_EXPIRED");
-    assert.match(answer.reason, /^The quote expired at .*: ask for a new one\.$/);
+    assert.deepEqual(await refusal(refreshed, quoteId), { __typename: "Refusal", code: "QUOTE_EXPIRED", reason: EXPIRED });
   });
 
   test("an offer no longer on sale is QUOTE_EXPIRED too", async () => {
@@ -297,7 +297,7 @@ describe("the engine's refusals, in the site's words", () => {
     const quoteId = await quote(student, "9001");
     const kept = harness.engine.published.splice(0, 1);
     try {
-      assert.deepEqual(await refusal(student, quoteId), { __typename: "Refusal", code: "QUOTE_EXPIRED", reason: "Offer #9001 is no longer on sale in Italy." });
+      assert.deepEqual(await refusal(student, quoteId), { __typename: "Refusal", code: "QUOTE_EXPIRED", reason: EXPIRED });
     } finally {
       harness.engine.published.unshift(...kept);
     }
@@ -307,8 +307,9 @@ describe("the engine's refusals, in the site's words", () => {
     const visitor = harness.site();
     const quoteId = await quote(visitor, "9001");
     await visitor.signInAsListener(LISTENERS.paidBefore);
+    // The offer's audience, in the words of its page: what the site shows anyway.
     assert.deepEqual(await refusal(visitor, quoteId), {
-      __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "The offer is for verified students who have never paid.",
+      __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "It is for: verified students in Italy who have never had a paid plan.",
     });
   });
 
@@ -316,7 +317,8 @@ describe("the engine's refusals, in the site's words", () => {
     const france = await listener(harness, LISTENERS.freeInFrance);
     harness.engine.clearCalls();
     const answer = await france.graphql('mutation { requestQuote(plan: "student", market: "IT", offerId: "9001") { __typename ... on Refusal { code reason } } }');
-    assert.deepEqual(answer.body.data.requestQuote, { __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "Subscriber #5004 is in France, and this quote is for Italy." });
+    // The engine said "Subscriber #5004 is in France, and this quote is for Italy.": the site says it without the number.
+    assert.deepEqual(answer.body.data.requestQuote, { __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "It is not sold in your market." });
     assert.equal((harness.engine.calls.find((call) => call.method === "GetQuote")?.message as { subscriberId: string }).subscriberId, "5004");
   });
 
@@ -326,7 +328,7 @@ describe("the engine's refusals, in the site's words", () => {
     assert.equal((await refusal(student, first)).__typename, "Confirmation");
     const second = await quote(student, null, "family");
     assert.deepEqual(await refusal(student, second), {
-      __typename: "Refusal", code: "ALREADY_SUBSCRIBED", reason: "A Student subscription is already running for this listener.",
+      __typename: "Refusal", code: "ALREADY_SUBSCRIBED", reason: "A paid subscription of yours is already running.",
     });
   });
 

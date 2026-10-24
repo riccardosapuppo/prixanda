@@ -51,6 +51,8 @@ export const INTERNAL_ACCESS: { readonly Query: Record<string, Access>; readonly
     simulateOffer: method("SimulateOffer"),
     auditEvents: method("ListEvents"),
     verifyAuditChain: method("VerifyChain"),
+    launches: method("ListLaunches"),
+    launch: method("GetLaunch"),
   },
   Mutation: {
     signIn: ANYONE,
@@ -67,6 +69,8 @@ export const INTERNAL_ACCESS: { readonly Query: Record<string, Access>; readonly
     cancelChange: method("CancelChange"),
     suspendChange: method("SuspendChange"),
     exportAuditHead: method("ExportHead"),
+    retryLaunch: method("RetryLaunch"),
+    cancelLaunch: method("CancelLaunch"),
   },
 };
 

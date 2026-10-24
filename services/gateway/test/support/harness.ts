@@ -73,18 +73,44 @@ export async function assertPortsFree(ports: readonly number[]): Promise<void> {
 export type Answer = { status: number; headers: Record<string, string | string[] | undefined>; text: string; body: any };
 
 /**
+ * What no answer of the site's API may carry, in any field, refusals' reasons
+ * first: the engine writes its sentences for the console, with numbers
+ * ("Subscriber #5003 is not among..."), and with the identifiers of its log.
+ */
+export const INTERNAL_IN_PUBLIC: readonly RegExp[] = [
+  /#\d/, // a number as the engine writes it: "offer #12", "Subscriber #5003"
+  /\bSubscriber\b/, // the engine's word for the listener it names
+  /\b(?:change|subscription|subscriber|launch|quote|offer|receipt|payment):\d+/, // the audit log's subjects
+  /\bsubscriber-\d+/, // the audit log's actors for the site's listeners
+  /\blaunch-\d+/, // a launch's run
+  /\bpay_[0-9a-f]{8,}/, // a payment's identifier
+];
+
+/** The first of INTERNAL_IN_PUBLIC that a text carries, with its surroundings; null when none. */
+export function internalIn(text: string): string | null {
+  for (const pattern of INTERNAL_IN_PUBLIC) {
+    const found = pattern.exec(text);
+    if (found) return `${pattern} in …${text.slice(Math.max(0, found.index - 60), found.index + 60)}…`;
+  }
+  return null;
+}
+
+/**
  * An HTTP client like the console's page, or the site's: it keeps its API's
  * session cookie (`cookieName`) and sends back the CSRF token it was given.
  */
 export class Client {
   readonly url: string;
   readonly cookieName: string;
+  /** For the site's API: every answer is refused when it carries one of INTERNAL_IN_PUBLIC, whatever the test asked. */
+  readonly guarded: boolean;
   cookie: string | null = null;
   csrf: string | null = null;
 
   constructor(url: string, cookieName = COOKIE) {
     this.url = url;
     this.cookieName = cookieName;
+    this.guarded = cookieName === SITE_COOKIE;
   }
 
   async raw(options: { method?: string; path?: string; headers?: Record<string, string>; body?: string }): Promise<Answer> {
@@ -108,7 +134,9 @@ export class Client {
           } catch {
             body = null;
           }
-          resolve({ status: incoming.statusCode ?? 0, headers: incoming.headers, text, body });
+          const leak = this.guarded ? internalIn(text) : null;
+          if (leak !== null) reject(new Error(`the site's API answered with what is the engine's own: ${leak}`));
+          else resolve({ status: incoming.statusCode ?? 0, headers: incoming.headers, text, body });
         });
       });
       outgoing.on("error", reject);
