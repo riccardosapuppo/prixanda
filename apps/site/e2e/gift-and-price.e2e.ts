@@ -206,7 +206,7 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     const after = await text(page);
     assert.match(after, /Prepaid: 29,99 €, paid once/);
     assert.match(after, /Never charged, never renewed/);
-    assert.ok(after.includes(`Paid plan ends\n${siteDay(endsOn)}, then Free`) || after.includes(`${siteDay(endsOn)}, then Free`), "the end is the engine's day");
+    assert.ok(after.includes(`${siteDay(endsOn)}, then Free`), "the end is the engine's day");
     await watch.accessible(page, "the account after the activation");
 
     const third = await watch.visitor();
@@ -256,7 +256,8 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     assert.ok(request.includes(`If you say yes: you pay 20,99 € from your billing date on ${siteDay(asked.appliesFrom)}.`), "the yes's date is the engine's");
     assert.ok(request.includes(`your Family plan ends on ${siteDay(asked.ifNoLeavesOn)}`), "the no's date is the engine's");
 
-    // The two answers weigh the same: one look, side by side, the same width.
+    // The two answers weigh the same: one look, side by side, the same width (the pointer away from both).
+    await page.mouse.move(0, 0);
     const yes = page.getByRole("button", { name: "Yes, move me to 20,99 €" });
     const no = page.getByRole("button", { name: /^No, end my Family plan on / });
     const look = (button: typeof yes) => button.evaluate((element) => {
