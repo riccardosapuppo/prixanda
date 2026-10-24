@@ -85,7 +85,7 @@ async def test_no_offer_before_anything_is_published(world):
 async def test_the_struck_through_price_is_the_list_price_in_force_that_day(world):
     content = student_autumn(plan="individual", audience=changes_pb2.Audience(segment=changes_pb2.SEGMENT_NEVER_PAID),
                              prices=[changes_pb2.OfferPrice(market="IT", percent_off_bp=2_000)])
-    await scheduled(world, content, MARKETING, LEAD)
+    await scheduled(world, content, MARKETING, FINANCE)
     world.clock.at = datetime(2026, 10, 26, 7, 59, 30, tzinfo=UTC)
     await world.engine.activate_due()
     [offer] = (await world.call("ListOffers", catalog_pb2.ListOffersRequest(market="IT", at="2026-10-27T10:00:00Z"),

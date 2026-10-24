@@ -12,9 +12,13 @@ from commerce.engine.errors import InvalidArgument, PermissionDenied
 from commerce.v1 import catalog_pb2, changes_pb2, overview_pb2
 from engine_support import AUDITOR, FINANCE, MARKETING, PUBLIC, new_key, request_id, student_autumn
 
-PUBLIC_METHODS = {"ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote"}
+# No person of the team: the site's catalog and quotes, the list of people, and
+# the subscriber's calls, whose subscriber the gateway takes from the site's session.
+PUBLIC_METHODS = {"ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote",
+                  "ListDemoListeners", "VerifyStudent", "ConfirmQuote", "GetAccount"}
 WRITING_METHODS = {"CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange",
-                   "ScheduleChange", "CancelChange", "SuspendChange", "GetQuote", "ExportHead"}
+                   "ScheduleChange", "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent",
+                   "ConfirmQuote"}
 
 
 def test_the_public_methods_are_the_ones_agreed_with_the_gateway():

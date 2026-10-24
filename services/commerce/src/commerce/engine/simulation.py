@@ -115,7 +115,8 @@ class Simulation:
         conditions = finance_conditions(
             self.book, sets_list_price=False, below_floor=below,
             discount_and_top_up=rate.to_base(Money(result.discount_cost + result.top_up_cost, market.currency)),
-            contribution=rate.to_base(Money(result.contribution, market.currency)), horizon_months=horizon)
+            contribution=rate.to_base(Money(result.contribution, market.currency)), horizon_months=horizon,
+            no_takers=[market.name] if result.takers == 0 else [])
 
         def totals(t) -> simulation_pb2.Totals:
             m = lambda amount: contract.money(Money(amount, market.currency))  # noqa: E731

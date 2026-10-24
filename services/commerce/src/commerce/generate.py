@@ -12,6 +12,8 @@ It loads, into a database that Flyway has just migrated:
 * subscribers with their subscription history (everyone starts on Free;
   some move to a paid plan, some leave it again), student verifications,
   including free listeners who verified and have not subscribed yet;
+* the demo's listeners, four people the site's entrance offers, each showing
+  one situation and labelled as simulated;
 * listening data for the last weeks, which fan campaigns are aimed with (§14.2);
 * one audit event saying what was generated, from which seed.
 
@@ -179,6 +181,55 @@ def verify_free_students(seed: int, subscribers, subscriptions, until: date):
     return verifications
 
 
+# The listeners the site's entrance offers (§14.1, §14.5), each showing one
+# situation. They come after the generated people, with numbers of their own
+# and dates fixed relative to --until, so the other rows stay as they were.
+# student tells the simulated verifier whether this listener has a student record.
+DEMO_LISTENERS = [
+    {"title": "Student in Italy, verified", "market": "IT", "joined": 200, "student": True,
+     "label": "Simulated listener. A verified student in Italy who has never paid: the Student Autumn Pass is for them.",
+     "verified": [50]},
+    {"title": "Student in Italy, not verified yet", "market": "IT", "joined": 150, "student": True,
+     "label": "Simulated listener. A student in Italy who has never paid and has not verified yet: "
+              "verifying opens the student offers.",
+     "verified": []},
+    {"title": "Student in Italy who paid before", "market": "IT", "joined": 400, "student": True,
+     "label": "Simulated listener. A verified student in Italy who paid for Student before: "
+              "offers for people who have never paid are not for them.",
+     "verified": [375, 30], "paid_student": (370, 120)},
+    {"title": "Free listener in France", "market": "FR", "joined": 300, "student": False,
+     "label": "Simulated listener. On Free in France and not a student: list prices, and no offer for them.",
+     "verified": []},
+]
+
+
+def demo_listeners(first_subscriber: int, first_subscription: int, start: date, until: date):
+    """The demo's listeners: their subscriber rows, subscriptions, verifications and labels.
+    Days are counted back from --until."""
+    def back(days: int) -> date:
+        return max(start, until - timedelta(days=days))
+
+    subscribers, subscriptions, verifications, rows = [], [], [], []
+    subscription_id = first_subscription
+    for position, demo in enumerate(DEMO_LISTENERS, start=1):
+        subscriber_id = first_subscriber + position - 1
+        market, joined = demo["market"], back(demo["joined"])
+        subscribers.append((subscriber_id, market, joined))
+        history = [("free", False, 0, joined)]
+        if "paid_student" in demo:
+            began, ended = (back(days) for days in demo["paid_student"])
+            history = [("free", False, 0, joined), ("student", True, PRICES[market]["student"], began), ("free", False, 0, ended)]
+        for n, (plan, paid, price, began) in enumerate(history):
+            ended = history[n + 1][3] if n + 1 < len(history) else None
+            subscriptions.append((subscription_id, subscriber_id, market, CURRENCY[market], plan, paid, price, began, ended, 12))
+            subscription_id += 1
+        for days in demo["verified"]:
+            verified = back(days)
+            verifications.append((subscriber_id, verified, add_months(verified, 12), "simulated"))
+        rows.append((subscriber_id, position, demo["title"], demo["label"], demo["student"]))
+    return subscribers, subscriptions, verifications, rows
+
+
 def add_months(day: date, months: int) -> date:
     month = day.month - 1 + months
     year, month = day.year + month // 12, month % 12 + 1
@@ -218,7 +269,7 @@ def listening(rng: random.Random, size: Size, subscribers, subscriptions, artist
 # A hash per row, summed: it does not depend on the order rows were written
 # in, and never builds one huge text (PostgreSQL caps a text at 1 GB).
 FINGERPRINTED = ["person", "person_role", "plan_entitlement", "list_price", "label", "artist", "release",
-                 "subscriber", "subscription", "student_verification", "listening_day"]
+                 "subscriber", "subscription", "student_verification", "listening_day", "demo_listener"]
 
 
 async def fingerprint(conn: asyncpg.Connection) -> str:
@@ -275,6 +326,8 @@ async def generate(url: str, size_name: str, seed: int, start: date, until: date
 
             subscribers, subscriptions, verifications = plan_people(rng, size, start, until)
             verifications += verify_free_students(seed, subscribers, subscriptions, until)
+            demo = demo_listeners(len(subscribers) + 1, len(subscriptions) + 1, start, until)
+            subscribers, subscriptions, verifications = subscribers + demo[0], subscriptions + demo[1], verifications + demo[2]
             lap("plan_people")
             await conn.copy_records_to_table("subscriber", records=subscribers, columns=["id", "market", "joined_on"])
             await conn.copy_records_to_table(
@@ -282,6 +335,8 @@ async def generate(url: str, size_name: str, seed: int, start: date, until: date
                 columns=["id", "subscriber_id", "market", "currency", "plan_id", "paid", "price_minor", "started_on", "ended_on", "billing_day"])
             await conn.copy_records_to_table("student_verification", records=verifications,
                                              columns=["subscriber_id", "verified_on", "valid_until", "provider"])
+            await conn.copy_records_to_table("demo_listener", records=demo[3],
+                                             columns=["subscriber_id", "position", "title", "label", "student"])
             lap("write_people")
 
             listened = [0]
@@ -292,7 +347,7 @@ async def generate(url: str, size_name: str, seed: int, start: date, until: date
 
             counts = {
                 "subscribers": len(subscribers), "subscriptions": len(subscriptions), "student_verifications": len(verifications),
-                "artists": len(artists), "listening_days": listened[0],
+                "demo_listeners": len(demo[3]), "artists": len(artists), "listening_days": listened[0],
             }
             await conn.execute(
                 "insert into audit_event (at, actor, actor_role, action, subject, request_id, reason, body, prev_hash, hash) "

@@ -160,3 +160,11 @@ def test_a_commercial_lead_need_is_met_by_finance_too_but_a_finance_need_only_by
     lead, money = signatures_needed(finance())[0], signatures_needed(finance(sets_list_price=True))[0]
     assert lead.met_by({"commercial_lead"}) and lead.met_by({"finance"}) and not lead.met_by(set())
     assert money.met_by({"finance"}) and not money.met_by({"commercial_lead"})
+
+
+def test_takers_rounded_to_zero_count_as_condition_4():
+    # §7.3: a simulation with no takers shows no effect either way; finance signs for it.
+    conditions = finance(contribution=Money(0, "EUR"), no_takers=["Italy"])
+    assert met(conditions) == [4]
+    assert "round to zero in Italy" in conditions[3].detail
+    assert signatures_needed(conditions)[0].role == "finance"

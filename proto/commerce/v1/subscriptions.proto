@@ -1,0 +1,159 @@
+// The subscriber's side (business book §4.3, §4.5, §6.1, §10, §14.1, §14.5):
+// the demo's listeners, a student verification by the simulated provider, a
+// quote confirmed into a subscription with a simulated payment, and the
+// account a listener sees.
+//
+// Who the subscriber is: every request names subscriber_id, which the gateway
+// takes from the site's session (a demo listener chosen at the entrance) and
+// never from a field the browser filled, as for GetQuoteRequest. These calls
+// carry no x-actor: in the audit log their author is the subscriber, with the
+// role "subscriber". VerifyStudent and ConfirmQuote change something and carry
+// an idempotency-key.
+//
+// Nothing here moves money or checks a real student record: the payment
+// provider and the student verifier are simulated stand-ins behind small
+// interfaces, they say so in every answer, and a real provider would plug in
+// there.
+syntax = "proto3";
+
+package commerce.v1;
+
+import "commerce/v1/common.proto";
+
+service SubscriberService {
+  // The demo's listeners, each labelled with what it shows. Public: the site's
+  // entrance lists them before anyone has chosen.
+  rpc ListDemoListeners(ListDemoListenersRequest) returns (ListDemoListenersResponse);
+  // The simulated provider confirms that the listener is a student; the
+  // verification is valid for 12 months (§10.2). A verification still valid on
+  // the day comes back as it is, and nothing is written. A listener the
+  // provider finds no student record for is refused with
+  // REFUSAL_CODE_NOT_ELIGIBLE.
+  rpc VerifyStudent(VerifyStudentRequest) returns (VerifyStudentResponse);
+  // Subscribes at exactly the quoted price (§4.5), after checking again, at
+  // the moment of confirming: the quote exists and has not expired, its offer
+  // is still on sale, the listener is in its audience (§6, §10), the offer's
+  // cap on redemptions is not reached, the listener never took another offer
+  // of the same non-combinability group (§10.3), and no paid subscription is
+  // already running. The first month is charged through the simulated
+  // provider, and the receipt says it is a demonstration.
+  rpc ConfirmQuote(ConfirmQuoteRequest) returns (ConfirmQuoteResponse);
+  rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+}
+
+message DemoListener {
+  int64 subscriber_id = 1 [jstype = JS_STRING];
+  string market = 2;
+  // A short name for the entrance: "Student in Italy, verified".
+  string title = 3;
+  // What this listener shows, in a sentence that says the data is simulated.
+  string label = 4;
+  // The plan they are on now.
+  string plan = 5;
+  // A student verification valid on the market's day of the request.
+  bool student_verified = 6;
+}
+
+message ListDemoListenersRequest {}
+
+message ListDemoListenersResponse {
+  repeated DemoListener listeners = 1;
+}
+
+message StudentVerification {
+  // ISO 8601 dates in the market's calendar: valid from verified_on, until
+  // valid_until excluded (§10.2).
+  string verified_on = 1;
+  string valid_until = 2;
+  // "simulated": no real student record was checked.
+  string provider = 3;
+  // The provider's reference; empty for verifications loaded with the data.
+  string reference = 4;
+  // Valid on the market's day of the request.
+  bool valid = 5;
+}
+
+message VerifyStudentRequest {
+  int64 subscriber_id = 1 [jstype = JS_STRING];
+}
+
+message VerifyStudentResponse {
+  oneof outcome {
+    StudentVerification verification = 1;
+    Refusal refusal = 2;
+  }
+}
+
+// A subscription and what it costs, month by month (§4.3, §6.1). Dates are ISO
+// 8601 in the market's calendar.
+message Subscription {
+  int64 subscription_id = 1 [jstype = JS_STRING];
+  string plan = 2;
+  string market = 3;
+  bool paid = 4;
+  // What each month costs now: during an offer, the quoted offer price.
+  Money price = 5;
+  string started_on = 6;
+  // The day of the month it is charged on; 0 on the free plan.
+  int32 billing_day = 7;
+  // The offer it was taken with; 0 at the list price.
+  int64 offer_id = 8 [jstype = JS_STRING];
+  string offer_title = 9;
+  // Months at the offer price in all, and those still to come, the current one included.
+  int32 offer_months = 10;
+  int32 offer_months_left = 11;
+  // From this billing date the list price applies (§6.1), and what it is as the
+  // price list stands today; empty without an offer.
+  string full_price_from = 12;
+  Money full_price = 13;
+  // The next charge and its amount; empty on the free plan.
+  string next_billing_on = 14;
+  Money next_charge = 15;
+}
+
+// A receipt of the simulated provider. No money moved: demonstration is always
+// true, and the note says so in words.
+message Receipt {
+  string receipt_id = 1;
+  Money amount = 2;
+  // ISO 8601 with Z.
+  string issued_at = 3;
+  string provider = 4;
+  string provider_reference = 5;
+  bool demonstration = 6;
+  string note = 7;
+}
+
+message Confirmation {
+  Subscription subscription = 1;
+  Receipt receipt = 2;
+}
+
+message ConfirmQuoteRequest {
+  string quote_id = 1;
+  int64 subscriber_id = 2 [jstype = JS_STRING];
+}
+
+message ConfirmQuoteResponse {
+  oneof outcome {
+    Confirmation confirmation = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message Account {
+  int64 subscriber_id = 1 [jstype = JS_STRING];
+  string market = 2;
+  // The subscription running on the market's day of the request.
+  Subscription subscription = 3;
+  // The latest student verification; absent when there has been none.
+  StudentVerification student_verification = 4;
+}
+
+message GetAccountRequest {
+  int64 subscriber_id = 1 [jstype = JS_STRING];
+}
+
+message GetAccountResponse {
+  Account account = 1;
+}

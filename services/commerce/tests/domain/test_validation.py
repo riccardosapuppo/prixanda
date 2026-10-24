@@ -260,3 +260,12 @@ def test_the_stored_report_keeps_what_the_console_shows():
     assert [s["role"] for s in stored["signatures"]] == ["finance"]
     assert stored["markets"]["IT"]["offer_price"] == 299
     assert stored["simulations"]["IT"]["contribution"] == -187_751
+
+
+def test_an_audience_too_small_to_simulate_needs_finance():
+    # Three eligible people at 12% take-up are 0 takers: the effect cannot be shown (§7.3).
+    offer = student_autumn(plan="individual", audience=Audience("never_paid", None, False, None),
+                           prices=(OfferPrice("IT", Money(899, "EUR")),))
+    report = validate(offer, context(IT=market("IT", list_price=1_049, eligible=3)))
+    assert report.valid and report.simulations["IT"].takers == 0
+    assert [(s.role, s.conditions) for s in report.signatures] == [("finance", (4,))]

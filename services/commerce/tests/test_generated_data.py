@@ -56,7 +56,8 @@ async def copy(generated):
 async def test_the_small_size_has_what_it_declares(generated):
     _, summary = generated
     counts = summary["counts"]
-    assert counts["subscribers"] == 5_000
+    assert counts["subscribers"] == 5_000 + 4  # the generated people and the demo's four listeners
+    assert counts["demo_listeners"] == 4
     assert counts["artists"] == 47
     assert counts["subscriptions"] >= counts["subscribers"]
     assert counts["student_verifications"] > 0 and counts["listening_days"] > 10_000
@@ -91,7 +92,7 @@ async def test_generating_twice_into_one_database_is_refused(generated):
 
 async def test_every_invariant_holds_on_the_generated_data(copy):
     report = await check(copy)
-    assert report["checked"] == 9
+    assert report["checked"] == 10
     assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
 
 
@@ -175,3 +176,38 @@ async def test_a_student_offer_for_new_subscribers_reaches_someone_in_every_mark
 
     for market in ("IT", "FR", "DE", "GB"):
         assert await eligibility.count(copy, Audience("never_paid", None, True), market, date(2026, 10, 24)) > 0, market
+
+
+async def test_a_subscription_that_does_not_pay_its_quote_is_found(copy):
+    listener = await copy.fetchval("select subscriber_id from demo_listener where position = 1")
+    current = await copy.fetchrow("select id, started_on from subscription where subscriber_id = $1 and ended_on is null", listener)
+    await copy.execute(
+        "insert into quote (id, created_at, expires_at, market, currency, plan_id, price_minor, list_price_minor, "
+        "months_at_price, then_price_minor, subscriber_id, request_id) values ('q_' || repeat('a', 32), "
+        "'2026-10-24 08:00+00', '2026-10-24 08:30+00', 'IT', 'EUR', 'student', 579, 579, 0, 579, $1, 'req-00000001')",
+        listener)
+    await copy.execute("update subscription set ended_on = '2026-10-24' where id = $1", current["id"])
+    await copy.execute(
+        "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, billing_day, "
+        "quote_id) values (nextval('subscription_id_seq'), $1, 'IT', 'EUR', 'student', true, 499, '2026-10-24', 24, "
+        "'q_' || repeat('a', 32))", listener)
+    assert await broken(copy) == ["confirmed_subscriptions_pay_their_quote"]
+
+
+async def test_the_demo_s_listeners_show_what_their_labels_say(copy):
+    from commerce.domain.offers import Audience
+    from commerce.engine import eligibility
+
+    rows = await copy.fetch("select d.subscriber_id, d.title, d.label, d.student, b.market from demo_listener d "
+                            "join subscriber b on b.id = d.subscriber_id order by d.position")
+    assert [r["title"] for r in rows] == ["Student in Italy, verified", "Student in Italy, not verified yet",
+                                          "Student in Italy who paid before", "Free listener in France"]
+    assert all(r["label"].startswith("Simulated listener.") for r in rows)
+    autumn = Audience("never_paid", None, True)
+    day = date(2026, 10, 24)
+    inside = [await eligibility.includes(copy, autumn, r["market"], day, r["subscriber_id"]) for r in rows]
+    assert inside == [True, False, False, False]
+    never_paid = Audience("never_paid")
+    assert await eligibility.includes(copy, never_paid, "IT", day, rows[1]["subscriber_id"])  # verifying would open it
+    assert not await eligibility.includes(copy, never_paid, "IT", day, rows[2]["subscriber_id"])  # paid before
+    assert [r["student"] for r in rows] == [True, True, True, False]

@@ -8,7 +8,7 @@ import pytest
 
 from commerce.engine.errors import InvalidArgument, NotFound
 from commerce.v1 import changes_pb2, common_pb2, simulation_pb2
-from engine_support import AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, create, family_rise, student_autumn
+from engine_support import AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, add_students, create, family_rise, student_autumn
 
 REFUSAL = common_pb2.RefusalCode
 WORKED_EXAMPLE = [("eligible", 10_000), ("take_up", 1_200), ("incremental", 6_000), ("retention", 5_500)]
@@ -51,10 +51,20 @@ async def test_a_campaign_that_never_pays_back_has_no_break_even(world):
 
 
 async def test_typed_assumptions_do_not_change_who_must_sign(world):
+    await add_students(world, 100)  # 101 eligible: at the book's defaults the campaign loses money
     change = await create(world, student_autumn())
-    await simulate(world, change.id, overrides=[("retention", 10_000), ("incremental", 10_000)])
+    optimistic = (await simulate(world, change.id, overrides=[("retention", 10_000), ("incremental", 10_000)])).result
+    assert optimistic.difference.contribution.amount_minor > 0
     validated = (await world.call("ValidateChange", changes_pb2.ValidateChangeRequest(change_id=change.id, version=1))).change
-    assert [list(s.conditions) for s in validated.required_signatures] == [[2]]
+    assert [list(s.conditions) for s in validated.required_signatures] == [[2, 4]]
+
+
+async def test_takers_rounded_to_zero_leave_the_effect_unseen_and_finance_signs(world):
+    change = await create(world, student_autumn())
+    result = (await simulate(world, change.id, who=FINANCE)).result
+    assert (result.eligible, result.takers, result.difference.contribution.amount_minor) == (1, 0, 0)
+    condition = next(c for c in result.finance_conditions if c.number == 4)
+    assert condition.met and "round to zero in Italy" in condition.detail
 
 
 @pytest.mark.parametrize("overrides", [
