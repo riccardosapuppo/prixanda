@@ -34,8 +34,17 @@ on a server at request time.
 - **Audit log.** Newest first, with filters, the chain's verification against
   an exported head, and the head's export. The page says §11.4 of the
   business book word for word.
-- **Price list**, read only, and **launches**, whose timeline arrives with
-  stage 6.
+- **Launches.** Every activation the engine ran, newest first, with a filter
+  by state; and each launch's timeline: its five steps (done, running,
+  failed, to be tried again, to do) with their times, attempts, last error
+  and what they wrote; why it stopped or waits; what the site shows right
+  now, which is the catalog of before until the publish step is done; how it
+  ended; its incidents; the audit events it wrote. The on-call engineer tries
+  a failed, refused or waiting launch again, or gives up one that has not
+  published, after a confirmation that names the run; a reason is required
+  to give up. An open incident (a change not live five minutes after its
+  start, a launch failed or refused) is an alarm at the top of the home.
+- **Price list**, read only.
 
 Who may do what lives in one table, `src/lib/permissions.ts`: each role as
 §12.1 writes it, the rights in the order the book names them, what every role
@@ -55,7 +64,7 @@ From the repository's root:
 | `node --test apps/console/test/*.test.ts` | the console's own logic under Node |
 | `node apps/console/scripts/storybook-test.ts --build` | Storybook's build, then every interaction test in headless Chromium, with axe |
 | `npm run storybook -w console` | Storybook on 127.0.0.1:4633, without opening a browser |
-| `node apps/console/e2e/run.ts` | the end-to-end tests on the whole system: a throwaway database, the engine, the gateway, the static build, Playwright |
+| `node apps/console/e2e/run.ts` | the end-to-end tests on the whole system: a throwaway database, the engine (from its fault-injection launcher, with the publish step of the first launch cut once), the gateway, the static build, Playwright |
 | `npm run check -- --only design,console-types,console-codegen,console-unit,storybook,console-build,console-e2e` | the same, as suites with their floors |
 
 Ports come from the environment and are asked to the system before use:

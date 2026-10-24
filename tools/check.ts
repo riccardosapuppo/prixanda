@@ -467,7 +467,7 @@ async function nodeTests(suite: string, files: string[], floor: number, env: Rec
 const designDir = join(repoRoot, "packages", "design");
 const consoleDir = join(repoRoot, "apps", "console");
 const CONSOLE_FLOOR = {
-  designFiles: 4, designTests: 77, files: 82, operations: 25, unitTests: 51, stories: 16, pages: 12, e2eTests: 24,
+  designFiles: 4, designTests: 77, files: 90, operations: 29, unitTests: 56, stories: 22, pages: 13, e2eTests: 26,
 };
 /** The gateway the console is built for: the one its end-to-end tests start. */
 const CONSOLE_GATEWAY_URL = E2E_GATEWAY_URL;
