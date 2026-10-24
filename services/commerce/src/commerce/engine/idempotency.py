@@ -5,6 +5,9 @@ recorded in it before it commits. The claim is a row: a second call with the
 same key while the first runs waits on it, then reads the first's outcome. A
 key is bound to the method, the role and the request's bytes as protobuf
 writes them deterministically; the same key with anything else is refused.
+
+A limit, written down: recorded outcomes are kept. Pruning the keys older
+than a set age is a job, and belongs with the jobs of stage 6.
 """
 
 from __future__ import annotations
