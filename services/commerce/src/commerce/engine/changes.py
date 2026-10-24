@@ -337,15 +337,13 @@ class Changes:
         report = await records.latest_validation(tx, change.id, change.current_version)
         if report is None:
             raise Refused("WRONG_STATE", f"Version {change.current_version} has no validation to approve against.")
-        signatures = await tx.fetch("select approver, role from approval where change_id = $1 and version = $2",
-                                    change.id, change.current_version)
-        if any(s["approver"] == call.actor for s in signatures):
-            raise Refused("ALREADY_SIGNED", f"You have already signed version {change.current_version}.",
-                          {"version": change.current_version})
-        roles = {s["role"] for s in signatures}
-        if call.role in roles:
-            raise Refused("ALREADY_SIGNED", f"{policy.ROLE_NAMES[call.role].capitalize()} has already signed version "
-                                            f"{change.current_version}.", {"version": change.current_version, "role": call.role})
+        # With §7.3 as it stands every version needs one signature, so the first
+        # signature it needs approves it, and a second signer finds the change
+        # approved (WRONG_STATE above). REFUSAL_CODE_ALREADY_SIGNED stays for
+        # rules that ask for two; the database's one-signature rules still hold
+        # (migration V2) and _approval_refusal translates them.
+        roles = {row["role"] for row in await tx.fetch(
+            "select role from approval where change_id = $1 and version = $2", change.id, change.current_version)}
         needs = records.needs_from_report(report)
         open_needs = [n for n in needs if not n.met_by(roles)]
         if not any(n.met_by({call.role}) for n in open_needs):
