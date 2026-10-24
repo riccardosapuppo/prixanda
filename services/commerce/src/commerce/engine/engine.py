@@ -36,7 +36,7 @@ from commerce.engine.catalog import Catalog
 from commerce.engine.changes import Changes
 from commerce.engine.database import RETRYABLE, Connection, Database, DatabaseError, DatabaseUnavailable
 from commerce.engine.errors import EngineError, InvalidArgument, PermissionDenied, Refused, Unavailable
-from commerce.engine.launches import Happened, Launches, Probe
+from commerce.engine.launches import Due, Happened, Launches, Probe
 from commerce.engine.migrations import OUTCOME, REQUEST, Migrations, Settled, SubscriberInbox
 from commerce.engine.outbox import Delivery, Relay, SiteInbox
 from commerce.engine.overview import Overview
@@ -237,6 +237,13 @@ class Engine:
         """When a launch next has work (launches.py): the browser's demo skips its clock to it."""
         try:
             return await self.launches.next_due()
+        except DatabaseUnavailable as error:
+            raise Unavailable(str(error)) from error
+
+    async def launches_due(self, change_id: int | None = None) -> list[Due]:
+        """The launches waiting for a moment of their own, the earliest first (launches.py)."""
+        try:
+            return await self.launches.due(change_id)
         except DatabaseUnavailable as error:
             raise Unavailable(str(error)) from error
 

@@ -148,6 +148,59 @@ test("from a draft to a student's subscription, through a fault simulated in the
   assert.equal(chain.ok, true, show(chain));
 });
 
+test("the skip to the next launch runs it through a simulated fault, and ends at the change's start", async () => {
+  const now = on.engine.clock.now();
+  const starts = romeLocal(now, 3, 9); // 09:00 in Paris too
+  const offer = (market: string) => ({
+    content: {
+      case: "offer" as const,
+      value: {
+        title: "Student Autumn Pass, France", plan: "student",
+        audience: { segment: 1, needsStudentCheck: true },
+        prices: [{ market, price: { case: "fixed" as const, value: { amountMinor: 299n, currency: "EUR" } } }],
+        monthsAtOfferPrice: 3,
+        periods: [{ market, startsLocal: starts, endsLocal: romeLocal(now, 40, 0) }],
+        nonCombinabilityGroup: "student-offers",
+        pages: [{ market, title: "Student Autumn Pass", text: "Trois mois de Student pour 2,99 €.", terms: "Nouveaux abonnés." }],
+      },
+    },
+  });
+  const created = await rpc(on, ChangeService.method.createChange, offer("FR"), MARKETING);
+  assert.equal(created.outcome.case, "change");
+  const id = created.outcome.value.id;
+  await rpc(on, ChangeService.method.validateChange, { changeId: id, version: 1 }, MARKETING);
+  const submitted = await rpc(on, ChangeService.method.submitChange, { changeId: id, version: 1, authorReason: "France too." }, MARKETING);
+  const hash = submitted.outcome.case === "change" ? submitted.outcome.value.versions.at(-1)?.contentHash : undefined;
+  assert.ok(hash);
+  await rpc(on, ChangeService.method.approveChange, { changeId: id, version: 1, contentHash: hash }, FINANCE);
+  const scheduled = await rpc(on, ChangeService.method.scheduleChange, { changeId: id }, MARKETING);
+  assert.equal(scheduled.outcome.case, "change", show(scheduled.outcome.value));
+
+  on.engine.faults.arm("notify");
+  const skipped = await on.engine.skipToNextLaunch();
+  assert.ok(skipped);
+  const startsAt = Date.parse(`${starts}:00+01:00`);
+  assert.ok(skipped.from.getTime() < startsAt && skipped.to.getTime() >= startsAt && skipped.to.getTime() < startsAt + 60_000,
+    `${skipped.from.toISOString()} to ${skipped.to.toISOString()}, for a start at ${new Date(startsAt).toISOString()}`);
+  // The jobs of the days skipped ran too: the payment of the subscription of the test before, for one.
+  for (const word of ["audit", "catalog", "changes", "launches"] as const) assert.ok(skipped.changed.includes(word), show(skipped));
+  const [listed] = (await rpc(on, LaunchService.method.listLaunches, { changeId: id }, ON_CALL)).launches;
+  const run = (await rpc(on, LaunchService.method.getLaunch, { launchId: listed?.launchId ?? "0" }, ON_CALL)).launch;
+  assert.equal(run?.state, LaunchState.DONE);
+  const notify = run?.steps.find((step) => step.name === "notify");
+  assert.equal(notify?.attempts, 2);
+  assert.equal(notify?.facts["earlier attempts"], "1");
+  assert.match(notify?.facts["last failure"] ?? "", /^SimulatedFault: simulated by the demo: the notify step was cut/);
+  assert.deepEqual(run?.incidents, [], "no alarm: the launch started on time");
+  const offers = (await rpc(on, CatalogService.method.listOffers, { market: "FR" })).offers;
+  assert.deepEqual(offers.map((o) => o.offerId), [id], "in force at once");
+  const events = on.logs.map((line) => JSON.parse(line) as { event: string; change?: number; step?: string })
+    .filter((line) => line.change === Number(id) && line.event.startsWith("launch_")).map((line) => `${line.event}${line.step ? ` ${line.step}` : ""}`);
+  assert.deepEqual(events, ["launch_started", "launch_step_done check", "launch_step_done prepare", "launch_step_done publish",
+    "launch_step_failed notify", "launch_step_done notify", "launch_step_done verify", "launch_done"]);
+  assert.equal(await on.engine.skipToNextLaunch(), null);
+});
+
 test("a write sent again with its key gets the same answer, and changes nothing", async () => {
   const content = {
     content: { case: "listPrice" as const, value: { title: "Family price, Germany", plan: "family", market: "DE",

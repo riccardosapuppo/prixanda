@@ -116,6 +116,15 @@ class NotVerified(Exception):
 
 
 @dataclass(frozen=True)
+class Due:
+    """A launch that has work at a moment: its opening, or its next attempt."""
+
+    at: datetime
+    change: int
+    starts: datetime  # the change's first start, when it is in force
+
+
+@dataclass(frozen=True)
 class Happened:
     """One change of state, for the log."""
 
@@ -319,24 +328,30 @@ class Launches:
                     happened.append(opened)
         return happened
 
-    async def next_due(self) -> datetime | None:
-        """When a launch next has work: the opening of a scheduled change's launch (its first start less LEAD), or
-        the next attempt of a launch under way. It can be now, or already past when no pass ran since. None when no
-        launch waits for a moment of its own (a refused or failed one waits for a person). The browser's demo skips
-        its clock to it (stage 8)."""
+    async def due(self, change_id: int | None = None) -> list[Due]:
+        """The launches waiting for a moment of their own, the earliest first: the opening of a scheduled change's
+        launch (its first start less LEAD), and the next attempt of a launch under way, which can be now, or already
+        past when no pass ran since. A refused or failed launch waits for a person, and is not among them. Only one
+        change's, when given. The browser's demo skips its clock along them (stage 8)."""
         now = self.clock.now()
         async with self.db.transaction(readonly=True, isolation="repeatable_read") as tx:
             ref = await reference.load(tx, now)
-            rows = await tx.fetch(_UNOPENED)
-            retry = await tx.fetchval(f"select {utc_text('min(coalesce(retry_at, $1::text::timestamptz))')} from launch "
-                                      "where state = 'running'", format_instant(now))
-        moments = [parse_instant(retry)] if retry else []
-        for row in rows:
+            unopened = await tx.fetch(_UNOPENED)
+            running = await tx.fetch(
+                f"select change_id, {utc_text('coalesce(retry_at, $1::text::timestamptz)')} as at, "
+                f"{utc_text('starts_at')} as starts from launch where state = 'running'", format_instant(now))
+        found = [Due(parse_instant(r["at"]), r["change_id"], parse_instant(r["starts"])) for r in running]
+        for row in unopened:
             content = from_json(json.loads(row["content"]))
             starts = [to_instant(moment, ref.markets[market].zone) for market, moment in records.starts_of(content)]
             if starts:
-                moments.append(min(starts) - LEAD)
-        return min(moments, default=None)
+                found.append(Due(min(starts) - LEAD, row["id"], min(starts)))
+        return sorted((d for d in found if change_id is None or d.change == change_id), key=lambda d: (d.at, d.change))
+
+    async def next_due(self) -> datetime | None:
+        """When a launch next has work (due): None when none waits."""
+        found = await self.due()
+        return found[0].at if found else None
 
     async def _runnable(self) -> list[int]:
         async with self.db.transaction(readonly=True) as tx:

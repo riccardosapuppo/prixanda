@@ -34,6 +34,9 @@ export type Changed = "catalog" | "changes" | "launches" | "accounts" | "audit";
 /** The steps of a launch (protocol.ts, LAUNCH_STEPS). */
 export type LaunchStep = "check" | "prepare" | "publish" | "notify" | "verify";
 export const LAUNCH_STEPS: readonly LaunchStep[] = ["check", "prepare", "publish", "notify", "verify"];
+export const CHANGES: readonly Changed[] = ["catalog", "changes", "launches", "accounts", "audit"];
+/** The passes a skip makes at most: a launch stops after five failures of a step (launches.py). */
+const SKIP_PASSES = 12;
 
 export type BrowserEngine = {
   /** A call of the contract: service and method as in proto/ ("commerce.v1.ChangeService", "SubmitChange"), the
@@ -52,6 +55,11 @@ export type BrowserEngine = {
   };
   /** The simulated fault: the next launch fails once at that step; the recovery is the engine's own code. */
   readonly faults: { arm(step: LaunchStep): void; clear(): void; armed(): LaunchStep | null };
+  /** The demo's "skip to the next launch": the clock to the moment the next launch is due, the launch run step by
+   * step there, its attempts after a simulated fault each at its own moment, then the clock to the change's start, so
+   * that it is in force; the log and the launch's history read as in a run in real time, and no alarm goes off, since
+   * the launch starts on time. null when no launch is due. */
+  skipToNextLaunch(): Promise<{ readonly from: Date; readonly to: Date; readonly changed: readonly Changed[] } | null>;
   /** Back to the build's snapshot. */
   reset(): Promise<void>;
 };
@@ -144,6 +152,8 @@ type PySandbox = {
   call(fullName: string, metadata: string, request: Uint8Array): Promise<PyProxyLike>;
   tick(): Promise<string>;
   next_due(): Promise<string | undefined>;
+  launches_due(change?: number): Promise<string>;
+  launch_state(change: number): Promise<string | undefined>;
   arm_fault(step: string): void;
   clear_fault(): void;
   armed_fault(): string | undefined;
@@ -267,6 +277,30 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
         const due = await sandbox.next_due();
         return typeof due === "string" ? new Date(due) : null;
       }),
+    },
+    skipToNextLaunch: async () => {
+      type Due = { at: string; change: number; starts: string };
+      const due = async (change?: number) => gate.shared(async () => JSON.parse(await sandbox.launches_due(change)) as Due[]);
+      const [first] = await due();
+      if (!first) return null;
+      const from = clock.now();
+      const changed = new Set<Changed>();
+      const pass = async () => {
+        for (const word of (await engine.tick()).changed) changed.add(word);
+      };
+      clock.advanceTo(new Date(first.at));
+      for (let passes = 0; passes < SKIP_PASSES; passes += 1) {
+        await pass();
+        const [again] = await due(first.change);
+        if (!again) break;
+        clock.advanceTo(new Date(again.at));
+      }
+      const state = await gate.shared(() => sandbox.launch_state(first.change));
+      if (state === "done") {
+        clock.advanceTo(new Date(first.starts));
+        await pass();
+      }
+      return { from, to: clock.now(), changed: CHANGES.filter((word) => changed.has(word)) };
     },
     faults: {
       arm: (step) => {

@@ -179,6 +179,16 @@ class Sandbox:
         moment = await self.engine.next_launch_due()
         return None if moment is None else format_instant(moment)
 
+    async def launches_due(self, change: int | None = None) -> str:
+        """The launches waiting for a moment of their own, the earliest first, one change's when given (JSON): what
+        the demo's skip to the next launch walks along (packages/sandbox/src/engine/index.ts)."""
+        due = await self.engine.launches_due(None if change is None else int(change))
+        return json.dumps([{"at": format_instant(d.at), "change": d.change, "starts": format_instant(d.starts)} for d in due])
+
+    async def launch_state(self, change: int) -> str | None:
+        async with self.engine.db.transaction(readonly=True) as tx:
+            return await tx.fetchval("select state from launch where change_id = $1", int(change))
+
     def arm_fault(self, step: str) -> None:
         self.faults.arm(step)
 

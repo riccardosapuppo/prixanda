@@ -145,6 +145,9 @@ async def test_next_due_is_the_opening_of_the_next_launch_then_its_next_attempt(
     world.engine.launches.probe = full_disk
     await world.engine.run_launches()
     assert await world.engine.next_launch_due() == at(2026, 10, 26, 7, 59, 35)  # its next attempt
+    [due] = await world.engine.launches_due(change.id)
+    assert (due.at, due.change, due.starts) == (at(2026, 10, 26, 7, 59, 35), change.id, at(2026, 10, 26, 8, 0))
+    assert await world.engine.launches_due(change.id + 1) == []
     world.clock.advance(seconds=5)
     await world.engine.run_launches()
     assert (await launch_of(world, change.id)).state == STATE.LAUNCH_STATE_DONE
