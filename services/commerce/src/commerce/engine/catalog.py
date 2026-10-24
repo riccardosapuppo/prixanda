@@ -202,7 +202,7 @@ class Catalog:
                 offer_id=offer.change_id, version=offer.version, market=offer.market, plan=offer.plan, title=offer.title,
                 text=offer.body, terms=offer.terms, price=contract.money(price), list_price=contract.money(list_price),
                 months_at_offer_price=offer.months, audience=offer.audience_words,
-                needs_student_check=offer.needs_student_check)
+                needs_student_check=offer.needs_student_check, breakdown=breakdown(self.book, market, price.amount))
             if offer.ends_at is not None:
                 published.takeable_until.CopyFrom(common_pb2.LocalTime(
                     market=offer.market, local=format_local(parse_local(offer.ends_local)), utc=format_instant_text(offer.ends_at)))
