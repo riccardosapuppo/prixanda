@@ -105,6 +105,27 @@
       }
     },
     {
+      "id": "student-autumn-sentence",
+      "section": "§6.5",
+      "kind": "sentence",
+      "input": {
+        "market": "IT", "plan": "student", "list_price": 579, "offer_price": 299, "months": 3,
+        "segment": "never_paid", "needs_student_check": true, "eligible": 10000, "cap": 0
+      },
+      "expect": {"sentence": "Italy, Student: from €5.79 to €2.99 for 3 months, new subscribers only; 10,000 eligible; conflicts: none."}
+    },
+    {
+      "id": "nordflur-sentence",
+      "section": "§6.5, §14.2: the Doppelfenster campaign worked out for the stage-0 maquette",
+      "kind": "sentence",
+      "input": {
+        "market": "DE", "plan": "individual", "list_price": 1099, "offer_price": 199, "months": 2,
+        "segment": "free_listeners", "needs_student_check": false, "eligible": 3840, "cap": 1500,
+        "listening": {"artist": "Doppelfenster", "min_seconds": 10800, "within_days": 30}
+      },
+      "expect": {"sentence": "Germany, Individual: from €10.99 to €1.99 for 2 months, Free listeners with more than 3 hours of Doppelfenster in 30 days; 3,840 eligible; at most 1,500; conflicts: none."}
+    },
+    {
       "id": "family-price-rise-germany",
       "section": "§8.7",
       "kind": "price_change",

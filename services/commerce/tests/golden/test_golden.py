@@ -4,6 +4,7 @@ through the engine's own functions."""
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -12,18 +13,44 @@ from commerce.domain.economics import (
     Book, Campaign, break_even_retention, finance_conditions, recognize_monthly, signatures_needed, simulate,
 )
 from commerce.domain.money import Money, format_money
+from commerce.domain.offers import Audience, ListeningRule, Offer, OfferPage, OfferPeriod, OfferPrice
+from commerce.domain.validation import Context, MarketFacts, PlanFacts, validate
 
 CASES = json.loads((Path(__file__).parent / "business_book.json").read_text(encoding="utf-8"))["cases"]
 BOOK = Book()
 
 # The sections the stage-2 brief names; each must have at least one case.
-REQUIRED_SECTIONS = ["§3.5", "§3.6", "§5.4", "§5.5", "§6.7", "§8.7", "§9.2", "§14.2"]
+REQUIRED_SECTIONS = ["§3.5", "§3.6", "§5.4", "§5.5", "§6.5", "§6.7", "§8.7", "§9.2", "§14.2"]
 
 
 def campaign(given: dict) -> Campaign:
     return Campaign(BOOK.terms(given["currency"], given["vat_bp"]), given["list_price"], given["offer_price"],
                     given["months_at_offer"], given["horizon_months"], given["eligible"], given["take_up_bp"],
                     given["incremental_bp"], given["retention_bp"])
+
+
+MARKETS = {"IT": ("Italy", "EUR", "Europe/Rome", 2200), "DE": ("Germany", "EUR", "Europe/Berlin", 1900)}
+PLANS = {"student": PlanFacts("student", "Student", True, True), "individual": PlanFacts("individual", "Individual", True, False)}
+
+
+def sentence(given: dict) -> str:
+    """The sentence of a version as validation writes it, for an offer that starts after the clock."""
+    name, currency, zone, vat = MARKETS[given["market"]]
+    listening = given.get("listening")
+    offer = Offer(
+        title="golden", plan=given["plan"],
+        audience=Audience(given["segment"], None, given["needs_student_check"],
+                          ListeningRule(1, listening["min_seconds"], listening["within_days"]) if listening else None),
+        prices=(OfferPrice(given["market"], Money(given["offer_price"], currency)),),
+        months_at_offer_price=given["months"],
+        periods=(OfferPeriod(given["market"], datetime(2026, 11, 6, 9, 0), None),),
+        group="golden", redemption_cap=given["cap"],
+        pages=(OfferPage(given["market"], "t", "x", "y", ""),),
+    )
+    market = MarketFacts(given["market"], name, currency, zone, vat, Money(given["list_price"], currency), given["eligible"])
+    ctx = Context(now=datetime(2026, 10, 24, 8, 42, tzinfo=UTC), book=BOOK, markets={given["market"]: market},
+                  plans=PLANS, artists={1: listening["artist"]} if listening else {})
+    return validate(offer, ctx).sentence
 
 
 def run(case: dict) -> dict:
@@ -72,6 +99,8 @@ def run(case: dict) -> dict:
         needs = signatures_needed(conditions)
         return {"met": [x.number for x in conditions if x.met], "not_met": [x.number for x in conditions if not x.met],
                 "signs": needs[0].role if len(needs) == 1 else [n.role for n in needs]}
+    if kind == "sentence":
+        return {"sentence": sentence(given)}
     if kind == "price_change":
         terms = BOOK.terms(given["currency"], given["vat_bp"])
         before, after = terms.net(given["from"]), terms.net(given["to"])
