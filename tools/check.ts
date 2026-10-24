@@ -18,6 +18,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { buildConsole, GATEWAY_URL as E2E_GATEWAY_URL, runEndToEnd } from "../apps/console/e2e/run.ts";
 import { nestedSegmentFiles } from "../apps/site/scripts/segments.ts";
 import { flyway } from "./lib/flyway.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
@@ -424,6 +425,126 @@ const SUITES: Suite[] = [
       }
     },
   },
+  // The console (stage 4) and the design it shares with the site. Storybook
+  // and the end-to-end tests run headless Chromium, no window. The
+  // end-to-end tests start the whole system on the check's database: the
+  // engine on CHECK_ENGINE_PORT, the gateway on GATEWAY_INTERNAL_PORT and
+  // GATEWAY_PUBLIC_PORT, the console's static build on CONSOLE_PORT;
+  // Storybook's build is served on STORYBOOK_PORT. Each port is asked to the
+  // system before use, and telemetry stays off (Next.js, Storybook).
+  {
+    name: "design",
+    what: "the shared design: the generated CSS and TypeScript equal tokens.json and the icon list, and its tests (contrast pairs, money, the engine's parity)",
+    needsDatabase: false,
+    async run() {
+      const generated = await run(process.execPath, [join(designDir, "scripts", "generate.ts"), "--check"], { cwd: repoRoot });
+      const compared = Number(/the icon list \((\d+) files\)/.exec(generated.output)?.[1] ?? 0);
+      if (generated.code !== 0) return failed(`${compared} files`, generated.output.slice(-3000));
+      if (compared < CONSOLE_FLOOR.designFiles) return failed(`${compared} files`, `fewer than ${CONSOLE_FLOOR.designFiles} generated files compared`);
+      const files = (await readdir(join(designDir, "test"))).filter((name) => name.endsWith(".test.ts")).map((name) => `test/${name}`);
+      const tests = await nodeTests("design", files, CONSOLE_FLOOR.designTests, {}, designDir);
+      return { ...tests, counted: `${compared} generated files, ${tests.counted}` };
+    },
+  },
+  {
+    name: "console-types",
+    what: "tsc over the console and the design it imports (strict, exact optional properties, unchecked index access)",
+    needsDatabase: false,
+    async run() {
+      const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+      if (!existsSync(tsc)) return notRun("typescript is not installed: npm install");
+      const ran = await run(process.execPath, [tsc, "-p", "tsconfig.json", "--listFiles"], { cwd: consoleDir });
+      const listed = ran.output.split(/\r?\n/).map((line) => line.replaceAll("\\", "/")).filter((line) => !line.includes("node_modules"));
+      const ours = listed.filter((line) => line.includes("/apps/console/") && /\.tsx?$/.test(line)).length;
+      const design = listed.filter((line) => line.includes("/packages/design/") && /\.tsx?$/.test(line)).length;
+      const counted = `${ours} files, ${design} of the design`;
+      if (ran.code !== 0) return failed(counted, ran.output.split(/\r?\n/).filter((line) => /error TS\d+/.test(line)).slice(0, 8).join("\n") || ran.output.slice(0, 2000));
+      if (ours < CONSOLE_FLOOR.files) return failed(counted, `fewer than ${CONSOLE_FLOOR.files} files of the console were checked`);
+      return passed(counted);
+    },
+  },
+  {
+    name: "console-codegen",
+    what: "the console's typed operations equal a fresh generation from the gateway's internal schema and the console's .graphql files",
+    needsDatabase: false,
+    async run() {
+      const ran = await run(process.execPath, [join(consoleDir, "scripts", "codegen.ts"), "--check"], { cwd: repoRoot });
+      const operations = Number(/\((\d+) operations\)/.exec(ran.output)?.[1] ?? 0);
+      if (ran.code !== 0) return failed(`${operations} operations`, ran.output.slice(-3000));
+      if (operations < CONSOLE_FLOOR.operations) return failed(`${operations} operations`, `fewer than ${CONSOLE_FLOOR.operations} operations compared`);
+      return passed(`${operations} operations`);
+    },
+  },
+  {
+    name: "console-unit",
+    what: "the console's logic under Node: the gateway client and the action keys, the form of an offer, changing person, the team's table against the book and the gateway, the week",
+    needsDatabase: false,
+    async run() {
+      const files = (await readdir(join(consoleDir, "test"))).filter((name) => name.endsWith(".test.ts")).map((name) => `test/${name}`);
+      return nodeTests("console-unit", files, CONSOLE_FLOOR.unitTests, {}, consoleDir);
+    },
+  },
+  {
+    name: "storybook",
+    what: "Storybook's build, then every story with an interaction test in headless Chromium and axe on what it drew; no request leaves 127.0.0.1",
+    needsDatabase: false,
+    async run() {
+      await assertFree(Number(process.env["STORYBOOK_PORT"] || 4633), "Storybook's static build");
+      const report = join(reports, "console-storybook.json");
+      await rm(report, { force: true });
+      const ran = await run(process.execPath, [join(consoleDir, "scripts", "storybook-test.ts"), "--build"], {
+        cwd: repoRoot,
+        env: { ...process.env, STORYBOOK_DISABLE_TELEMETRY: "1", NEXT_TELEMETRY_DISABLED: "1" },
+        echo: true,
+      });
+      if (!existsSync(report)) return failed("0", `the stories wrote no report (exit ${ran.code})\n${ran.output.slice(-2000)}`);
+      const stories = JSON.parse(await readFile(report, "utf8")) as { withPlay: number; passed: number; failed: { id: string; error: string | null }[]; axeSerious: number; refused: number };
+      const counted = `${stories.passed} of ${stories.withPlay} stories, axe serious ${stories.axeSerious}, requests refused ${stories.refused}`;
+      if (ran.code !== 0 || stories.failed.length > 0) return failed(counted, stories.failed.map((story) => `${story.id}: ${story.error ?? "axe"}`).join("\n") || ran.output.slice(-2000));
+      if (stories.refused > 0) return failed(counted, "a story asked for a host other than 127.0.0.1");
+      if (stories.withPlay < CONSOLE_FLOOR.stories) return failed(counted, `fewer than ${CONSOLE_FLOOR.stories} stories with an interaction test`);
+      return passed(counted);
+    },
+  },
+  {
+    name: "console-build",
+    what: "the console's static export (Next.js, no server), for the gateway the end-to-end tests start; no page names another host",
+    needsDatabase: false,
+    async run() {
+      const built = await buildConsole(CONSOLE_GATEWAY_URL);
+      if (built.code !== 0) return failed(`${built.pages} pages`, built.output.slice(-3000));
+      if (built.pages < CONSOLE_FLOOR.pages) return failed(`${built.pages} pages`, `fewer than ${CONSOLE_FLOOR.pages} pages exported`);
+      const elsewhere = await hostsNamedIn(join(consoleDir, "out"));
+      if (elsewhere.length) return failed(`${built.pages} pages`, `the build names other hosts: ${elsewhere.slice(0, 8).join(", ")}`);
+      consoleBuiltFor = CONSOLE_GATEWAY_URL;
+      return passed(`${built.pages} pages`);
+    },
+  },
+  {
+    name: "console-e2e",
+    what: "the console's static build on the whole system: the Student Autumn Pass from draft to launch, refusals by the server, the audit log, conflicts, axe on every screen, the keyboard alone, five widths",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      if (consoleBuiltFor !== CONSOLE_GATEWAY_URL) {
+        const built = await buildConsole(CONSOLE_GATEWAY_URL);
+        if (built.code !== 0) return failed("-", built.output.slice(-3000));
+      }
+      const database = "console_e2e";
+      await createDatabase(cluster, database, TEMPLATE);
+      try {
+        const outcome = await runEndToEnd(cluster, database, reports);
+        const counted = `${outcome.tests} tests, ${outcome.failures} failed, ${outcome.skipped} skipped`;
+        if (outcome.code !== 0 || outcome.failures > 0) return failed(counted, outcome.output.slice(-3000));
+        if (outcome.skipped > 0) return failed(counted, "a skipped test checked nothing");
+        if (outcome.tests < CONSOLE_FLOOR.e2eTests) return failed(counted, `fewer than ${CONSOLE_FLOOR.e2eTests} tests`);
+        return passed(counted);
+      } finally {
+        await cluster.sql("postgres", `drop database if exists ${database} with (force)`);
+      }
+    },
+  },
 ];
 
 // pytest's JUnit report: the totals of its test suites.
@@ -447,16 +568,17 @@ const GATEWAY_FLOOR = {
 };
 
 /**
- * Node's test runner over some of the gateway's test files, one file at a
- * time (they share the fake engine's and the gateway's ports), counting the test cases
- * of its JUnit report: a file that failed to load is a failure there too.
+ * Node's test runner over some test files of the gateway (or, with cwd, of
+ * another package), one file at a time (the gateway's share the fake engine's
+ * and the gateway's ports), counting the test cases of its JUnit report: a
+ * file that failed to load is a failure there too.
  */
-async function nodeTests(suite: string, files: string[], floor: number, env: Record<string, string> = {}): Promise<Omit<Result, "suite" | "seconds">> {
+async function nodeTests(suite: string, files: string[], floor: number, env: Record<string, string> = {}, cwd = gatewayDir): Promise<Omit<Result, "suite" | "seconds">> {
   if (files.length === 0) return failed("0", "no test file found");
   const report = join(reports, `${suite}.xml`);
   await rm(report, { force: true });
   const ran = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=junit", `--test-reporter-destination=${report}`,
-    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true, env: { ...process.env, ...env } });
+    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd, echo: true, env: { ...process.env, ...env } });
   if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
   const xml = await readFile(report, "utf8");
   const tests = [...xml.matchAll(/<testcase\b/g)].length;
@@ -507,6 +629,40 @@ async function siteNodeTests(suite: string, files: string[], floor: number): Pro
   return passed(counted);
 }
 
+// The console's floors: what its suites must at least have checked.
+const designDir = join(repoRoot, "packages", "design");
+const consoleDir = join(repoRoot, "apps", "console");
+const CONSOLE_FLOOR = {
+  designFiles: 4, designTests: 77, files: 90, operations: 29, unitTests: 56, stories: 22, pages: 13, e2eTests: 26,
+};
+/** The gateway the console is built for: the one its end-to-end tests start. */
+const CONSOLE_GATEWAY_URL = E2E_GATEWAY_URL;
+let consoleBuiltFor: string | null = null;
+
+/**
+ * Every host other than this machine that the built pages would load from:
+ * a src or href in the HTML, a url() in the CSS. (The scripts carry other
+ * hosts only inside messages; what they request is watched by the
+ * end-to-end tests, which refuse and count every request leaving 127.0.0.1.)
+ */
+async function hostsNamedIn(dir: string): Promise<string[]> {
+  const found = new Set<string>();
+  const visit = async (folder: string): Promise<void> => {
+    for (const entry of await readdir(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (/\.(html|css)$/.test(entry.name)) {
+        const text = await readFile(path, "utf8");
+        for (const [, host = ""] of text.matchAll(/(?:(?:src|href)=["']?|url\(["']?)(?:https?:)?\/\/([a-z0-9.-]+)/gi)) {
+          if (!["127.0.0.1", "localhost"].includes(host.toLowerCase())) found.add(host);
+        }
+      }
+    }
+  };
+  if (existsSync(dir)) await visit(dir);
+  return [...found];
+}
+
 // The tests of each area: tests/services/test_quotes.py is reported with the
 // classname tests.services.test_quotes; a module directly in tests/ is the
 // database's own rules.
@@ -522,7 +678,7 @@ function junitAreas(xml: string): Record<string, number> {
 
 const args = process.argv.slice(2);
 if (args.includes("--list")) {
-  for (const suite of SUITES) console.log(`${suite.name.padEnd(12)} ${suite.what}`);
+  for (const suite of SUITES) console.log(`${suite.name.padEnd(16)} ${suite.what}`);
   process.exit(0);
 }
 const onlyAt = args.indexOf("--only");
@@ -566,11 +722,11 @@ try {
 
 console.log("");
 for (const result of results) {
-  console.log(`${result.outcome.toUpperCase().padEnd(8)} ${result.suite.padEnd(12)} ${result.counted.padEnd(40)} ${result.seconds}s`);
+  console.log(`${result.outcome.toUpperCase().padEnd(8)} ${result.suite.padEnd(16)} ${result.counted.padEnd(40)} ${result.seconds}s`);
   if (result.detail && result.outcome !== "passed") console.log(`         ${result.detail.split("\n").join("\n         ")}`);
 }
 const missing = selected.filter((suite) => !results.some((result) => result.suite === suite.name));
-for (const suite of missing) console.log(`NOT RUN  ${suite.name.padEnd(12)} (an earlier suite failed)`);
+for (const suite of missing) console.log(`NOT RUN  ${suite.name.padEnd(16)} (an earlier suite failed)`);
 const anyFailed = results.some((result) => result.outcome === "failed");
 const anyNotRun = missing.length > 0 || results.some((result) => result.outcome === "not run");
 console.log(`\n[check] ${anyFailed ? "FAILED" : anyNotRun ? "INCOMPLETE: some suites did not run here" : "all suites passed"}`

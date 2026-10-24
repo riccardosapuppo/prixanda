@@ -1,0 +1,107 @@
+# The engine's launches (business book §7.5, §14.6): the list, one launch
+# step by step with what it published, its incidents and the audit events it
+# wrote, and what the on-call engineer does with one that stopped (§12).
+
+fragment LaunchFields on LaunchRun {
+  id
+  run
+  title
+  kind
+  version
+  state
+  change {
+    id
+    currentVersion
+    state
+  }
+  starts {
+    market
+    local
+    utc
+  }
+  dueAt
+  startedAt
+  finishedAt
+  currentStep
+  attempts
+  cause
+  retryAt
+  resolution
+  snapshotBefore
+  snapshotAfter
+}
+
+fragment LaunchDetailFields on LaunchRun {
+  ...LaunchFields
+  steps {
+    name
+    purpose
+    state
+    startedAt
+    finishedAt
+    attempts
+    error
+    facts {
+      name
+      value
+    }
+  }
+  auditEventSeqs
+  incidents {
+    id
+    kind
+    state
+    summary
+    openedAt
+    closedAt
+    resolution
+  }
+}
+
+fragment LaunchResultFields on LaunchResult {
+  __typename
+  ... on LaunchRun {
+    ...LaunchDetailFields
+  }
+  ... on Refusal {
+    code
+    reason
+    facts {
+      name
+      value
+    }
+  }
+}
+
+query LaunchRuns($filter: LaunchFilter, $first: Int!, $after: String) {
+  launches(filter: $filter, first: $first, after: $after) {
+    nodes {
+      ...LaunchFields
+    }
+    next
+  }
+  markets {
+    ...MarketFields
+  }
+}
+
+query LaunchRun($id: ID!) {
+  launch(id: $id) {
+    ...LaunchDetailFields
+  }
+  markets {
+    ...MarketFields
+  }
+}
+
+mutation RetryLaunch($launchId: ID!, $reason: String) {
+  retryLaunch(launchId: $launchId, reason: $reason) {
+    ...LaunchResultFields
+  }
+}
+
+mutation CancelLaunch($launchId: ID!, $reason: String!) {
+  cancelLaunch(launchId: $launchId, reason: $reason) {
+    ...LaunchResultFields
+  }
+}

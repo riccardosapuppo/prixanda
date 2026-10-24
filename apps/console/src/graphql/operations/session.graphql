@@ -1,0 +1,39 @@
+# The demonstration entry: who can be chosen, who is in, and the switch.
+# Not authentication: the gateway keeps the chosen person in its session and
+# takes their roles from the engine (business book §12, §15).
+
+fragment SessionFields on Session {
+  mode
+  person {
+    id
+    label
+    roles
+  }
+  roles
+  csrfToken
+  expiresAt
+}
+
+query People {
+  people {
+    id
+    label
+    roles
+  }
+}
+
+query CurrentSession {
+  session {
+    ...SessionFields
+  }
+}
+
+mutation SignIn($personId: ID!) {
+  signIn(personId: $personId) {
+    ...SessionFields
+  }
+}
+
+mutation SignOut {
+  signOut
+}

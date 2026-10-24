@@ -24,7 +24,7 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.11.0",
+    "@axe-core/playwright": "4.13.0",
     "@graphql-codegen/typescript-operations": "6.1.10",
     "@tailwindcss/postcss": "4.3.3",
     "@types/react": "19.3.0",
