@@ -38,7 +38,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 12, contractFiles: 47, migrations: 14, pythonTests: 661, invariants: 13, generatedSubscribers: 5_000,
+  typecheckedFiles: 12, contractFiles: 47, migrations: 15, pythonTests: 708, invariants: 15, generatedSubscribers: 5_000,
   faultsInjected: 12,
 };
 // The change in two times (migrations V12 and V14): the version of the schema
@@ -50,7 +50,7 @@ const COMPAT = { before: "11", expansion: "12" };
 // (services), the calls over gRPC with a real server (e2e), the properties
 // Hypothesis generates cases for (properties), and the faults injected in a
 // launch with the engine's real process (faults).
-const AREA_FLOOR: Record<string, number> = { database: 99, domain: 204, golden: 43, services: 262, e2e: 29, properties: 10, faults: 14 };
+const AREA_FLOOR: Record<string, number> = { database: 103, domain: 235, golden: 44, services: 272, e2e: 30, properties: 10, faults: 14 };
 // What tests/faults writes: every fault injected in a launch, and what it left.
 type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 
