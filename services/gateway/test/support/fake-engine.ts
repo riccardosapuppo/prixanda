@@ -22,7 +22,8 @@ import {
 } from "contracts/commerce/v1/catalog";
 import {
   type Approval, ApprovalSchema, type Change, ChangeKind, ChangeSchema, ChangeService, ChangeState, ChangeSummarySchema, ChangeVersionSchema,
-  type ListPriceContent, ListPriceContentSchema, type OfferContent, OfferContentSchema, type RequiredSignature, RequiredSignatureSchema,
+  type ListPriceContent, ListPriceContentSchema, MigrationProgressSchema, type OfferContent, OfferContentSchema, type PriceMigrationContent,
+  PriceMigrationContentSchema, type CreateChangeRequest, type RequiredSignature, RequiredSignatureSchema, type SaveVersionRequest,
   Severity, ValidationReportSchema, type ValidationReport,
 } from "contracts/commerce/v1/changes";
 import { type Money, MoneySchema, type Refusal, RefusalCode, RefusalSchema, Role } from "contracts/commerce/v1/common";
@@ -31,7 +32,8 @@ import { IncidentSchema, OverviewService, PeopleService, PersonSchema, type Pers
 import { QuoteSchema, QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
 import {
-  AccountSchema, DemoListenerSchema, type Payment, PaymentSchema, PaymentState, ReceiptSchema, StudentVerificationSchema, SubscriberService,
+  AccountSchema, DemoListenerSchema, type Payment, PaymentSchema, PaymentState, type PriceChange, PriceChangeSchema, ReceiptSchema, StudentVerificationSchema,
+  SubscriberService,
   type Subscription, SubscriptionSchema,
 } from "contracts/commerce/v1/subscriptions";
 import { Health, HealthCheckResponse_ServingStatus } from "contracts/grpc/health/v1/health";
@@ -45,23 +47,28 @@ const SHAPE = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,99}$/;
 /** Served without a person of the team: the site's catalog, quotes and subscriber calls, and the list of people. */
 const PUBLIC = new Set([
   "ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote",
-  "ListDemoListeners", "VerifyStudent", "ConfirmQuote", "GetAccount",
+  "ListDemoListeners", "VerifyStudent", "ConfirmQuote", "GetAccount", "AnswerPriceChange",
 ]);
 const IDEMPOTENT = new Set([
   "CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange", "ScheduleChange",
-  "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent", "ConfirmQuote", "RetryLaunch", "CancelLaunch",
+  "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent", "ConfirmQuote", "RetryLaunch", "CancelLaunch", "AnswerPriceChange",
 ]);
 /** Reads without an outcome: a role that may not call them gets PERMISSION_DENIED instead of a refusal. */
 const READS = new Set(["GetChange", "BatchGetChanges", "ListChanges", "GetOverview", "ListEvents", "VerifyChain", "ListLaunches", "GetLaunch"]);
 
-type Kind = "offer" | "listPrice";
+type Kind = "offer" | "listPrice" | "priceMigration";
+
+/** The contract's number of each kind of change the fake engine keeps. */
+const KIND_NUMBER: Record<Kind, ChangeKind> = { offer: ChangeKind.OFFER, listPrice: ChangeKind.LIST_PRICE, priceMigration: ChangeKind.PRICE_MIGRATION };
 /** The coordinator's table (§4 of the brief), transcribed here on its own. */
 const MAY: Record<string, (role: string, kind: Kind | null) => boolean> = {
+  // An offer is marketing's; a list price and a price migration are the commercial lead's (§12, §14.3).
   CreateChange: (role, kind) => (kind === "offer" ? role === "marketing" : role === "commercial_lead"),
   SaveVersion: (role, kind) => (kind === "offer" ? role === "marketing" : role === "commercial_lead"),
   ValidateChange: (role, kind) => (kind === "offer" ? role === "marketing" : role === "commercial_lead"),
   SubmitChange: (role, kind) => (kind === "offer" ? role === "marketing" : role === "commercial_lead"),
   SimulateOffer: (role) => ["marketing", "commercial_lead", "finance"].includes(role),
+  SimulateMigration: (role) => ["marketing", "commercial_lead", "finance"].includes(role),
   ApproveChange: (role) => ["commercial_lead", "finance"].includes(role),
   RejectChange: (role) => ["commercial_lead", "finance"].includes(role),
   ScheduleChange: (role, kind) => role === "commercial_lead" || (kind === "offer" && role === "marketing"),
@@ -130,7 +137,7 @@ type StoredChange = {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
-  versions: Array<{ version: number; author: string; createdAt: string; content: OfferContent | ListPriceContent; hash: Uint8Array }>;
+  versions: Array<{ version: number; author: string; createdAt: string; content: OfferContent | ListPriceContent | PriceMigrationContent; hash: Uint8Array }>;
   approvals: Approval[];
   validation: ValidationReport | undefined;
   required: RequiredSignature[];
@@ -227,7 +234,7 @@ export type StoredQuote = {
 export type OfferRules = { neverPaid: boolean; group: string; cap: number };
 
 /** The demo's listeners by what they show, as the engine's generator labels them. */
-export const LISTENERS = { verified: "5001", unverified: "5002", paidBefore: "5003", freeInFrance: "5004" } as const;
+export const LISTENERS = { verified: "5001", unverified: "5002", paidBefore: "5003", freeInFrance: "5004", familyInGermany: "5005" } as const;
 
 const RECEIPT_NOTE = "Demonstration receipt from a simulated payment provider: no payment was taken, no money moved, "
   + "and no subscription contract was made.";
@@ -235,7 +242,8 @@ const RECEIPT_NOTE = "Demonstration receipt from a simulated payment provider: n
 /**
  * The engine's four demo listeners (its generator's DEMO_LISTENERS), with
  * their days fixed around the tests' 24 October 2026 instead of counted back
- * from the data's last day.
+ * from the data's last day; and a fifth for the price rise of §14.3, a Family
+ * subscriber in Germany, until the engine's own arrives with its §14.3 service.
  */
 function demoListeners(): StoredListener[] {
   const free = (id: string, startedOn: string, endedOn: string | null = null): StoredSubscription => ({
@@ -273,6 +281,16 @@ function demoListeners(): StoredListener[] {
       verifications: [],
       subscriptions: [free("6", "2025-12-28")],
     },
+    // Stage 7 (§14.3): who a Family price rise in Germany asks for consent.
+    {
+      id: LISTENERS.familyInGermany, market: "DE", title: "Family listener in Germany", student: false,
+      label: "Simulated listener. On Family in Germany since June 2025: a higher price needs their yes, and silence is no.",
+      verifications: [],
+      subscriptions: [
+        free("7", "2025-03-01", "2025-06-15"),
+        { id: "8", plan: "family", paid: true, priceMinor: 1899n, startedOn: "2025-06-15", endedOn: null, billingDay: 15, quoteId: null, offerId: null, offerMonths: 0 },
+      ],
+    },
   ];
 }
 
@@ -306,6 +324,102 @@ function breakdownOf(price: bigint, market: (typeof MARKETS)[number]) {
     paymentCosts: amount(paymentCosts), encoreKeeps: amount(net - artists - paymentCosts),
   });
 }
+
+/** A version's content and its fingerprint, from what CreateChange or SaveVersion carried. */
+function contentOf(given: CreateChangeRequest["content"] | SaveVersionRequest["content"]): {
+  content: OfferContent | ListPriceContent | PriceMigrationContent; hash: Uint8Array;
+} {
+  switch (given.case) {
+    case "offer":
+      return { content: given.value, hash: sha256(toBinary(OfferContentSchema, given.value)) };
+    case "listPrice":
+      return { content: given.value, hash: sha256(toBinary(ListPriceContentSchema, given.value)) };
+    case "priceMigration":
+      return { content: given.value, hash: sha256(toBinary(PriceMigrationContentSchema, given.value)) };
+    default:
+      throw new ConnectError("a change needs its content: an offer, a list price or a price migration", Code.InvalidArgument);
+  }
+}
+
+// ----- price changes for existing subscribers (stage 7, §8, §14.3) -----
+
+/** A price change of one subscription, as the engine keeps it; its state and dates are worked out when it is read. */
+export type StoredPriceChange = {
+  id: string;
+  changeId: string;
+  listenerId: string;
+  subscriptionId: string;
+  plan: string;
+  market: string;
+  oldMinor: bigint;
+  newMinor: bigint;
+  kind: "consent" | "notice";
+  sentAt: string;
+  /** The market's day the window ends, at 23:59. */
+  windowEndsDay: string;
+  startsLocal: string;
+  answer: boolean | null;
+  answeredOn: string;
+};
+
+const NOT_LAW = "The music service's choice, configurable per market. Not a legal requirement.";
+
+/** The markets' policies as the engine's ListMarkets gives them: the law and the music service's choice, never mixed (§8.1). */
+const POLICIES: Record<string, { legalRequirement: "consent" | "notice"; legalBasis: string; legalSources: string[]; windowDays: number; afterWindow: string; commercialChoice: string; alternatives: string[] }> = {
+  DE: {
+    legalRequirement: "consent",
+    legalBasis: "Germany: a price rise on a running subscription needs the subscriber's consent (Kammergericht, 15 November 2023, final after the Bundesgerichtshof's decisions of 30 January and 27 February 2025). Silence is not consent.",
+    legalSources: ["German Civil Code, § 307", "Kammergericht, press release 27/2023 of 15 November 2023"],
+    windowDays: 45, afterWindow: "move_to_free",
+    commercialChoice: "Move the account to Free at the consent deadline, keeping playlists and library.",
+    alternatives: ["End the paid subscription at the end of the billing period", "Keep the old price until a stated date"],
+  },
+  IT: {
+    legalRequirement: "notice",
+    legalBasis: "Italy: a price rise needs a justified reason stated in the contract, and the right to withdraw before it applies (Consumer Code, art. 33(2)(m) and (o)).",
+    legalSources: ["Consumer Code, art. 33"], windowDays: 30, afterWindow: "new_price",
+    commercialChoice: "Tell 30 days in advance; the new price applies to those who stay.", alternatives: [],
+  },
+  FR: {
+    legalRequirement: "notice",
+    legalBasis: "France: a rolling subscription's price may change after notice within a reasonable time, with the option to terminate before it applies (Consumer Code, art. R. 212-4).",
+    legalSources: ["Consumer Code, art. R. 212-1 and R. 212-4"], windowDays: 30, afterWindow: "new_price",
+    commercialChoice: "Tell 30 days in advance; the new price applies to those who stay.", alternatives: [],
+  },
+  GB: {
+    legalRequirement: "notice",
+    legalBasis: "United Kingdom: a price-variation term is more likely to be fair with sufficient advance notice and a genuine freedom to exit (Consumer Rights Act 2015, Schedule 2, paras 11 and 15; CMA37).",
+    legalSources: ["Consumer Rights Act 2015, Schedule 2", "CMA37, 22 July 2026"], windowDays: 30, afterWindow: "new_price",
+    commercialChoice: "Tell 30 days in advance; the new price applies to those who stay.", alternatives: [],
+  },
+};
+
+/** A wall-clock time of a time zone as an instant in UTC: 2026-12-17T23:59 in Berlin is 2026-12-17T22:59:00Z. */
+function utcOf(local: string, timeZone: string): string {
+  const [day = "", time = "00:00"] = local.split("T");
+  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
+  const [hh = 0, mm = 0] = time.split(":").map(Number);
+  const wanted = Date.UTC(y, m - 1, d, hh, mm);
+  let guess = wanted;
+  for (let pass = 0; pass < 2; pass += 1) {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(new Date(guess));
+    const part = (type: string) => Number(parts.find((candidate) => candidate.type === type)?.value);
+    guess += wanted - Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"));
+  }
+  return new Date(guess).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/** An instant as a wall-clock time of a time zone, to the minute: 2026-11-02T09:00. */
+function localOf(instant: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(instant);
+  const part = (type: string) => parts.find((candidate) => candidate.type === type)?.value ?? "00";
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
+}
+
+/** A day as the engine writes it in a sentence: 17 December 2026. */
+const longDay = (day: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${day}T00:00:00Z`));
 
 /** The day after, or before, in the calendar. */
 function addDays(day: string, days: number): string {
@@ -389,6 +503,11 @@ export class FakeEngine {
   /** The launches, by id; none unless a test seeds them (the fake engine runs no jobs). */
   readonly launches = new Map<string, StoredLaunch>();
   #nextLaunch = 1;
+  /** The price changes of existing subscriptions, by id: a migration's start makes them (startMigration). */
+  readonly priceChanges = new Map<string, StoredPriceChange>();
+  /** The list prices migrations set for new subscribers, from their start. */
+  readonly migratedPrices: Array<{ plan: string; market: string; amountMinor: bigint; fromLocal: string; changeId: string }> = [];
+  #nextPriceChange = 1;
   readonly receipts: Array<{ id: string; subscriptionId: string; quoteId: string; subscriberId: string }> = [];
   /** Idempotency keys and what they answered (the engine's behaviour 2). */
   readonly #idempotency = new Map<string, { method: string; actor: string; role: string; fingerprint: string; response: UnaryResponse }>();
@@ -566,6 +685,210 @@ export class FakeEngine {
     return launch;
   }
 
+  /** A price migration of the commercial lead's (§14.3: Family in Germany, from €18.99 to €20.99), in the state a test needs. */
+  seedMigration(state: ChangeState, content: Partial<{ title: string; plan: string; market: string; amountMinor: bigint; noticesLocal: string; startsLocal: string }> = {}): StoredChange {
+    const id = String(this.#nextId++);
+    const market = content.market ?? "DE";
+    const migration = create(PriceMigrationContentSchema, {
+      title: content.title ?? "Family price in Germany", plan: content.plan ?? "family", market,
+      amount: money(content.amountMinor ?? 2099n, this.#market(market).currency),
+      noticesLocal: content.noticesLocal ?? "2026-11-02T09:00", startsLocal: content.startsLocal ?? "2026-12-01T00:00",
+    });
+    const now = this.#now();
+    const stored: StoredChange = {
+      id, kind: "priceMigration", state, stateReason: "", createdBy: "commercial-lead-1", createdAt: now, updatedAt: now,
+      versions: [{ version: 1, author: "commercial-lead-1", createdAt: now, content: migration, hash: sha256(toBinary(PriceMigrationContentSchema, migration)) }],
+      approvals: [], validation: undefined, required: [], authorReason: "",
+    };
+    stored.required = this.#required(stored);
+    this.changes.set(id, stored);
+    return stored;
+  }
+
+  /**
+   * A price migration starts, as the engine's launch does at noticesLocal:
+   * the change is active, new subscribers pay the new price from
+   * startsLocal, and every paid subscription of the plan in the market gets
+   * its price change, by the rules of the market (§8): a request for consent
+   * in Germany, a notice elsewhere. Prepaid passes are never touched (the
+   * fake engine sells none).
+   */
+  startMigration(changeId: string): StoredPriceChange[] {
+    const stored = this.#stored(changeId);
+    const content = stored.versions.at(-1)?.content;
+    if (content?.$typeName !== "commerce.v1.PriceMigrationContent") throw new Error(`change ${changeId} is no price migration`);
+    const policy = POLICIES[content.market];
+    if (policy === undefined) throw new Error(`no policy for ${content.market}`);
+    stored.state = ChangeState.ACTIVE;
+    const amountMinor = content.amount?.amountMinor ?? 0n;
+    this.migratedPrices.push({ plan: content.plan, market: content.market, amountMinor, fromLocal: content.startsLocal, changeId });
+    const windowEndsDay = addDays(content.noticesLocal.slice(0, 10), policy.windowDays);
+    const made: StoredPriceChange[] = [];
+    for (const listener of this.listeners.values()) {
+      if (listener.market !== content.market) continue;
+      const current = this.#current(listener, this.#today(listener.market));
+      if (!current?.paid || current.plan !== content.plan) continue;
+      const change: StoredPriceChange = {
+        id: String(this.#nextPriceChange++), changeId, listenerId: listener.id, subscriptionId: current.id, plan: content.plan, market: content.market,
+        oldMinor: current.priceMinor, newMinor: amountMinor, kind: policy.legalRequirement, sentAt: this.#now(), windowEndsDay,
+        startsLocal: content.startsLocal, answer: null, answeredOn: "",
+      };
+      this.priceChanges.set(change.id, change);
+      made.push(change);
+    }
+    return made;
+  }
+
+  /** The listeners on a paid subscription of a plan in a market today. */
+  #paidOf(plan: string, market: string): StoredListener[] {
+    return [...this.listeners.values()].filter((listener) => {
+      if (listener.market !== market) return false;
+      const current = this.#current(listener, this.#today(market));
+      return current?.paid === true && current.plan === plan;
+    });
+  }
+
+  /**
+   * The blocking checks of a price migration, as the engine's validation has
+   * them: its price above the list price in force (price), its dates still to
+   * come and in order (dates), and no other change of the plan's price in the
+   * market in progress (overlap).
+   */
+  #migrationFindings(stored: StoredChange, content: PriceMigrationContent) {
+    const findings: Array<{ check: string; market: string; message: string; facts: Record<string, string> }> = [];
+    const market = content.market;
+    const list = this.#listPriceNow(content.plan, market);
+    const amount = content.amount?.amountMinor ?? 0n;
+    if (amount <= list) {
+      findings.push({ check: "price", market, message: "A price migration raises the price: the new one must be above the list price in force.", facts: { list_price: String(list), amount: String(amount) } });
+    }
+    const now = localOf(this.#options.clock(), this.#market(market).timeZone);
+    if (content.noticesLocal <= now) {
+      findings.push({ check: "dates", market, message: "Existing subscribers can only be asked or told from a time still to come.", facts: { notices_local: content.noticesLocal } });
+    } else if (content.startsLocal < content.noticesLocal) {
+      findings.push({ check: "dates", market, message: "New subscribers cannot pay the new price before existing ones are asked or told.", facts: { starts_local: content.startsLocal } });
+    }
+    const inProgress = [ChangeState.VALIDATED, ChangeState.IN_APPROVAL, ChangeState.APPROVED, ChangeState.SCHEDULED];
+    const other = [...this.changes.values()].find((candidate) => {
+      if (candidate.id === stored.id || (candidate.kind !== "listPrice" && candidate.kind !== "priceMigration")) return false;
+      const theirs = candidate.versions.at(-1)?.content;
+      if (theirs === undefined || theirs.$typeName === "commerce.v1.OfferContent" || theirs.plan !== content.plan || theirs.market !== market) return false;
+      return inProgress.includes(candidate.state) || (candidate.kind === "priceMigration" && candidate.state === ChangeState.ACTIVE);
+    });
+    if (other !== undefined) {
+      findings.push({ check: "overlap", market, message: `Change #${other.id} already changes this plan's price in this market.`, facts: { change: other.id } });
+    }
+    return findings;
+  }
+
+  /** The list price of a plan in a market now: the book's, or a migration's from its start. */
+  #listPriceNow(plan: string, market: string): bigint {
+    const local = localOf(this.#options.clock(), this.#market(market).timeZone);
+    const migrated = this.migratedPrices.filter((entry) => entry.plan === plan && entry.market === market && entry.fromLocal <= local).at(-1);
+    return migrated?.amountMinor ?? PRICES[market]?.[plan] ?? 0n;
+  }
+
+  /**
+   * Where a price change stands on the market's day of the read (§8, the
+   * contract's PriceChange): its state, and the dates only the engine can
+   * work out on the subscription's own billing days. A paid month is never
+   * cut short; an offer's months are never charged at the new price.
+   */
+  #priceChangeView(change: StoredPriceChange) {
+    const listener = this.#listener(change.listenerId);
+    const subscription = listener.subscriptions.find((candidate) => candidate.id === change.subscriptionId);
+    if (subscription === undefined) throw new Error(`price change ${change.id} has no subscription`);
+    const today = this.#today(change.market);
+    const timeZone = this.#market(change.market).timeZone;
+    const closed = this.#options.clock().getTime() >= Date.parse(utcOf(`${change.windowEndsDay}T23:59`, timeZone));
+    const onOrAfter = (day: string) => {
+      for (let charge = 0; charge < 600; charge += 1) {
+        const date = billingDate(subscription.startedOn, subscription.billingDay, charge);
+        if (date >= day) return date;
+      }
+      throw new Error("no billing date");
+    };
+    const outsideOffer = (day: string) => {
+      if (subscription.offerMonths <= 0) return day;
+      const fullFrom = billingDate(subscription.startedOn, subscription.billingDay, subscription.offerMonths);
+      return fullFrom > day ? fullFrom : day;
+    };
+    const later = (a: string, b: string) => (a > b ? a : b);
+    const startsDay = change.startsLocal.slice(0, 10);
+    const view = { state: "waiting", newPriceFrom: "", appliesFrom: "", ifNoLeavesOn: "", leavesOn: "", endsOn: "" };
+    if (change.kind === "consent") {
+      // The end of the paid period the deadline falls in: the first billing day on or after it.
+      const deadlineEnd = onOrAfter(change.windowEndsDay);
+      if (change.answer === true) {
+        view.state = "accepted";
+        view.newPriceFrom = onOrAfter(outsideOffer(later(addDays(change.answeredOn, 1), startsDay)));
+      } else if (change.answer === false) {
+        view.state = "declined";
+        view.endsOn = deadlineEnd;
+        if (closed) view.leavesOn = deadlineEnd;
+      } else if (closed) {
+        view.state = "lapsed";
+        view.leavesOn = deadlineEnd;
+        view.endsOn = deadlineEnd;
+      } else {
+        view.appliesFrom = onOrAfter(outsideOffer(later(addDays(today, 1), startsDay)));
+        view.ifNoLeavesOn = deadlineEnd;
+        view.endsOn = deadlineEnd;
+      }
+    } else {
+      // The first charge after the notice ends.
+      const after = onOrAfter(outsideOffer(addDays(change.windowEndsDay, 1)));
+      if (change.answer === false) {
+        view.state = "declined";
+        view.leavesOn = after;
+        view.endsOn = after;
+      } else if (closed) {
+        view.state = "new_price";
+        view.newPriceFrom = after;
+      } else {
+        view.appliesFrom = after;
+        view.ifNoLeavesOn = after;
+      }
+    }
+    return view;
+  }
+
+  #priceChangeMessage(change: StoredPriceChange): PriceChange {
+    const market = this.#market(change.market);
+    const policy = POLICIES[change.market];
+    const view = this.#priceChangeView(change);
+    const windowEnds = `${change.windowEndsDay}T23:59`;
+    return create(PriceChangeSchema, {
+      priceChangeId: change.id, changeId: this.#options.sentinels ? SENTINEL.changeId : change.changeId, plan: change.plan,
+      oldPrice: money(change.oldMinor, market.currency), newPrice: money(change.newMinor, market.currency), kind: change.kind, sentAt: change.sentAt,
+      windowEnds: { market: change.market, local: windowEnds, utc: utcOf(windowEnds, market.timeZone) },
+      newSubscribersFrom: { market: change.market, local: change.startsLocal, utc: utcOf(change.startsLocal, market.timeZone) },
+      state: view.state, newPriceFrom: view.newPriceFrom, appliesFrom: view.appliesFrom, ifNoLeavesOn: view.ifNoLeavesOn, leavesOn: view.leavesOn,
+      ifNoAnswer: `${policy?.commercialChoice ?? ""} ${NOT_LAW}`, legalBasis: policy?.legalBasis ?? "",
+    });
+  }
+
+  /** Where a started migration's existing subscribers stand; undefined before it started. */
+  #migrationProgress(stored: StoredChange) {
+    const content = stored.versions.at(-1)?.content;
+    if (content?.$typeName !== "commerce.v1.PriceMigrationContent") return undefined;
+    const changes = [...this.priceChanges.values()].filter((change) => change.changeId === stored.id);
+    if (stored.state !== ChangeState.ACTIVE && changes.length === 0) return undefined;
+    const policy = POLICIES[content.market];
+    const market = this.#market(content.market);
+    const windowEnds = `${addDays(content.noticesLocal.slice(0, 10), policy?.windowDays ?? 0)}T23:59`;
+    const views = changes.map((change) => this.#priceChangeView(change));
+    const counted = (state: string) => BigInt(views.filter((view) => view.state === state).length);
+    // Left: on the free plan, or ended, from the day their paid subscription ended because of the migration.
+    const today = this.#today(content.market);
+    const left = BigInt(views.filter((view) => view.leavesOn !== "" && view.leavesOn <= today).length);
+    return create(MigrationProgressSchema, {
+      requirement: policy?.legalRequirement ?? "", windowEnds: { market: content.market, local: windowEnds, utc: utcOf(windowEnds, market.timeZone) },
+      asked: BigInt(changes.length), waiting: counted("waiting"), accepted: counted("accepted"), declined: counted("declined"),
+      lapsed: counted("lapsed"), newPrice: counted("new_price"), left,
+    });
+  }
+
   /** Audit events written by a launch's own job, as the engine writes them: actor activation, its run as the request id. */
   #seedEvents(launch: StoredLaunch, actions: string[]): string[] {
     return actions.map((action) => {
@@ -631,10 +954,13 @@ export class FakeEngine {
   // The artists' minimum and the VAT rate are public (§1.2); the floor is the console's alone, and carries the mark.
   #marketMessage(market: (typeof MARKETS)[number]): Market {
     const planted = this.#options.sentinels;
+    const policy = POLICIES[market.code];
     return create(MarketSchema, {
       code: market.code, name: market.name, currency: market.currency, minorUnits: 2, timeZone: market.timeZone, vatBp: market.vatBp,
       artistsMinimum: money(market.minimum, market.currency),
       floor: money(planted ? SENTINEL.amount : market.floor, market.currency),
+      // Stage 7 (§8): the law and the music service's choice, in fields apart.
+      ...(policy ? { priceChangePolicy: { market: market.code, ...policy, label: NOT_LAW } } : {}),
     });
   }
 
@@ -658,13 +984,22 @@ export class FakeEngine {
       for (const [planId, price] of Object.entries(PRICES[market.code] ?? {})) {
         id += 1;
         if ((code && code !== market.code) || (plan && plan !== planId)) continue;
+        // A migration's new price follows the book's, from its start for new subscribers (§8).
+        const migrated = this.migratedPrices.filter((entry) => entry.plan === planId && entry.market === market.code);
         entries.push(create(PriceListEntrySchema, {
           id: String(id), plan: planId, market: market.code, amount: money(price, market.currency),
-          validFromLocal: "2026-01-01T00:00", validUntilLocal: "",
+          validFromLocal: "2026-01-01T00:00", validUntilLocal: migrated[0]?.fromLocal ?? "",
           changeId: planted ? SENTINEL.changeId : "0",
           belowFloor: planted ? true : price < market.floor,
           topUp: money(planted ? SENTINEL.amount : 0n, market.currency),
         }));
+        for (const entry of migrated) {
+          entries.push(create(PriceListEntrySchema, {
+            id: `9${entry.changeId}`, plan: planId, market: market.code, amount: money(entry.amountMinor, market.currency),
+            validFromLocal: entry.fromLocal, validUntilLocal: "", changeId: planted ? SENTINEL.changeId : entry.changeId,
+            belowFloor: planted ? true : entry.amountMinor < market.floor, topUp: money(planted ? SENTINEL.amount : 0n, market.currency),
+          }));
+        }
       }
     }
     return entries;
@@ -672,9 +1007,10 @@ export class FakeEngine {
 
   #change(stored: StoredChange): Change {
     const current = stored.versions.at(-1);
+    const migration = this.#migrationProgress(stored);
     return create(ChangeSchema, {
       id: stored.id,
-      kind: stored.kind === "offer" ? ChangeKind.OFFER : ChangeKind.LIST_PRICE,
+      kind: KIND_NUMBER[stored.kind],
       title: current?.content.title ?? "",
       state: stored.state,
       stateReason: stored.stateReason,
@@ -685,13 +1021,16 @@ export class FakeEngine {
         version: version.version, author: version.author, createdAt: version.createdAt, contentHash: version.hash,
         content: version.content.$typeName === "commerce.v1.OfferContent"
           ? { case: "offer", value: version.content }
-          : { case: "listPrice", value: version.content },
+          : version.content.$typeName === "commerce.v1.ListPriceContent"
+            ? { case: "listPrice", value: version.content }
+            : { case: "priceMigration", value: version.content },
       })),
       approvals: stored.approvals,
       ...(stored.validation ? { validation: stored.validation } : {}),
       requiredSignatures: stored.required,
       sentence: `${current?.content.title ?? ""}: a sentence the engine writes.`,
       authorReason: stored.authorReason,
+      ...(migration ? { migration } : {}),
     });
   }
 
@@ -709,6 +1048,11 @@ export class FakeEngine {
     const content = stored.versions.at(-1)?.content;
     if (content?.$typeName === "commerce.v1.ListPriceContent") {
       return [create(RequiredSignatureSchema, { role: Role.FINANCE, conditions: [1], why: "a list price changes", signed: false })];
+    }
+    if (content?.$typeName === "commerce.v1.PriceMigrationContent") {
+      return [create(RequiredSignatureSchema, {
+        role: Role.FINANCE, conditions: [1, 5], why: "a list price changes, and existing subscribers are asked to accept a higher price", signed: false,
+      })];
     }
     const below = (content?.prices ?? []).some((price) => {
       const floor = MARKETS.find((market) => market.code === price.market)?.floor ?? 0n;
@@ -809,6 +1153,19 @@ export class FakeEngine {
       if (!at.nextAtOfferPrice) nextCharge = full;
     }
     message.nextCharge = nextCharge;
+    // Its price changes (§8): the day it ends if the listener does nothing more, and the new price once accepted or noticed:
+    // in the next charge from the first one at the new price, and in the price itself from that day.
+    for (const change of [...this.priceChanges.values()].filter((candidate) => candidate.subscriptionId === stored.id)) {
+      const view = this.#priceChangeView(change);
+      if (view.endsOn !== "" && (message.endsOn === "" || view.endsOn < message.endsOn)) message.endsOn = view.endsOn;
+      if (view.newPriceFrom !== "" && message.nextBillingOn >= view.newPriceFrom) message.nextCharge = money(change.newMinor, currency);
+      if (view.newPriceFrom !== "" && today >= view.newPriceFrom) message.price = money(change.newMinor, currency);
+    }
+    // No next charge when the subscription ends by then.
+    if (message.endsOn !== "" && message.endsOn <= message.nextBillingOn) {
+      message.nextBillingOn = "";
+      delete message.nextCharge;
+    }
     return message;
   }
 
@@ -820,7 +1177,7 @@ export class FakeEngine {
     const stepStates = { pending: LaunchStepState.PENDING, running: LaunchStepState.RUNNING, done: LaunchStepState.DONE, failed: LaunchStepState.FAILED };
     return create(LaunchRunSchema, {
       launchId: launch.id, changeId: launch.changeId, title: current?.content.title ?? "",
-      kind: change.kind === "offer" ? ChangeKind.OFFER : ChangeKind.LIST_PRICE, version: current?.version ?? 0, state: states[launch.state],
+      kind: KIND_NUMBER[change.kind], version: current?.version ?? 0, state: states[launch.state],
       starts: { market: "IT", local: "2026-11-02T09:00", utc: "2026-11-02T08:00:00Z" },
       dueAt: launch.dueAt, startedAt: launch.startedAt, finishedAt: launch.finishedAt,
       currentStep: launch.state === "done" ? "" : launch.steps.find((step) => step.state !== "done")?.name ?? "",
@@ -1131,21 +1488,46 @@ export class FakeEngine {
             subscription: this.#subscription(listener, current, today),
             ...(verification ? { studentVerification: verification } : {}),
             ...(current.payment ? { payment: this.#payment(current.payment, currency) } : {}),
+            priceChanges: [...this.priceChanges.values()].filter((change) => change.subscriptionId === current.id).reverse()
+              .map((change) => this.#priceChangeMessage(change)),
           }),
         };
+      },
+      // The engine's order: the listener, the price change (theirs, or not found), the window, then the answer (§8).
+      answerPriceChange: (request, context) => {
+        const listener = this.#listener(request.subscriberId);
+        if (request.priceChangeId === "" || request.priceChangeId === "0") throw new ConnectError("price_change_id names a price change of the listener", Code.InvalidArgument);
+        const change = this.priceChanges.get(request.priceChangeId);
+        if (change === undefined || change.listenerId !== listener.id) throw new ConnectError(`no price change #${request.priceChangeId} for this listener`, Code.NotFound);
+        const windowEnds = utcOf(`${change.windowEndsDay}T23:59`, this.#market(change.market).timeZone);
+        if (this.#options.clock().getTime() >= Date.parse(windowEnds)) {
+          return this.#refuse(RefusalCode.WRONG_STATE, `The window to answer price change #${change.id} ended at ${windowEnds}.`, { window_ends: windowEnds });
+        }
+        if (change.answer !== null && change.answer !== request.accept) {
+          return this.#refuse(RefusalCode.WRONG_STATE, `Price change #${change.id} was answered ${change.answer ? "yes" : "no"} already.`, { answered: change.answer ? "yes" : "no" });
+        }
+        if (change.answer === null) {
+          change.answer = request.accept;
+          change.answeredOn = this.#today(change.market);
+          this.#log(context, "price_change.answered", `price_change:${change.id}`, "", { subscriber: listener.id, accept: request.accept, kind: change.kind }, {
+            actor: `subscriber-${listener.id}`, role: "subscriber",
+          });
+        }
+        return { outcome: { case: "priceChange" as const, value: this.#priceChangeMessage(change) } };
       },
     });
     router.service(ChangeService, {
       createChange: (request, context) => {
-        const kind: Kind = request.content.case === "listPrice" ? "listPrice" : "offer";
+        const kind: Kind = request.content.case === "listPrice" ? "listPrice" : request.content.case === "priceMigration" ? "priceMigration" : "offer";
         const refused = this.#mayNot("CreateChange", context, kind);
         if (refused) return refused;
-        if (request.content.case !== "offer" && request.content.case !== "listPrice") throw new ConnectError("a change needs its content: an offer or a list price", Code.InvalidArgument);
+        if (request.content.case === undefined || !["offer", "listPrice", "priceMigration"].includes(request.content.case)) {
+          throw new ConnectError("a change needs its content", Code.InvalidArgument);
+        }
         const id = String(this.#nextId++);
         const author = context.requestHeader.get("x-actor") ?? "";
         const now = this.#now();
-        const content = request.content.value;
-        const hash = sha256(request.content.case === "offer" ? toBinary(OfferContentSchema, request.content.value) : toBinary(ListPriceContentSchema, request.content.value));
+        const { content, hash } = contentOf(request.content);
         const stored: StoredChange = {
           id, kind, state: ChangeState.DRAFT, stateReason: "", createdBy: author, createdAt: now, updatedAt: now,
           versions: [{ version: 1, author, createdAt: now, content, hash }], approvals: [], validation: undefined, required: [], authorReason: "",
@@ -1166,9 +1548,8 @@ export class FakeEngine {
         if (![ChangeState.DRAFT, ChangeState.VALIDATED, ChangeState.IN_APPROVAL, ChangeState.APPROVED].includes(stored.state)) {
           return this.#refuse(RefusalCode.WRONG_STATE, "This change takes no new versions.");
         }
-        if (request.content.case !== "offer" && request.content.case !== "listPrice") throw new ConnectError("a version needs its content: an offer or a list price", Code.InvalidArgument);
-        const content = request.content.value;
-        const hash = sha256(request.content.case === "offer" ? toBinary(OfferContentSchema, request.content.value) : toBinary(ListPriceContentSchema, request.content.value));
+        if (request.content.case === undefined) throw new ConnectError("a version needs its content", Code.InvalidArgument);
+        const { content, hash } = contentOf(request.content);
         stored.versions.push({ version: current + 1, author: context.requestHeader.get("x-actor") ?? "", createdAt: this.#now(), content, hash });
         stored.state = ChangeState.DRAFT;
         stored.validation = undefined;
@@ -1189,7 +1570,7 @@ export class FakeEngine {
         const matching = [...this.changes.values()]
           .filter((stored) => Number(stored.id) < after)
           .filter((stored) => request.states.length === 0 || request.states.includes(stored.state))
-          .filter((stored) => request.kind === 0 || (request.kind === ChangeKind.OFFER) === (stored.kind === "offer"))
+          .filter((stored) => request.kind === 0 || request.kind === KIND_NUMBER[stored.kind])
           .sort((a, b) => Number(b.id) - Number(a.id));
         const page = matching.slice(0, size);
         return { changes: page.map((stored) => this.#summary(stored)), page: { next: matching.length > size ? (page.at(-1)?.id ?? "") : "" } };
@@ -1204,17 +1585,24 @@ export class FakeEngine {
         }
         if (stored.state !== ChangeState.DRAFT) return this.#refuse(RefusalCode.WRONG_STATE, "Only a draft is validated.");
         const content = current.content;
-        const missingPages = content.$typeName === "commerce.v1.OfferContent"
-          ? content.prices.filter((price) => !content.pages.some((page) => page.market === price.market)).map((price) => price.market)
-          : [];
+        const findings: Array<{ check: string; market: string; message: string; facts: Record<string, string> }> = [];
+        if (content.$typeName === "commerce.v1.OfferContent") {
+          for (const price of content.prices.filter((candidate) => !content.pages.some((page) => page.market === candidate.market))) {
+            findings.push({ check: "page_text", market: price.market, message: `No page text for ${price.market}.`, facts: { market: price.market } });
+          }
+        } else if (content.$typeName === "commerce.v1.PriceMigrationContent") {
+          findings.push(...this.#migrationFindings(stored, content));
+        }
         stored.validation = create(ValidationReportSchema, {
           version: current.version,
-          valid: missingPages.length === 0,
-          eligible: 10_000n,
-          findings: missingPages.map((market) => ({ check: "page_text", severity: Severity.BLOCKING, market, message: `No page text for ${market}.`, facts: { market } })),
+          valid: findings.length === 0,
+          eligible: content.$typeName === "commerce.v1.PriceMigrationContent" ? BigInt(this.#paidOf(content.plan, content.market).length) : 10_000n,
+          findings: findings.map((finding) => ({ ...finding, severity: Severity.BLOCKING })),
         });
-        if (missingPages.length) {
-          return this.#refuse(RefusalCode.INVALID, "Validation found blocking problems.", { blocking: String(missingPages.length), checks: "page_text" });
+        if (findings.length) {
+          return this.#refuse(RefusalCode.INVALID, "Validation found blocking problems.", {
+            blocking: String(findings.length), checks: [...new Set(findings.map((finding) => finding.check))].join(","),
+          });
         }
         stored.state = ChangeState.VALIDATED;
         this.#log(context, "change.validated", `change:${stored.id}`);
@@ -1305,6 +1693,60 @@ export class FakeEngine {
       },
     });
     router.service(SimulationService, {
+      // §8.7: who pays what and from when, the revenue at risk at a declared acceptance, who moves to Free.
+      simulateMigration: (request, context) => {
+        const stored = this.#stored(request.changeId);
+        const refused = this.#mayNot("SimulateMigration", context, stored.kind);
+        if (refused) return refused;
+        const version = request.version === 0 ? stored.versions.at(-1) : stored.versions.find((candidate) => candidate.version === request.version);
+        if (version === undefined) throw new ConnectError(`change ${stored.id} has no version ${request.version}`, Code.NotFound);
+        const content = version.content;
+        if (content.$typeName !== "commerce.v1.PriceMigrationContent") return this.#refuse(RefusalCode.INVALID, "Only a price migration is simulated here.");
+        const market = this.#market(content.market);
+        const policy = POLICIES[content.market];
+        const overridden = new Map(request.overrides.map((override) => [override.name, override.value]));
+        const existing = overridden.get("existing") ?? BigInt(Math.max(this.#paidOf(content.plan, content.market).length, 8_412));
+        const acceptance = overridden.get("acceptance") ?? 9_300n;
+        const before = breakdownOf(PRICES[content.market]?.[content.plan] ?? 0n, market);
+        const after = breakdownOf(content.amount?.amountMinor ?? 0n, market);
+        const minor = (value: Money | undefined) => value?.amountMinor ?? 0n;
+        const step = (breakdown: typeof before) => ({
+          price: breakdown.price, net: breakdown.net, artists: breakdown.artists, paymentCosts: breakdown.paymentCosts,
+          contribution: money(minor(breakdown.net) - minor(breakdown.artists) - minor(breakdown.paymentCosts), market.currency),
+        });
+        const [b, a] = [step(before), step(after)];
+        const accepting = (existing * acceptance + 5_000n) / 10_000n;
+        const notAccepting = existing - accepting;
+        const ceilBp = (part: bigint, whole: bigint) => (whole <= 0n ? -1 : Number((10_000n * part + whole - 1n) / whole));
+        const windowEndsDay = addDays(content.noticesLocal.slice(0, 10), policy?.windowDays ?? 0);
+        const at = (local: string) => ({ market: content.market, local, utc: utcOf(local, market.timeZone) });
+        return {
+          outcome: {
+            case: "result" as const,
+            value: {
+              before: b, after: a, newSubscribersFrom: at(content.startsLocal), noticesFrom: at(content.noticesLocal), windowEnds: at(`${windowEndsDay}T23:59`),
+              existingFrom: policy?.legalRequirement === "consent"
+                ? `from their first charge after they consent, by ${longDay(windowEndsDay)}`
+                : `from their first charge after the notice ends on ${longDay(windowEndsDay)}`,
+              existing, accepting, notAccepting, movingToFree: policy?.afterWindow === "move_to_free" ? notAccepting : 0n,
+              monthlyRevenueChange: money(accepting * (minor(a.net) - minor(b.net)) - notAccepting * minor(b.net), market.currency),
+              monthlyContributionChange: money(accepting * (minor(a.contribution) - minor(b.contribution)) - notAccepting * minor(b.contribution), market.currency),
+              revenueAtRiskMonthly: money(notAccepting * minor(b.net), market.currency),
+              breakEvenAcceptanceRevenueBp: ceilBp(minor(b.net), minor(a.net)),
+              breakEvenAcceptanceContributionBp: ceilBp(minor(b.contribution), minor(a.contribution)),
+              prepaidPassesUntouched: 0n,
+              assumptions: [
+                { name: "existing", value: existing, source: overridden.has("existing") ? "typed" : "counted in the data" },
+                { name: "acceptance", value: acceptance, source: overridden.has("acceptance") ? "typed" : "illustrative default (§16)" },
+              ],
+              financeConditions: [
+                { number: 1, rule: "a list price is created or changed", met: true, detail: "" },
+                { number: 5, rule: "a price migration asks existing subscribers to accept a higher price", met: true, detail: "" },
+              ],
+            },
+          },
+        };
+      },
       simulateOffer: (request, context) => {
         const stored = this.#stored(request.changeId);
         const refused = this.#mayNot("SimulateOffer", context, stored.kind);

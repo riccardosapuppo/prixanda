@@ -16,7 +16,7 @@ import { QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
 import { SubscriberService } from "contracts/commerce/v1/subscriptions";
 import { SERVICES } from "../src/core/engine.ts";
-import { anyKind, FIELD_ROLES, isByKind, METHOD_ROLES, PUBLIC_METHODS, ROLES, SUBSCRIBER_METHODS } from "../src/core/roles.ts";
+import { anyKind, FIELD_ROLES, isByKind, KINDS, METHOD_ROLES, PUBLIC_METHODS, ROLES, SUBSCRIBER_METHODS } from "../src/core/roles.ts";
 import { type Harness, startHarness } from "./support/harness.ts";
 
 const BOOK = join(import.meta.dirname, "..", "..", "..", "docs", "business.md");
@@ -52,18 +52,28 @@ function paragraph(book: string, mark: string): string {
 
 const ALL = ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"];
 
-/** The coordinator's table, method by method; for the methods that depend on the kind of change, offers and list prices apart. */
-const TABLE: Record<string, string[] | { offer: string[]; listPrice: string[] }> = {
-  CreateChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
-  SaveVersion: { offer: ["marketing"], listPrice: ["commercial_lead"] },
-  ValidateChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
-  SubmitChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
+type PerKind = { offer: string[]; listPrice: string[]; priceMigration: string[] };
+
+/**
+ * The coordinator's table, method by method; for the methods that depend on
+ * the kind of change, offers, list prices and price migrations apart. Stage 7
+ * (BRIEF-TAPPA-7.md, behaviour 1): only the commercial lead writes and
+ * schedules a migration, and the commercial lead or the on-call engineer
+ * cancels it.
+ */
+const TABLE: Record<string, string[] | PerKind> = {
+  CreateChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"] },
+  SaveVersion: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"] },
+  ValidateChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"] },
+  SubmitChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"] },
   SimulateOffer: ["marketing", "commercial_lead", "finance"],
   SimulateMigration: ["marketing", "commercial_lead", "finance"],
   ApproveChange: ["commercial_lead", "finance"],
   RejectChange: ["commercial_lead", "finance"],
-  ScheduleChange: { offer: ["marketing", "commercial_lead"], listPrice: ["commercial_lead"] },
-  CancelChange: { offer: ["marketing", "commercial_lead", "on_call"], listPrice: ["commercial_lead", "on_call"] },
+  ScheduleChange: { offer: ["marketing", "commercial_lead"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"] },
+  CancelChange: {
+    offer: ["marketing", "commercial_lead", "on_call"], listPrice: ["commercial_lead", "on_call"], priceMigration: ["commercial_lead", "on_call"],
+  },
   SuspendChange: ["on_call"],
   GetChange: ALL,
   BatchGetChanges: ALL,
@@ -80,7 +90,7 @@ const TABLE: Record<string, string[] | { offer: string[]; listPrice: string[] }>
 };
 
 const sorted = (roles: readonly string[]) => [...roles].sort();
-const matrix = METHOD_ROLES as Record<string, readonly string[] | { offer: readonly string[]; listPrice: readonly string[] }>;
+const matrix = METHOD_ROLES as Record<string, readonly string[] | Readonly<Record<string, readonly string[]>>>;
 const may = (method: string, role: string) => {
   const allowed = matrix[method];
   return allowed !== undefined && anyKind(allowed as never).includes(role as never);
@@ -107,16 +117,19 @@ describe("the role matrix", () => {
         assert.deepEqual(sorted(actual as readonly string[]), sorted(expected), method);
       } else {
         assert.ok(actual !== undefined && isByKind(actual as never), `${method} should depend on the kind`);
-        const byKind = actual as { offer: readonly string[]; listPrice: readonly string[] };
-        assert.deepEqual(sorted(byKind.offer), sorted(expected.offer), `${method} for offers`);
-        assert.deepEqual(sorted(byKind.listPrice), sorted(expected.listPrice), `${method} for list prices`);
+        const byKind = actual as Readonly<Record<string, readonly string[]>>;
+        assert.deepEqual(Object.keys(byKind).sort(), [...KINDS].sort(), `${method} names every kind of change`);
+        assert.deepEqual(Object.keys(expected).sort(), [...KINDS].sort(), `the table names every kind of change for ${method}`);
+        for (const kind of KINDS) assert.deepEqual(sorted(byKind[kind] ?? []), sorted(expected[kind]), `${method} for ${kind}`);
       }
     }
   });
 
   test("keeps the cannots of §12", () => {
     assert.ok(!may("ApproveChange", "marketing"), "marketing cannot approve");
-    assert.ok(!(METHOD_ROLES.CreateChange.listPrice as readonly string[]).includes("catalog_manager"), "the catalog manager cannot change prices");
+    for (const kind of ["listPrice", "priceMigration"] as const) {
+      assert.ok(!(METHOD_ROLES.CreateChange[kind] as readonly string[]).includes("catalog_manager"), `the catalog manager cannot change prices (${kind})`);
+    }
     for (const method of ["CreateChange", "SaveVersion", "ApproveChange", "RejectChange"]) {
       assert.ok(!may(method, "on_call"), `the on-call engineer cannot ${method}`);
     }

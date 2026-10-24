@@ -15,8 +15,8 @@ export type RoleName = (typeof ROLES)[number];
 /** Who may call a method; the order is a precedence: a person holding two of them acts in the first. */
 export type Allowed = readonly RoleName[];
 
-/** The kinds of change the contract carries today; entitlements, migrations and passes come with stage 7. */
-export const KINDS = ["offer", "listPrice"] as const;
+/** The kinds of change the console writes today; entitlements and prepaid passes come later in stage 7. */
+export const KINDS = ["offer", "listPrice", "priceMigration"] as const;
 export type Kind = (typeof KINDS)[number];
 
 /** A method whose roles depend on the kind of change it acts on. */
@@ -41,12 +41,13 @@ export const SUBSCRIBER_METHODS = ["VerifyStudent", "ConfirmQuote", "GetAccount"
 
 /** The other engine methods, and the roles that may call them. */
 export const METHOD_ROLES = {
-  // Marketing creates and edits campaigns; the commercial lead owns the price list.
-  CreateChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
-  SaveVersion: { offer: ["marketing"], listPrice: ["commercial_lead"] },
+  // Marketing creates and edits campaigns; the commercial lead owns the price
+  // list, and with it the price migrations (§8, §14.3).
+  CreateChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"] },
+  SaveVersion: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"] },
   // The role that may create that kind of change moves it on.
-  ValidateChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
-  SubmitChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
+  ValidateChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"] },
+  SubmitChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"] },
   SimulateOffer: ["marketing", "commercial_lead", "finance"],
   // A price migration's simulation (§8.7), for the same three roles.
   SimulateMigration: ["marketing", "commercial_lead", "finance"],
@@ -55,9 +56,11 @@ export const METHOD_ROLES = {
   ApproveChange: ["finance", "commercial_lead"],
   RejectChange: ["finance", "commercial_lead"],
   // Finance approves but does not schedule the start: separation of duties.
-  ScheduleChange: { offer: ["commercial_lead", "marketing"], listPrice: ["commercial_lead"] },
+  ScheduleChange: { offer: ["commercial_lead", "marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"] },
   // Cancelling a scheduled start is part of the on-call engineer's "roll back a launch".
-  CancelChange: { offer: ["commercial_lead", "on_call", "marketing"], listPrice: ["commercial_lead", "on_call"] },
+  CancelChange: {
+    offer: ["commercial_lead", "on_call", "marketing"], listPrice: ["commercial_lead", "on_call"], priceMigration: ["commercial_lead", "on_call"],
+  },
   SuspendChange: ["on_call"],
   // The log is read, never changed (§11.4).
   GetChange: ALL,

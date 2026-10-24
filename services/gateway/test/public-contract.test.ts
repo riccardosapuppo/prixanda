@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { create } from "@bufbuild/protobuf";
 import { PublishedOfferSchema } from "contracts/commerce/v1/catalog";
+import { ChangeState } from "contracts/commerce/v1/changes";
 import {
   getNamedType, type GraphQLNamedType, type GraphQLSchema, isEnumType, isInputObjectType, isLeafType, isObjectType, isScalarType,
   isUnionType, specifiedScalarTypes,
@@ -27,11 +28,38 @@ const ALLOWED = [
   "scalar Money",
   "scalar PlanCode",
   "enum AudioQuality: STANDARD, LOSSLESS",
-  "enum RefusalCode: OFFER_ENDED, QUOTE_EXPIRED, NOT_ELIGIBLE, ALREADY_SUBSCRIBED, NOT_COMBINABLE, CAP_REACHED, PAYMENT_DECLINED, NOT_AVAILABLE",
+  "enum RefusalCode: OFFER_ENDED, QUOTE_EXPIRED, NOT_ELIGIBLE, ALREADY_SUBSCRIBED, NOT_COMBINABLE, CAP_REACHED, PAYMENT_DECLINED, ANSWER_CLOSED, NOT_AVAILABLE",
   "enum PaymentState: PENDING, SUCCEEDED, FAILED",
   "union QuoteResult = Quote | Refusal",
   "union VerificationResult = StudentVerification | Refusal",
   "union SubscriptionResult = Confirmation | Refusal",
+  // Stage 7, §8 and §14.3: a price change of the listener's own subscription,
+  // and their answer to it. Its dates are worked out on their billing days,
+  // so that the site writes them and computes nothing.
+  "enum PriceChangeKind: CONSENT, NOTICE",
+  "enum PriceChangeState: WAITING, ACCEPTED, DECLINED, LAPSED, NEW_PRICE",
+  "union PriceChangeResult = PriceChange | Refusal",
+  "Mutation.answerPriceChange(priceChangeId: ID!, accept: Boolean!): PriceChangeResult!",
+  "Account.priceChanges: [PriceChange!]!",
+  "PriceChange.id: ID!",
+  "PriceChange.plan: PlanCode!",
+  "PriceChange.oldPrice: Money!",
+  "PriceChange.newPrice: Money!",
+  "PriceChange.kind: PriceChangeKind!",
+  "PriceChange.sentAt: DateTime!",
+  "PriceChange.windowEnds: MarketTime!",
+  "PriceChange.newSubscribersFrom: MarketTime!",
+  "PriceChange.state: PriceChangeState!",
+  "PriceChange.newPriceFrom: Date",
+  "PriceChange.appliesFrom: Date",
+  "PriceChange.ifNoLeavesOn: Date",
+  "PriceChange.leavesOn: Date",
+  // The market's choice and its law, each in its own field (§8.1): the words
+  // the engine writes for the listener, as an offer's terms are.
+  "PriceChange.ifNoAnswer: String!",
+  "PriceChange.legalBasis: String!",
+  // The day the paid subscription ends if the listener does nothing more (§8).
+  "Subscription.endsOn: Date",
   "Query.markets: [Market!]!",
   "Query.plans(market: MarketCode!): [Plan!]!",
   "Query.prices(market: MarketCode!, plan: PlanCode): [ListPrice!]!",
@@ -182,7 +210,17 @@ const PUBLIC_BY_DECISION: Record<string, string> = {
  * may name anything public, but for the names above. A listener's own payment
  * is theirs; what the payment provider costs the company is in the vocabulary.
  */
-const INTERNAL_WORDS = /floor|artist|minimum|top.?up|breakdown|keeps|margin|payment.?cost|vat|net\b|approv|author|version|fingerprint|hash|sign|audit|eligib|simulat|person|people|role|session|csrf|change|draft|state|below|internal|cost|contribution|revenue|actor|request.?id|engine/i;
+const INTERNAL_WORDS = /floor|artist|minimum|top.?up|breakdown|keeps|margin|payment.?cost|vat|net\b|approv|author|version|fingerprint|hash|sign|audit|eligib|simulat|person|people|role|session|csrf|change|draft|state|below|internal|cost|contribution|revenue|actor|request.?id|engine|migration|polic/i;
+
+/**
+ * A price change the listener is asked or told about is theirs (§8); a
+ * change of the workflow, and the migration that makes it, are the console's.
+ * These names say "change" or "state" of the listener's own, each where it stands.
+ */
+const PRICE_CHANGE_NAMES = [
+  "Mutation.answerPriceChange", "Mutation.answerPriceChange(priceChangeId)", "Account.priceChanges", "PriceChange", "PriceChangeKind",
+  "PriceChangeState", "PriceChange.state", "PriceChangeResult",
+];
 
 function surface(schema: GraphQLSchema): string[] {
   const lines: string[] = [];
@@ -250,10 +288,10 @@ describe("the site's schema, as written", () => {
     // console's. A listener signs in and out of the site's demonstration,
     // which is no signature of an approval, and their page sends back its own
     // session's CSRF token. A payment has a state of its own, which is no
-    // change's state of the workflow.
+    // change's state of the workflow; so has a price change the listener answers.
     const exceptions = [
       "RefusalCode.NOT_ELIGIBLE", "Mutation.signInAsListener", "Mutation.signOutListener", "Me.csrfToken", "PaymentState", "Payment.state",
-      ...Object.keys(PUBLIC_BY_DECISION),
+      ...PRICE_CHANGE_NAMES, ...Object.keys(PUBLIC_BY_DECISION),
     ];
     assert.deepEqual(all.filter(({ name, where }) => INTERNAL_WORDS.test(name) && !exceptions.includes(where)).map(({ where }) => where), []);
     assert.deepEqual(exceptions.filter((where) => !all.some((entry) => entry.where === where)), [], "an exception for a name the schema no longer has");
@@ -265,6 +303,8 @@ describe("the site's schema, as written", () => {
     // The same check, run on the console's names, must find plenty.
     const internalNames = [
       "floor", "artistsMinimum", "breakdown", "approveChange", "fingerprint", "auditEvents", "eligible", "session", "topUp", "paymentCosts", "ChangeState",
+      // Stage 7: the console's migration, its progress and simulation, and the market's policy.
+      "createPriceMigration", "MigrationProgress", "simulateMigration", "priceChangePolicy", "PriceChangePolicy",
     ];
     assert.deepEqual(internalNames.filter((name) => !INTERNAL_WORDS.test(name)), []);
   });
@@ -343,7 +383,7 @@ describe("the site's API, answered by an engine that plants marked values in eve
       artists: { amountMinor: "300", currency: "EUR" }, topUp: { amountMinor: "153", currency: "EUR" }, paymentCosts: { amountMinor: "5", currency: "EUR" },
       companyKeeps: { amountMinor: "-60", currency: "EUR" },
     });
-    assert.equal(catalog["demoListeners"].length, 4);
+    assert.equal(catalog["demoListeners"].length, 5);
     assert.equal(catalog["me"].id, LISTENERS.verified);
     assert.equal(catalog["me"].account.subscription.plan, "free");
     assert.equal(catalog["me"].account.studentVerification.valid, true);
@@ -357,10 +397,37 @@ describe("the site's API, answered by an engine that plants marked values in eve
     assert.equal(pending.me.account.payment.state, "PENDING");
     assert.equal(settled.me.account.payment.state, "SUCCEEDED");
     assert.deepEqual(settled.me.account.payment.receipt.amount, { amountMinor: "299", currency: "EUR" });
+    // A price change (§8, §14.3): the Family listener in Germany is asked for
+    // consent by a migration that started, reads it and says yes; a no after
+    // the yes is refused.
+    const migration = harness.engine.seedMigration(ChangeState.SCHEDULED);
+    assert.equal(harness.engine.startMigration(migration.id).length, 1);
+    const family = harness.site();
+    await family.signInAsListener(LISTENERS.familyInGermany);
+    const asked = await family.graphql(`{ me ${all("Me")} }`);
+    const priceChangeId: unknown = asked.body?.data?.me?.account?.priceChanges?.[0]?.id;
+    assert.equal(typeof priceChangeId, "string", asked.text);
+    const answer = (accept: boolean) => family.graphql(
+      `mutation ($id: ID!, $accept: Boolean!) { answerPriceChange(priceChangeId: $id, accept: $accept) ${all("PriceChangeResult")} }`,
+      { variables: { id: priceChangeId, accept } },
+    );
+    const accepted = await answer(true);
+    const closed = await answer(false);
+    for (const reply of [asked, accepted, closed]) assert.equal(reply.body.errors, undefined, reply.text);
+    const waiting = asked.body.data.me.account.priceChanges[0];
+    assert.deepEqual({ kind: waiting.kind, state: waiting.state, appliesFrom: waiting.appliesFrom, ifNoLeavesOn: waiting.ifNoLeavesOn },
+      { kind: "CONSENT", state: "WAITING", appliesFrom: "2026-12-15", ifNoLeavesOn: "2027-01-15" });
+    assert.ok(waiting.ifNoAnswer.length > 0 && waiting.legalBasis.length > 0);
+    assert.equal(asked.body.data.me.account.subscription.endsOn, "2027-01-15");
+    assert.deepEqual({ typename: accepted.body.data.answerPriceChange.__typename, state: accepted.body.data.answerPriceChange.state },
+      { typename: "PriceChange", state: "ACCEPTED" });
+    assert.equal(closed.body.data.answerPriceChange.code, "ANSWER_CLOSED");
+    answers.push(asked, accepted, closed);
     // The engine's messages carried the marks in floors, quotes' breakdowns,
     // price-list change ids, below-floor flags and top-ups, offer versions,
-    // and in the subscriber's ids of subscriptions, accounts and payments, the
-    // provider's reasons and the verifier's references.
+    // in the subscriber's ids of subscriptions, accounts and payments, the
+    // provider's reasons and the verifier's references, and in the migration
+    // a price change comes from.
     assert.ok(harness.engine.calls.length >= 9);
     for (const answer of answers) {
       for (const mark of [String(SENTINEL.amount), SENTINEL.changeId, "987654", SENTINEL.text, "belowFloor", "floor"]) {
@@ -385,6 +452,10 @@ describe("the site's API, answered by an engine that plants marked values in eve
       // The payment of the subscription the test above confirmed.
       assert.equal(account?.payment?.paymentId, SENTINEL.text);
       assert.equal(account?.payment?.failureReason, SENTINEL.text);
+      // The price change the test above answered: the migration it comes from is the console's.
+      const family = await engine.client.subscribers.getAccount({ subscriberId: LISTENERS.familyInGermany }, { headers });
+      assert.equal(family.account?.priceChanges.length, 1);
+      assert.equal(family.account?.priceChanges[0]?.changeId, SENTINEL.changeId);
     } finally {
       engine.close();
     }

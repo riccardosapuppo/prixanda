@@ -7,7 +7,7 @@ import type { DateValue } from '../scalars.ts';
 import type { MarketCodeValue } from '../scalars.ts';
 import type { PlanCodeValue } from '../scalars.ts';
 import type { GraphQLResolveInfo, GraphQLScalarType, GraphQLScalarTypeConfig } from 'graphql';
-import type { PublicMarketModel, PublicEntitlementsModel, PublicPriceBreakdownModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicPaymentModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel } from '../models.ts';
+import type { PublicMarketModel, PublicEntitlementsModel, PublicPriceBreakdownModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicPaymentModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel, PublicPriceChangeModel } from '../models.ts';
 import type { PublicContext } from '../context.ts';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
@@ -90,6 +90,13 @@ export type Mutation = {
    * provider is simulated, and its receipt says so.
    */
   readonly confirmSubscription: SubscriptionResult;
+  /**
+   * Answers a price change of the session's listener (§8): in a consent market,
+   * yes or no; in a notice market, no means leaving before the new price
+   * applies, and yes only says they read it. The same answer again comes back
+   * the same; another answer, or one after the window, is refused.
+   */
+  readonly answerPriceChange: PriceChangeResult;
 };
 
 
@@ -107,6 +114,12 @@ export type MutationSignInAsListenerArgs = {
 
 export type MutationConfirmSubscriptionArgs = {
   quoteId: Scalars['ID']['input'];
+};
+
+
+export type MutationAnswerPriceChangeArgs = {
+  priceChangeId: Scalars['ID']['input'];
+  accept: Scalars['Boolean']['input'];
 };
 
 export type Market = {
@@ -253,6 +266,60 @@ export type Account = {
   readonly payment?: Maybe<Payment>;
   /** The latest student verification; null when there has been none. */
   readonly studentVerification?: Maybe<StudentVerification>;
+  /** The price changes of the running subscription, the latest first (§8). */
+  readonly priceChanges: ReadonlyArray<PriceChange>;
+};
+
+/** Whether a price change asks for consent or tells in advance: the law of the listener's market (§8). */
+export type PriceChangeKind =
+  /** Nothing changes without a yes; silence is no (§8.2). */
+  | 'CONSENT'
+  /** The new price applies unless the listener leaves before it (§8.3 to §8.5). */
+  | 'NOTICE';
+
+export type PriceChangeState =
+  /** The window is open and no answer came; in a notice market, a yes keeps it waiting. */
+  | 'WAITING'
+  /** Said yes, in a consent market: the new price from newPriceFrom. */
+  | 'ACCEPTED'
+  /** Said no: the market's choice applies at the end of the window (consent), or the subscription ends before the new price (notice). */
+  | 'DECLINED'
+  /** No answer by the end of a consent window, which counts as no. */
+  | 'LAPSED'
+  /** The notice ran out: the new price from newPriceFrom. */
+  | 'NEW_PRICE';
+
+/**
+ * A price change of the listener's subscription (§8): a request for consent,
+ * or a notice. Its dates are the engine's, worked out for the listener's own
+ * billing days: the site writes them as they are.
+ */
+export type PriceChange = {
+  readonly __typename?: 'PriceChange';
+  readonly id: Scalars['ID']['output'];
+  readonly plan: Scalars['PlanCode']['output'];
+  /** What the listener pays now, and the new price. */
+  readonly oldPrice: Scalars['Money']['output'];
+  readonly newPrice: Scalars['Money']['output'];
+  readonly kind: PriceChangeKind;
+  readonly sentAt: Scalars['DateTime']['output'];
+  /** The end of the window: the consent deadline, or the end of the notice. */
+  readonly windowEnds: MarketTime;
+  /** When new subscribers start paying the new price. */
+  readonly newSubscribersFrom: MarketTime;
+  readonly state: PriceChangeState;
+  /** The first day charged at the new price, once decided. */
+  readonly newPriceFrom?: Maybe<Scalars['Date']['output']>;
+  /** While it waits: the first day charged at the new price, after a yes given today (consent) or when the notice runs out (notice). */
+  readonly appliesFrom?: Maybe<Scalars['Date']['output']>;
+  /** While it waits: the day the paid subscription would end after a no, or without an answer (consent); null when the market's choice keeps it. */
+  readonly ifNoLeavesOn?: Maybe<Scalars['Date']['output']>;
+  /** The day the paid subscription ends because of this change, once decided. */
+  readonly leavesOn?: Maybe<Scalars['Date']['output']>;
+  /** What happens without a yes (consent), or after the notice: the market's commercial choice, in words, and that it is a choice and not law. */
+  readonly ifNoAnswer: Scalars['String']['output'];
+  /** The law of the market, in words, with its sources. */
+  readonly legalBasis: Scalars['String']['output'];
 };
 
 /** A subscription and what it costs, month by month (§4.3, §6.1). Dates are in the market's calendar. */
@@ -275,9 +342,11 @@ export type Subscription = {
   readonly fullPriceFrom?: Maybe<Scalars['Date']['output']>;
   /** That list price, as the price list stands today; null without an offer. */
   readonly fullPrice?: Maybe<Scalars['Money']['output']>;
-  /** The next charge and its amount; null on the free plan. */
+  /** The next charge and its amount; null on the free plan, and when the subscription ends before it. */
   readonly nextBillingOn?: Maybe<Scalars['Date']['output']>;
   readonly nextCharge?: Maybe<Scalars['Money']['output']>;
+  /** The day the paid subscription ends if the listener does nothing more: after a no to a price change, or without the yes it needs (§8); from then on, the free plan. Null when it does not end. */
+  readonly endsOn?: Maybe<Scalars['Date']['output']>;
 };
 
 /** A student verification (§10.2): valid from verifiedOn, until validUntil excluded. */
@@ -348,6 +417,8 @@ export type RefusalCode =
   | 'CAP_REACHED'
   /** The payment provider declined a charge taken at the confirmation, so nothing was subscribed. A payment asked after the confirmation fails as a FAILED payment instead. */
   | 'PAYMENT_DECLINED'
+  /** A price change takes no other answer: it was answered already, or its window has ended. */
+  | 'ANSWER_CLOSED'
   /** This cannot be done here now. */
   | 'NOT_AVAILABLE';
 
@@ -363,6 +434,8 @@ export type QuoteResult = Quote | Refusal;
 export type VerificationResult = StudentVerification | Refusal;
 
 export type SubscriptionResult = Confirmation | Refusal;
+
+export type PriceChangeResult = PriceChange | Refusal;
 
 
 
@@ -447,6 +520,10 @@ export type ResolversUnionTypes<_RefType extends Record<string, unknown>> = {
     | ( PublicConfirmationModel )
     | ( PublicRefusalModel )
   ;
+  PriceChangeResult:
+    | ( PublicPriceChangeModel )
+    | ( PublicRefusalModel )
+  ;
 };
 
 
@@ -476,6 +553,9 @@ export type ResolversTypes = {
   DemoListener: ResolverTypeWrapper<PublicDemoListenerModel>;
   Me: ResolverTypeWrapper<PublicMeModel>;
   Account: ResolverTypeWrapper<PublicAccountModel>;
+  PriceChangeKind: PriceChangeKind;
+  PriceChangeState: PriceChangeState;
+  PriceChange: ResolverTypeWrapper<PublicPriceChangeModel>;
   Subscription: ResolverTypeWrapper<PublicSubscriptionModel>;
   StudentVerification: ResolverTypeWrapper<PublicStudentVerificationModel>;
   Receipt: ResolverTypeWrapper<PublicReceiptModel>;
@@ -487,6 +567,7 @@ export type ResolversTypes = {
   QuoteResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['QuoteResult']>;
   VerificationResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['VerificationResult']>;
   SubscriptionResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['SubscriptionResult']>;
+  PriceChangeResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['PriceChangeResult']>;
 };
 
 /** Mapping between all available schema types and the resolvers parents */
@@ -514,6 +595,7 @@ export type ResolversParentTypes = {
   DemoListener: PublicDemoListenerModel;
   Me: PublicMeModel;
   Account: PublicAccountModel;
+  PriceChange: PublicPriceChangeModel;
   Subscription: PublicSubscriptionModel;
   StudentVerification: PublicStudentVerificationModel;
   Receipt: PublicReceiptModel;
@@ -523,6 +605,7 @@ export type ResolversParentTypes = {
   QuoteResult: ResolversUnionTypes<ResolversParentTypes>['QuoteResult'];
   VerificationResult: ResolversUnionTypes<ResolversParentTypes>['VerificationResult'];
   SubscriptionResult: ResolversUnionTypes<ResolversParentTypes>['SubscriptionResult'];
+  PriceChangeResult: ResolversUnionTypes<ResolversParentTypes>['PriceChangeResult'];
 };
 
 export interface MoneyScalarConfig extends GraphQLScalarTypeConfig<ResolversTypes['Money'], any> {
@@ -564,6 +647,7 @@ export type MutationResolvers<ContextType = PublicContext, ParentType extends Re
   signOutListener: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   verifyStudent: Resolver<ResolversTypes['VerificationResult'], ParentType, ContextType>;
   confirmSubscription: Resolver<ResolversTypes['SubscriptionResult'], ParentType, ContextType, RequireFields<MutationConfirmSubscriptionArgs, 'quoteId'>>;
+  answerPriceChange: Resolver<ResolversTypes['PriceChangeResult'], ParentType, ContextType, RequireFields<MutationAnswerPriceChangeArgs, 'priceChangeId' | 'accept'>>;
 };
 
 export type MarketResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Market'] = ResolversParentTypes['Market']> = {
@@ -667,6 +751,26 @@ export type AccountResolvers<ContextType = PublicContext, ParentType extends Res
   subscription: Resolver<ResolversTypes['Subscription'], ParentType, ContextType>;
   payment: Resolver<Maybe<ResolversTypes['Payment']>, ParentType, ContextType>;
   studentVerification: Resolver<Maybe<ResolversTypes['StudentVerification']>, ParentType, ContextType>;
+  priceChanges: Resolver<ReadonlyArray<ResolversTypes['PriceChange']>, ParentType, ContextType>;
+};
+
+export type PriceChangeResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['PriceChange'] = ResolversParentTypes['PriceChange']> = {
+  id: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  plan: Resolver<ResolversTypes['PlanCode'], ParentType, ContextType>;
+  oldPrice: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  newPrice: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  kind: Resolver<ResolversTypes['PriceChangeKind'], ParentType, ContextType>;
+  sentAt: Resolver<ResolversTypes['DateTime'], ParentType, ContextType>;
+  windowEnds: Resolver<ResolversTypes['MarketTime'], ParentType, ContextType>;
+  newSubscribersFrom: Resolver<ResolversTypes['MarketTime'], ParentType, ContextType>;
+  state: Resolver<ResolversTypes['PriceChangeState'], ParentType, ContextType>;
+  newPriceFrom: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
+  appliesFrom: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
+  ifNoLeavesOn: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
+  leavesOn: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
+  ifNoAnswer: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  legalBasis: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
 };
 
 export type SubscriptionResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Subscription'] = ResolversParentTypes['Subscription']> = {
@@ -683,6 +787,7 @@ export type SubscriptionResolvers<ContextType = PublicContext, ParentType extend
   fullPrice: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
   nextBillingOn: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
   nextCharge: Resolver<Maybe<ResolversTypes['Money']>, ParentType, ContextType>;
+  endsOn: Resolver<Maybe<ResolversTypes['Date']>, ParentType, ContextType>;
 };
 
 export type StudentVerificationResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['StudentVerification'] = ResolversParentTypes['StudentVerification']> = {
@@ -736,6 +841,10 @@ export type SubscriptionResultResolvers<ContextType = PublicContext, ParentType 
   __resolveType: TypeResolveFn<'Confirmation' | 'Refusal', ParentType, ContextType>;
 };
 
+export type PriceChangeResultResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['PriceChangeResult'] = ResolversParentTypes['PriceChangeResult']> = {
+  __resolveType: TypeResolveFn<'PriceChange' | 'Refusal', ParentType, ContextType>;
+};
+
 export type Resolvers<ContextType = PublicContext> = {
   Money: GraphQLScalarType;
   LocalDateTime: GraphQLScalarType;
@@ -756,6 +865,7 @@ export type Resolvers<ContextType = PublicContext> = {
   DemoListener: DemoListenerResolvers<ContextType>;
   Me: MeResolvers<ContextType>;
   Account: AccountResolvers<ContextType>;
+  PriceChange: PriceChangeResolvers<ContextType>;
   Subscription: SubscriptionResolvers<ContextType>;
   StudentVerification: StudentVerificationResolvers<ContextType>;
   Receipt: ReceiptResolvers<ContextType>;
@@ -765,5 +875,6 @@ export type Resolvers<ContextType = PublicContext> = {
   QuoteResult: QuoteResultResolvers<ContextType>;
   VerificationResult: VerificationResultResolvers<ContextType>;
   SubscriptionResult: SubscriptionResultResolvers<ContextType>;
+  PriceChangeResult: PriceChangeResultResolvers<ContextType>;
 };
 

@@ -49,6 +49,7 @@ export const INTERNAL_ACCESS: { readonly Query: Record<string, Access>; readonly
     change: method("GetChange"),
     changes: method("ListChanges"),
     simulateOffer: method("SimulateOffer"),
+    simulateMigration: method("SimulateMigration"),
     auditEvents: method("ListEvents"),
     verifyAuditChain: method("VerifyChain"),
     launches: method("ListLaunches"),
@@ -59,8 +60,10 @@ export const INTERNAL_ACCESS: { readonly Query: Record<string, Access>; readonly
     signOut: ANYONE,
     createOffer: method("CreateChange", "offer"),
     createListPrice: method("CreateChange", "listPrice"),
+    createPriceMigration: method("CreateChange", "priceMigration"),
     saveOfferVersion: method("SaveVersion", "offer"),
     saveListPriceVersion: method("SaveVersion", "listPrice"),
+    savePriceMigrationVersion: method("SaveVersion", "priceMigration"),
     validateChange: method("ValidateChange"),
     submitChange: method("SubmitChange"),
     approveChange: method("ApproveChange"),
@@ -87,7 +90,7 @@ export function actorFor(context: InternalContext, allowed: Allowed): Actor {
   return { id: viewer.personId, role };
 }
 
-const KIND_OF: Record<number, Kind | undefined> = { 1: "offer", 2: "listPrice" };
+const KIND_OF: Record<number, Kind | undefined> = { 1: "offer", 2: "listPrice", 4: "priceMigration" };
 
 /**
  * The actor for a method whose roles depend on the change's kind. When the
@@ -189,6 +192,7 @@ export const PUBLIC_ACCESS: { readonly Query: Record<string, PublicAccess>; read
     signInAsListener: "anyone",
     signOutListener: "anyone",
     verifyStudent: "listener",
+    answerPriceChange: "listener",
     confirmSubscription: "listener",
   },
 };

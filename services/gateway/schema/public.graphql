@@ -87,6 +87,13 @@ type Mutation {
   provider is simulated, and its receipt says so.
   """
   confirmSubscription(quoteId: ID!): SubscriptionResult!
+  """
+  Answers a price change of the session's listener (§8): in a consent market,
+  yes or no; in a notice market, no means leaving before the new price
+  applies, and yes only says they read it. The same answer again comes back
+  the same; another answer, or one after the window, is refused.
+  """
+  answerPriceChange(priceChangeId: ID!, accept: Boolean!): PriceChangeResult!
 }
 
 type Market {
@@ -223,6 +230,61 @@ type Account {
   payment: Payment
   "The latest student verification; null when there has been none."
   studentVerification: StudentVerification
+  "The price changes of the running subscription, the latest first (§8)."
+  priceChanges: [PriceChange!]!
+}
+
+"Whether a price change asks for consent or tells in advance: the law of the listener's market (§8)."
+enum PriceChangeKind {
+  "Nothing changes without a yes; silence is no (§8.2)."
+  CONSENT
+  "The new price applies unless the listener leaves before it (§8.3 to §8.5)."
+  NOTICE
+}
+
+enum PriceChangeState {
+  "The window is open and no answer came; in a notice market, a yes keeps it waiting."
+  WAITING
+  "Said yes, in a consent market: the new price from newPriceFrom."
+  ACCEPTED
+  "Said no: the market's choice applies at the end of the window (consent), or the subscription ends before the new price (notice)."
+  DECLINED
+  "No answer by the end of a consent window, which counts as no."
+  LAPSED
+  "The notice ran out: the new price from newPriceFrom."
+  NEW_PRICE
+}
+
+"""
+A price change of the listener's subscription (§8): a request for consent,
+or a notice. Its dates are the engine's, worked out for the listener's own
+billing days: the site writes them as they are.
+"""
+type PriceChange {
+  id: ID!
+  plan: PlanCode!
+  "What the listener pays now, and the new price."
+  oldPrice: Money!
+  newPrice: Money!
+  kind: PriceChangeKind!
+  sentAt: DateTime!
+  "The end of the window: the consent deadline, or the end of the notice."
+  windowEnds: MarketTime!
+  "When new subscribers start paying the new price."
+  newSubscribersFrom: MarketTime!
+  state: PriceChangeState!
+  "The first day charged at the new price, once decided."
+  newPriceFrom: Date
+  "While it waits: the first day charged at the new price, after a yes given today (consent) or when the notice runs out (notice)."
+  appliesFrom: Date
+  "While it waits: the day the paid subscription would end after a no, or without an answer (consent); null when the market's choice keeps it."
+  ifNoLeavesOn: Date
+  "The day the paid subscription ends because of this change, once decided."
+  leavesOn: Date
+  "What happens without a yes (consent), or after the notice: the market's commercial choice, in words, and that it is a choice and not law."
+  ifNoAnswer: String!
+  "The law of the market, in words, with its sources."
+  legalBasis: String!
 }
 
 "A subscription and what it costs, month by month (§4.3, §6.1). Dates are in the market's calendar."
@@ -244,9 +306,11 @@ type Subscription {
   fullPriceFrom: Date
   "That list price, as the price list stands today; null without an offer."
   fullPrice: Money
-  "The next charge and its amount; null on the free plan."
+  "The next charge and its amount; null on the free plan, and when the subscription ends before it."
   nextBillingOn: Date
   nextCharge: Money
+  "The day the paid subscription ends if the listener does nothing more: after a no to a price change, or without the yes it needs (§8); from then on, the free plan. Null when it does not end."
+  endsOn: Date
 }
 
 "A student verification (§10.2): valid from verifiedOn, until validUntil excluded."
@@ -314,6 +378,8 @@ enum RefusalCode {
   CAP_REACHED
   "The payment provider declined a charge taken at the confirmation, so nothing was subscribed. A payment asked after the confirmation fails as a FAILED payment instead."
   PAYMENT_DECLINED
+  "A price change takes no other answer: it was answered already, or its window has ended."
+  ANSWER_CLOSED
   "This cannot be done here now."
   NOT_AVAILABLE
 }
@@ -329,3 +395,5 @@ union QuoteResult = Quote | Refusal
 union VerificationResult = StudentVerification | Refusal
 
 union SubscriptionResult = Confirmation | Refusal
+
+union PriceChangeResult = PriceChange | Refusal

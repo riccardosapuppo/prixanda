@@ -15,7 +15,7 @@ import { type Refusal, RefusalCode } from "contracts/commerce/v1/common";
 import { type Confirmation, type Payment, PaymentSchema, PaymentState, PaymentStateSchema } from "contracts/commerce/v1/subscriptions";
 import { enumName, idOrNull, money, optionalMoney, orNull } from "../convert.ts";
 import { breach, gatewayError } from "../errors.ts";
-import type { AudioQuality, PaymentState as PublicPaymentState, Resolvers } from "../generated/public.ts";
+import type { AudioQuality, PaymentState as PublicPaymentState, PriceChangeKind, PriceChangeState, Resolvers } from "../generated/public.ts";
 import { positiveId } from "../ids.ts";
 import type { PublicRefusalCode, PublicRefusalModel } from "../models.ts";
 import { listenerOf } from "../policy.ts";
@@ -72,6 +72,22 @@ const SUBSCRIPTION_REFUSALS = new Map<RefusalCode, Said>([
   [RefusalCode.CAP_REACHED, said("CAP_REACHED", "This offer has been taken as many times as it can be.")],
   [RefusalCode.PAYMENT_DECLINED, said("PAYMENT_DECLINED", "The payment provider declined the charge, so no subscription was made.")],
 ]);
+
+/** Answering a price change: the engine's WRONG_STATE is another answer than the one given, or a window that ended. */
+const ANSWER_REFUSALS = new Map<RefusalCode, Said>([
+  [RefusalCode.WRONG_STATE, said("ANSWER_CLOSED", "This price change takes no other answer now: you answered it already, or the time to answer has ended.")],
+]);
+
+const PRICE_CHANGE_KINDS: Readonly<Record<string, PriceChangeKind>> = { consent: "CONSENT", notice: "NOTICE" };
+const PRICE_CHANGE_STATES: Readonly<Record<string, PriceChangeState>> = {
+  waiting: "WAITING", accepted: "ACCEPTED", declined: "DECLINED", lapsed: "LAPSED", new_price: "NEW_PRICE",
+};
+
+/** A value the engine sends in words, read through its table; an unknown one breaks the contract, never passes as another. */
+function lookup<T>(table: Readonly<Record<string, T>>, key: string, what: string): T {
+  const found = Object.hasOwn(table, key) ? table[key] : undefined;
+  return found ?? breach(`${what} ${JSON.stringify(key)}`);
+}
 
 function refusal(table: ReadonlyMap<RefusalCode, Said>, otherwise: string, refused: Refusal): PublicRefusalModel {
   const known = table.get(refused.code);
@@ -163,6 +179,15 @@ export const publicResolvers: Resolvers = {
       if (answer.outcome.case === "confirmation") return answer.outcome.value;
       if (answer.outcome.case === "refusal") return refusal(SUBSCRIPTION_REFUSALS, "This subscription cannot be made here right now.", answer.outcome.value);
       return breach("ConfirmQuote answered with neither a confirmation nor a refusal");
+    },
+    // The price change is named by its id; the listener is the session's, so another listener's is not found.
+    answerPriceChange: async (_root, { priceChangeId, accept }, context) => {
+      const id = positiveId(priceChangeId);
+      if (id === null) throw gatewayError("BAD_USER_INPUT", "priceChangeId is not the id of a price change");
+      const answer = await context.engine.subscribers.answerPriceChange({ priceChangeId: id, accept });
+      if (answer.outcome.case === "priceChange") return answer.outcome.value;
+      if (answer.outcome.case === "refusal") return refusal(ANSWER_REFUSALS, "This answer cannot be given here right now.", answer.outcome.value);
+      return breach("AnswerPriceChange answered with neither a price change nor a refusal");
     },
   },
 
@@ -260,6 +285,28 @@ export const publicResolvers: Resolvers = {
     subscription: (account) => account.subscription ?? breach("the account has no subscription"),
     payment: (account) => account.payment ?? null,
     studentVerification: (account) => account.studentVerification ?? null,
+    priceChanges: (account) => account.priceChanges,
+  },
+  // Every date here is the engine's, worked out on the listener's own billing days: the site writes them as they are.
+  PriceChange: {
+    id: (change) => change.priceChangeId,
+    plan: (change) => change.plan,
+    oldPrice: (change) => money(change.oldPrice, "a price change's old price"),
+    newPrice: (change) => money(change.newPrice, "a price change's new price"),
+    kind: (change) => lookup(PRICE_CHANGE_KINDS, change.kind, "price change kind"),
+    sentAt: (change) => change.sentAt,
+    windowEnds: (change) => change.windowEnds ?? breach("a price change has no window"),
+    newSubscribersFrom: (change) => change.newSubscribersFrom ?? breach("a price change has no start for new subscribers"),
+    state: (change) => lookup(PRICE_CHANGE_STATES, change.state, "price change state"),
+    newPriceFrom: (change) => orNull(change.newPriceFrom),
+    appliesFrom: (change) => orNull(change.appliesFrom),
+    ifNoLeavesOn: (change) => orNull(change.ifNoLeavesOn),
+    leavesOn: (change) => orNull(change.leavesOn),
+    ifNoAnswer: (change) => change.ifNoAnswer,
+    legalBasis: (change) => change.legalBasis,
+  },
+  PriceChangeResult: {
+    __resolveType: (result) => (result.$typeName === "gateway.PublicRefusal" ? "Refusal" : "PriceChange"),
   },
   Subscription: {
     plan: (subscription) => subscription.plan,
@@ -275,6 +322,7 @@ export const publicResolvers: Resolvers = {
     fullPrice: (subscription) => optionalMoney(subscription.fullPrice),
     nextBillingOn: (subscription) => orNull(subscription.nextBillingOn),
     nextCharge: (subscription) => optionalMoney(subscription.nextCharge),
+    endsOn: (subscription) => orNull(subscription.endsOn),
   },
   StudentVerification: {
     verifiedOn: (verification) => verification.verifiedOn,

@@ -25,6 +25,8 @@ const OPERATIONS = [
   "Query.change(id: ID!): Change",
   "Query.changes(filter: ChangeFilter, first: Int!, after: String): ChangePage!",
   "Query.simulateOffer(changeId: ID!, version: Int!, market: MarketCode!, overrides: [AssumptionInput!]): SimulationOutcome!",
+  // Stage 7: the price migrations (§8, §14.3).
+  "Query.simulateMigration(changeId: ID!, version: Int, overrides: [AssumptionInput!]): MigrationSimulationOutcome!",
   "Query.auditEvents(filter: AuditFilter, first: Int!, after: String): AuditPage!",
   "Query.verifyAuditChain(anchor: ChainHeadInput): ChainVerification!",
   // Stage 6: the launches, for the console's history of them.
@@ -34,8 +36,10 @@ const OPERATIONS = [
   "Mutation.signOut: Boolean!",
   "Mutation.createOffer(offer: OfferInput!): ChangeResult!",
   "Mutation.createListPrice(listPrice: ListPriceInput!): ChangeResult!",
+  "Mutation.createPriceMigration(migration: PriceMigrationInput!): ChangeResult!",
   "Mutation.saveOfferVersion(changeId: ID!, baseVersion: Int!, offer: OfferInput!): ChangeResult!",
   "Mutation.saveListPriceVersion(changeId: ID!, baseVersion: Int!, listPrice: ListPriceInput!): ChangeResult!",
+  "Mutation.savePriceMigrationVersion(changeId: ID!, baseVersion: Int!, migration: PriceMigrationInput!): ChangeResult!",
   "Mutation.validateChange(changeId: ID!, version: Int!): ChangeResult!",
   "Mutation.submitChange(changeId: ID!, version: Int!, authorReason: String): ChangeResult!",
   "Mutation.approveChange(changeId: ID!, version: Int!, fingerprint: Sha256!): ChangeResult!",
@@ -62,8 +66,8 @@ describe("the console's schema", () => {
 
   test("answers every mutation that reaches the engine with a union that holds a typed Refusal", () => {
     const mutations = Object.values(schema.getMutationType()?.getFields() ?? {}).filter((field) => !["signIn", "signOut"].includes(field.name));
-    // Create (2), save (2), validate, submit, approve, reject, schedule, cancel, suspend, export; retry and cancel a launch.
-    assert.equal(mutations.length, 14);
+    // Create (3), save (3), validate, submit, approve, reject, schedule, cancel, suspend, export; retry and cancel a launch.
+    assert.equal(mutations.length, 16);
     for (const field of mutations) {
       const result = getNamedType(field.type);
       assert.ok(isUnionType(result) && result.getTypes().some((member) => member.name === "Refusal"), field.name);

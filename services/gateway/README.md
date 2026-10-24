@@ -11,8 +11,8 @@ the console's schema at all:
 
 | | Schema | Port | For |
 |---|---|---|---|
-| Console's API | `schema/internal.graphql` | 4621 | changes, approvals, simulations, launches, the audit log, the home's numbers |
-| Site's API | `schema/public.graphql` | 4622 | markets, plans, list prices, offers on sale, quotes; the demo's listeners, a student verification, a subscription, the account |
+| Console's API | `schema/internal.graphql` | 4621 | changes, approvals, simulations, price migrations, launches, the audit log, the home's numbers |
+| Site's API | `schema/public.graphql` | 4622 | markets, plans, list prices, offers on sale, quotes; the demo's listeners, a student verification, a subscription, the account, its price changes and the answer to them |
 
 Both answer at `/graphql`, with `/health` next to it.
 
@@ -121,6 +121,27 @@ price applies from, the next charge, the first month's payment, the student
 verification and its end), `verifyStudent`, and
 `confirmSubscription(quoteId)`, which subscribes at exactly the quoted price.
 
+Since stage 7, a listener's price changes (§8, §14.3):
+`me { account { priceChanges } }` lists them, the latest first, and
+`answerPriceChange(priceChangeId, accept)` answers one. In a consent market
+(Germany) nothing changes without a yes and silence is no; in a notice
+market (Italy, France, the United Kingdom) the new price applies unless the
+listener leaves before it, and a yes only says they read it. Every date is
+the engine's, worked out on the listener's own billing days, so that the
+site writes "your Family plan ends on 15 January 2027" without computing
+anything: while a request waits, `appliesFrom` (the first charge at the new
+price after a yes today, or when the notice runs out) and `ifNoLeavesOn`
+(the day the paid plan ends without a yes, or after a no to a notice); once
+decided, `newPriceFrom` or `leavesOn`. `Subscription.endsOn` is the day the
+paid subscription ends if the listener does nothing more, and its next
+charge is empty when it ends first. The market's law and the music service's
+choice come in two fields (`legalBasis`, with its sources, and
+`ifNoAnswer`, which says it is a choice and not law): the words the engine
+writes for the listener, as an offer's terms are. The same answer again comes
+back the same; another answer, or one after the window, is refused as
+`ANSWER_CLOSED` with the gateway's sentence; another listener's price change
+is not found.
+
 Where a price goes is public by the coordinator's decision of 24 October,
 because it is the promise of §1.2: each market's VAT rate and the artists'
 guaranteed minimum (`Market.vatBasisPoints`, `Market.artistsMinimum`), and
@@ -133,8 +154,10 @@ breakdown with its offers, and the site gets `null` there.
 
 Nothing else of the economics: no floors, thresholds or simulations, no
 breakdown of a quote, no top-ups of the price list; no changes, versions or
-approvals, no people, no audit log, no ids of subscriptions, payments or the
-verifier's records, and none of the payment provider's own words. Three tests
+approvals, no price migration, its progress or the market's policy as the
+console reads it, no people, no audit log, no ids of subscriptions, payments,
+migrations or the verifier's records, and none of the payment provider's own
+words. Three tests
 check it, each from another angle (`test/public-contract.test.ts`):
 
 1. the whole surface of the schema (types, fields, arguments, enum values,
@@ -143,11 +166,12 @@ check it, each from another angle (`test/public-contract.test.ts`):
 2. no name in it belongs to the internal vocabulary (with exceptions, each
    named in the test where it stands, with its reason: a visitor may be told
    `NOT_ELIGIBLE`, signs in and out as a listener, sends back their session's
-   `csrfToken`, reads their payment's `state`, and reads where a price goes);
+   `csrfToken`, reads their payment's `state`, reads where a price goes, and
+   answers a price change of their own, with its `state`);
 3. an engine that plants marked values in every internal field of its
    messages, the subscriber's included, answers every public field, signed in
-   as a listener who verifies, subscribes and pays, and none of the marks
-   comes out.
+   as a listener who verifies, subscribes and pays, and as one asked to
+   accept a higher price who says yes, and none of the marks comes out.
 
 The payment is asynchronous, as the engine of stage 6 makes it: the
 subscription starts at the confirmation, and its first month's `payment`
@@ -167,7 +191,8 @@ A refusal on the site is `Refusal { code reason }`, with the site's codes:
 `OFFER_ENDED` (asking for a quote of an offer no longer on sale),
 `QUOTE_EXPIRED`, `NOT_ELIGIBLE`, `ALREADY_SUBSCRIBED`, `NOT_COMBINABLE`,
 `CAP_REACHED`, `PAYMENT_DECLINED` (a charge declined at the confirmation, by
-an engine that still charges there), and `NOT_AVAILABLE` for any other.
+an engine that still charges there), `ANSWER_CLOSED` (a price change answered
+already, or whose window ended), and `NOT_AVAILABLE` for any other.
 Every reason is a sentence of the gateway's, never the engine's: the engine
 writes for the console, naming listeners and offers by their numbers
 ("Subscriber #5003 is not among..."), and groups and caps the site does not
@@ -229,6 +254,44 @@ stopped after a fault. The console's schema reads them and acts on them:
   not published (its change is cancelled with it). Every other role gets a
   `ROLE_NOT_ALLOWED` refusal before the engine hears anything.
 
+## Price migrations
+
+Since stage 7 the console writes a third kind of change, the price
+migration (§8, §14.3): a higher list price for new subscribers from
+`startsLocal`, and for those already paying, from `noticesLocal`, the rules of
+their market. The schema has:
+
+- `createPriceMigration(migration)` and `savePriceMigrationVersion(changeId,
+  baseVersion, migration)`: the title, plan, market, new price and the two
+  local times, for the commercial lead alone; then `validateChange`,
+  `submitChange`, `scheduleChange` and `cancelChange` as for any change. The
+  commercial lead moves it on and schedules it, finance signs it (conditions
+  1 and 5 of §7.3), and the commercial lead or the on-call engineer cancels
+  it. The engine's validation blocks a price that does not rise above the
+  list price in force (`price`), dates that are not to come or out of order
+  (`dates`), and another change of the same plan's price in the same market
+  (`overlap`);
+- `simulateMigration(changeId, version, overrides)`: the numbers of §8.7,
+  for marketing, the commercial lead and finance. Per subscription per month
+  before and after (price, net, the artists' share, payment costs,
+  contribution), who pays the new price and from when, how many accept at the
+  declared acceptance rate, the revenue at risk, the acceptance at which
+  revenue and contribution break even, and the prepaid passes it never
+  touches. Its assumptions say where they come from: the subscribers
+  `EXISTING`, counted in the data, and the `ACCEPTANCE`, the book's
+  illustrative default, either of them typed instead. For the Family plan in
+  Germany, from €18.99 to €20.99: the net from €15.96 to €17.64, the artists'
+  share from €9.58 to €10.58;
+- `Market.priceChangePolicy`: the market's law (`law`: consent or notice,
+  its basis and its sources) and the music service's choice (`choice`: how
+  many days, what happens after the window, in words, the alternatives, and
+  the label that says it is a choice and not law), in two types, never
+  mixed;
+- `Change.migration`: where a migration that started stands: the
+  subscribers asked or told, waiting, accepted, declined, lapsed (silence in
+  a consent market), paying the new price, and gone to the free plan or
+  ended.
+
 Every role reads the launches. The home's incidents carry their launch
 (`launchId`, null for a late start the engine has not begun to launch), their
 kind (`LATE`, `FAILED`, `REFUSED`), when they opened and closed, and how
@@ -258,8 +321,9 @@ on its own) or `RESOLVED` (a person retried or cancelled it).
   sessions. Any other `Origin` is refused with 403 before anything else
   happens.
 - On the site, what acts for a listener (`verifyStudent`,
-  `confirmSubscription`, `me { account }`) needs the site's session; without
-  one it is `UNAUTHENTICATED`, before the engine hears anything
+  `confirmSubscription`, `answerPriceChange`, `me { account }`) needs the
+  site's session; without one it is `UNAUTHENTICATED`, before the engine
+  hears anything
   (`PUBLIC_ACCESS` in `src/core/policy.ts`, a rule for every root field).
 
 ## Idempotency and request ids
@@ -371,16 +435,19 @@ npm run check -- --only gw-types,gw-codegen,gw-schemas,gw-tests,dataloader
 `gw-schemas` runs the contract tests of the two schemas, `gw-tests` the rest:
 resolvers, roles, both APIs' sessions, CSRF, CORS, idempotency, request ids,
 limits, scalars, errors, configuration, the start of `npm run gateway`
-itself, and the subscriber's side (`test/site-sessions.test.ts`,
-`test/subscriptions.test.ts`). They run the real gateway over HTTP against a
-fake engine (`test/support/fake-engine.ts`): every service of the contract,
-in memory, served over real gRPC on 127.0.0.1:4613, with the engine's
+itself, the subscriber's side (`test/site-sessions.test.ts`,
+`test/subscriptions.test.ts`), and the price migrations of stage 7 from both
+sides (`test/price-migrations.test.ts`, `test/price-changes.test.ts`). They
+run the real gateway over HTTP against a fake engine
+(`test/support/fake-engine.ts`): every service of the contract, in memory,
+served over real gRPC on 127.0.0.1:4613, with the engine's
 behaviours as the coordinator fixed them (codes, metadata, idempotency,
 refusals, the role matrix written again on its own) and, for the
 subscriber's service, the engine's own order of checks, its four demo
-listeners and its billing schedule. The clock is injected, so sessions
-expire, quotes run out and subscriptions reach their list price without
-waiting.
+listeners and its billing schedule, and a fifth listener for §14.3, a Family
+subscriber in Germany, until the engine's own §14.3 service is there. The
+clock is injected, so sessions expire, quotes run out, subscriptions reach
+their list price and price changes reach their deadline without waiting.
 
 The tests listen on 127.0.0.1: the fake engine on 4613, the gateway on 4621
 and 4622, after asking the system that nobody else listens there. Two copies

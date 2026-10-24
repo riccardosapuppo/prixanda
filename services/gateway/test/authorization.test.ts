@@ -18,6 +18,10 @@ const OFFER = {
   pages: [{ market: "IT", title: "Offer", text: "Text", terms: "Terms" }],
 };
 const LIST_PRICE = { title: "Up", plan: "family", market: "DE", amount: { amountMinor: "2099", currency: "EUR" }, startsLocal: "2027-01-01T00:00" };
+const MIGRATION = {
+  title: "Family price in Germany", plan: "family", market: "DE", amount: { amountMinor: "2099", currency: "EUR" },
+  noticesLocal: "2026-11-02T09:00", startsLocal: "2026-12-01T00:00",
+};
 
 /** One call of each root field that needs a session, with what it needs; `id` is replaced by a change of the right state. */
 const OPERATIONS: Record<string, { query: string; variables?: Record<string, unknown>; method: string | null }> = {
@@ -42,6 +46,10 @@ const OPERATIONS: Record<string, { query: string; variables?: Record<string, unk
   cancelChange: { query: 'mutation { cancelChange(changeId: "ID", reason: "Stop.") { __typename ... on Refusal { code } } }', method: "CancelChange" },
   suspendChange: { query: 'mutation { suspendChange(changeId: "ID", reason: "Stop.") { __typename ... on Refusal { code } } }', method: "SuspendChange" },
   exportAuditHead: { query: "mutation { exportAuditHead { __typename ... on Refusal { code } } }", method: "ExportHead" },
+  // Stage 7: on these, "ID" is a price migration's.
+  createPriceMigration: { query: "mutation ($m: PriceMigrationInput!) { createPriceMigration(migration: $m) { __typename ... on Refusal { code } } }", variables: { m: MIGRATION }, method: "CreateChange" },
+  savePriceMigrationVersion: { query: 'mutation ($m: PriceMigrationInput!) { savePriceMigrationVersion(changeId: "ID", baseVersion: 1, migration: $m) { __typename ... on Refusal { code } } }', variables: { m: MIGRATION }, method: "SaveVersion" },
+  simulateMigration: { query: '{ simulateMigration(changeId: "ID") { __typename ... on Refusal { code } } }', method: "SimulateMigration" },
   // Stage 6: "LAUNCH" is replaced by a failed launch of the fake engine's.
   launches: { query: "{ launches { nodes { id } } }", method: "ListLaunches" },
   launch: { query: '{ launch(id: "LAUNCH") { id } }', method: "GetLaunch" },
@@ -72,6 +80,9 @@ const MAY: Record<string, string[]> = {
   cancelChange: ["marketing", "commercial_lead", "on_call"],
   suspendChange: ["on_call"],
   exportAuditHead: ["auditor"],
+  createPriceMigration: ["commercial_lead"],
+  savePriceMigrationVersion: ["commercial_lead"],
+  simulateMigration: ["marketing", "commercial_lead", "finance"],
   launches: ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"],
   launch: ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"],
   retryLaunch: ["on_call"],
@@ -136,7 +147,9 @@ describe("each role against each operation", () => {
           submitChange: ChangeState.VALIDATED, approveChange: ChangeState.IN_APPROVAL, rejectChange: ChangeState.IN_APPROVAL,
           scheduleChange: ChangeState.APPROVED, cancelChange: ChangeState.SCHEDULED, suspendChange: ChangeState.ACTIVE,
         };
-        const id = harness.engine.seedOffer(`${role} ${name}`, "marketing-2", states[name] ?? ChangeState.DRAFT).id;
+        const id = name.includes("Migration")
+          ? harness.engine.seedMigration(states[name] ?? ChangeState.DRAFT).id
+          : harness.engine.seedOffer(`${role} ${name}`, "marketing-2", states[name] ?? ChangeState.DRAFT).id;
         const launch = operation.query.includes('"LAUNCH"') ? harness.engine.seedLaunch("failed").id : "1";
         harness.engine.clearCalls();
         const answer = await client.graphql(withId(operation, id, launch), operation.variables ? { variables: operation.variables } : {});
