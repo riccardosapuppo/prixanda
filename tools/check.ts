@@ -454,7 +454,10 @@ const SUITES: Suite[] = [
       const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
       if (!existsSync(tsc)) return notRun("typescript is not installed: npm install");
       const ran = await run(process.execPath, [tsc, "-p", "tsconfig.json", "--listFiles"], { cwd: consoleDir });
-      const listed = ran.output.split(/\r?\n/).map((line) => line.replaceAll("\\", "/")).filter((line) => !line.includes("node_modules"));
+      // Next writes .next/types and next-env.d.ts when it builds: they are not
+      // the console's files, and a fresh checkout has none of them.
+      const listed = ran.output.split(/\r?\n/).map((line) => line.replaceAll("\\", "/"))
+        .filter((line) => !line.includes("node_modules") && !line.includes("/.next/") && !line.endsWith("/next-env.d.ts"));
       const ours = listed.filter((line) => line.includes("/apps/console/") && /\.tsx?$/.test(line)).length;
       const design = listed.filter((line) => line.includes("/packages/design/") && /\.tsx?$/.test(line)).length;
       const counted = `${ours} files, ${design} of the design`;
@@ -633,7 +636,7 @@ async function siteNodeTests(suite: string, files: string[], floor: number): Pro
 const designDir = join(repoRoot, "packages", "design");
 const consoleDir = join(repoRoot, "apps", "console");
 const CONSOLE_FLOOR = {
-  designFiles: 4, designTests: 77, files: 90, operations: 29, unitTests: 56, stories: 22, pages: 13, e2eTests: 26,
+  designFiles: 4, designTests: 77, files: 85, operations: 29, unitTests: 56, stories: 22, pages: 13, e2eTests: 26,
 };
 /** The gateway the console is built for: the one its end-to-end tests start. */
 const CONSOLE_GATEWAY_URL = E2E_GATEWAY_URL;
