@@ -12,23 +12,26 @@ ROLES = ("marketing", "commercial_lead", "finance", "catalog_manager", "on_call"
 SIGNING_ROLES = frozenset({"commercial_lead", "finance"})
 
 # The kinds of change the contract carries content for today; the database
-# already knows the three that stage 7 adds.
-KINDS = ("offer", "list_price")
+# knows two more: a plan's entitlements, and a prepaid pass (§9).
+KINDS = ("offer", "list_price", "price_migration")
 
 # Who writes each kind: CreateChange, SaveVersion, ValidateChange, SubmitChange.
 AUTHORS: dict[str, frozenset[str]] = {
     "offer": frozenset({"marketing"}),
     "list_price": frozenset({"commercial_lead"}),
+    "price_migration": frozenset({"commercial_lead"}),
 }
 # Finance approves but does not set a launch going: separation of duties.
 SCHEDULERS: dict[str, frozenset[str]] = {
     "offer": frozenset({"marketing", "commercial_lead"}),
     "list_price": frozenset({"commercial_lead"}),
+    "price_migration": frozenset({"commercial_lead"}),
 }
 # Cancelling a scheduled launch is part of "roll back a launch" (§12).
 CANCELLERS: dict[str, frozenset[str]] = {
     "offer": frozenset({"marketing", "commercial_lead", "on_call"}),
     "list_price": frozenset({"commercial_lead", "on_call"}),
+    "price_migration": frozenset({"commercial_lead", "on_call"}),
 }
 SUSPENDERS = frozenset({"on_call"})
 # Retrying or cancelling a launch that stopped: "roll back a launch" (§12).

@@ -6,7 +6,9 @@ at, and any price that took over later, each from its own day (a price
 migration, §8). On a day it costs the latest price of its history from that
 day or before. An offer prices the first charges, as many as its months;
 from the charge after them, the list price in force when that charge's day
-begins (billing.py), unless a later price of the history took over by then.
+begins (billing.py), unless a later price of the history took over by then;
+and once a price migration asked the subscription, the price before the
+migration until its new price took over, never the new one before (§8).
 A subscription without an offer keeps its price until a price migration
 moves it (§4.3).
 """
@@ -39,6 +41,12 @@ async def full_price(tx: Connection, market: reference.Market, plan_id: str, ful
     return price
 
 
+# The price after an offer of a subscription that a price migration asked: the price before the migration, until the
+# new price takes over in its history, from the day it applies, if it ever does (never inside the offer's months).
+KEPT = ("select old_price_minor from price_change_request where subscription_id = {subscription} "
+        "order by id desc limit 1")
+
+
 async def price_of(tx: Connection, subscription_id: int, day: date) -> tuple[int, date]:
     """The price of the history in force on a day, and the day it took over."""
     row = await tx.fetchrow(
@@ -66,6 +74,8 @@ async def standing(tx: Connection, market: reference.Market, *, subscription_id:
     amount, price_from = await price_of(tx, subscription_id, day)
     after = None
     if offer_months > 0:
-        after = await full_price(tx, market, plan_id, billing.schedule(started_on, billing_day, offer_months, day).full_price_from)
+        kept = await tx.fetchval(KEPT.format(subscription="$1"), subscription_id)
+        after = (Money(kept, market.currency) if kept is not None else
+                 await full_price(tx, market, plan_id, billing.schedule(started_on, billing_day, offer_months, day).full_price_from))
     return standing_from(Money(amount, market.currency), price_from, started_on=started_on, billing_day=billing_day,
                          offer_months=offer_months, day=day, after_offer=after)

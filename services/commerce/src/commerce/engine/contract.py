@@ -12,7 +12,7 @@ from datetime import datetime
 from commerce.domain.localtime import MalformedTime, format_local, parse_instant, parse_local
 from commerce.domain.money import Money
 from commerce.domain.offers import (
-    Audience, Content, ListeningRule, ListPrice, Offer, OfferPage, OfferPeriod, OfferPrice,
+    Audience, Content, ListeningRule, ListPrice, Offer, OfferPage, OfferPeriod, OfferPrice, PriceMigration,
 )
 from commerce.engine.errors import InvalidArgument, Refused
 from commerce.v1 import changes_pb2, common_pb2
@@ -136,13 +136,31 @@ def list_price_from_proto(message: changes_pb2.ListPriceContent) -> ListPrice:
     )
 
 
-def content_from_request(request) -> Content:
-    which = request.WhichOneof("content")
+def price_migration_from_proto(message: changes_pb2.PriceMigrationContent) -> PriceMigration:
+    return PriceMigration(
+        title=message.title,
+        plan=message.plan or None,
+        market=message.market or None,
+        amount=money_from_proto(message.amount, "the new price") if message.HasField("amount") else None,
+        notices=local_from_proto(message.notices_local, "the notices"),
+        starts=local_from_proto(message.starts_local, "the start"),
+    )
+
+
+def content_from_message(holder) -> Content:
+    """The content a request or a stored version carries, by the field its oneof set."""
+    which = holder.WhichOneof("content")
     if which == "offer":
-        return offer_from_proto(request.offer)
+        return offer_from_proto(holder.offer)
     if which == "list_price":
-        return list_price_from_proto(request.list_price)
-    raise InvalidArgument("the request carries no content: an offer or a list price")
+        return list_price_from_proto(holder.list_price)
+    if which == "price_migration":
+        return price_migration_from_proto(holder.price_migration)
+    raise InvalidArgument("the request carries no content: an offer, a list price or a price migration")
+
+
+def content_from_request(request) -> Content:
+    return content_from_message(request)
 
 
 def _local_text(value: datetime | None) -> str:
@@ -150,6 +168,13 @@ def _local_text(value: datetime | None) -> str:
 
 
 def content_to_proto(content: Content) -> tuple[str, object]:
+    if isinstance(content, PriceMigration):
+        message = changes_pb2.PriceMigrationContent(
+            title=content.title, plan=content.plan or "", market=content.market or "",
+            notices_local=_local_text(content.notices), starts_local=_local_text(content.starts))
+        if content.amount is not None:
+            message.amount.CopyFrom(money(content.amount))
+        return "price_migration", message
     if isinstance(content, ListPrice):
         message = changes_pb2.ListPriceContent(title=content.title, plan=content.plan or "", market=content.market or "",
                                                starts_local=_local_text(content.starts))

@@ -13,6 +13,7 @@ from commerce.domain.billing import billing_date, billing_day_for, schedule
 from commerce.domain.economics import (
     Book, Campaign, break_even_retention, finance_conditions, recognize_monthly, signatures_needed, simulate,
 )
+from commerce.domain.migration import Charges, Policy, leaving_day, new_price_from, simulate_migration
 from commerce.domain.money import Money, format_money
 from commerce.domain.offers import Audience, ListeningRule, Offer, OfferPage, OfferPeriod, OfferPrice
 from commerce.domain.validation import Context, MarketFacts, PlanFacts, validate
@@ -20,8 +21,9 @@ from commerce.domain.validation import Context, MarketFacts, PlanFacts, validate
 CASES = json.loads((Path(__file__).parent / "business_book.json").read_text(encoding="utf-8"))["cases"]
 BOOK = Book()
 
-# The sections the stage-2 brief names; each must have at least one case.
-REQUIRED_SECTIONS = ["§3.5", "§3.6", "§5.4", "§5.5", "§6.5", "§6.7", "§8.7", "§9.2", "§14.1", "§14.2"]
+# The sections the briefs name; each must have at least one case.
+REQUIRED_SECTIONS = ["§3.5", "§3.6", "§5.4", "§5.5", "§6.5", "§6.7", "§8.2", "§8.7", "§8.8", "§9.2", "§14.1", "§14.2",
+                     "§14.3"]
 
 
 def campaign(given: dict) -> Campaign:
@@ -115,6 +117,25 @@ def run(case: dict) -> dict:
         terms = BOOK.terms(given["currency"], given["vat_bp"])
         before, after = terms.net(given["from"]), terms.net(given["to"])
         return {"net_from": before, "net_to": after, "pool_from": terms.pool(before), "pool_to": terms.pool(after)}
+    if kind == "migration":
+        terms = BOOK.terms(given["currency"], given["vat_bp"])
+        policy = Policy("DE", "consent", "law", ("source",), 45, given["after_window"], "choice", ())
+        r = simulate_migration(terms, given["from"], given["to"], given["existing"], given["acceptance_bp"], policy)
+        return {"accepting": r.accepting, "not_accepting": r.not_accepting, "moving_to_free": r.moving_to_free,
+                "revenue_change": r.revenue_change, "contribution_change": r.contribution_change,
+                "revenue_at_risk": r.revenue_at_risk, "break_even_revenue_bp": r.break_even_revenue_bp,
+                "break_even_contribution_bp": r.break_even_contribution_bp}
+    if kind == "migration_dates":
+        policy = Policy("XX", given["requirement"], "law", ("source",), given["window_days"], given["after_window"], "choice", ())
+        ends = policy.window_ends(datetime.fromisoformat(given["sent_local"]))
+        offer_ends = date.fromisoformat(given["offer_ends"]) if given["offer_ends"] else None
+        charges = Charges(date.fromisoformat(given["started_on"]), given["billing_day"], offer_ends)
+        starts = date.fromisoformat(given["starts"])
+        yes_on = date.fromisoformat(given["yes_on"]) if given["yes_on"] else None
+        leaves = leaving_day(policy, charges, starts=starts, window_ends=ends.date())
+        return {"window_ends": ends.isoformat(timespec="minutes"),
+                "new_price_from": new_price_from(policy, charges, starts=starts, window_ends=ends.date(), yes_on=yes_on).isoformat(),
+                "leaves_on": leaves.isoformat() if leaves else None}
     if kind == "prepaid":
         net = BOOK.terms(given["currency"], given["vat_bp"]).net(given["price"])
         monthly = recognize_monthly(net, given["months"])

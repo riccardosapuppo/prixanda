@@ -12,8 +12,9 @@ had begun is rolled back to a savepoint first, while the refusal itself, and
 a failed validation's report, are kept.
 
 The engine's own jobs run outside any call, on the server's timer: the
-launches (launches.py), the end of offers whose periods are over, the
-outbox's deliveries, and the pruning of idempotency keys. A write that
+launches (launches.py), the end of offers whose periods are over, the end of
+price migrations' windows (migrations.py), the outbox's deliveries, and the
+pruning of idempotency keys. A write that
 leaves work for them (a confirmed quote's charge, a launch retried) wakes the
 timer, so that the work starts at once rather than at the next tick.
 """
@@ -34,6 +35,7 @@ from commerce.engine.changes import Changes
 from commerce.engine.database import RETRYABLE, Connection, Database, DatabaseError, DatabaseUnavailable
 from commerce.engine.errors import EngineError, InvalidArgument, PermissionDenied, Refused, Unavailable
 from commerce.engine.launches import Happened, Launches, Probe
+from commerce.engine.migrations import OUTCOME, REQUEST, Migrations, Settled, SubscriberInbox
 from commerce.engine.outbox import Delivery, Relay, SiteInbox
 from commerce.engine.overview import Overview
 from commerce.engine.payments import Charges, ProviderEvents
@@ -86,6 +88,7 @@ METHODS: dict[str, Method] = {m.full_name: m for m in [
     _m("ChangeService", "CancelChange", changes_pb2, writes=True),
     _m("ChangeService", "SuspendChange", changes_pb2, writes=True),
     _m("SimulationService", "SimulateOffer", simulation_pb2),
+    _m("SimulationService", "SimulateMigration", simulation_pb2),
     _m("AuditService", "ListEvents", audit_pb2),
     _m("AuditService", "VerifyChain", audit_pb2),
     _m("AuditService", "ExportHead", audit_pb2, writes=True),
@@ -95,6 +98,7 @@ METHODS: dict[str, Method] = {m.full_name: m for m in [
     _m("SubscriberService", "VerifyStudent", subscriptions_pb2, public=True, writes=True),
     _m("SubscriberService", "ConfirmQuote", subscriptions_pb2, public=True, writes=True),
     _m("SubscriberService", "GetAccount", subscriptions_pb2, public=True),
+    _m("SubscriberService", "AnswerPriceChange", subscriptions_pb2, public=True, writes=True),
     _m("LaunchService", "ListLaunches", launches_pb2),
     _m("LaunchService", "GetLaunch", launches_pb2),
     _m("LaunchService", "RetryLaunch", launches_pb2, writes=True),
@@ -115,7 +119,9 @@ class Engine:
         # Simulated unless a real provider is given: no money moves, no student record is checked.
         self.payments = payments or SimulatedPayments(clock)
         self.provider_events = ProviderEvents(db, clock)
-        self.relay = Relay(db, clock, [SiteInbox(db, clock), Charges(db, self.payments, self.provider_events)])
+        self.relay = Relay(db, clock, [SiteInbox(db, clock), Charges(db, self.payments, self.provider_events),
+                                       SubscriberInbox(db, clock, REQUEST), SubscriberInbox(db, clock, OUTCOME)])
+        self.migrations = Migrations(db, clock)
         # The probe is the fault-injection tests' only: see launches.py.
         self.launches = Launches(db, clock, self.publisher, self.relay, probe=probe)
         self.catalog = Catalog(clock, self.book, self.publisher)
@@ -137,12 +143,12 @@ class Engine:
             "ApproveChange": self.changes.approve, "RejectChange": self.changes.reject,
             "ScheduleChange": self.changes.schedule, "CancelChange": self.changes.cancel,
             "SuspendChange": self.changes.suspend,
-            "SimulateOffer": self.simulation.simulate_offer,
+            "SimulateOffer": self.simulation.simulate_offer, "SimulateMigration": self.simulation.simulate_migration,
             "ListEvents": self.audit.list_events, "VerifyChain": self.audit.verify_chain, "ExportHead": self.audit.export_head,
             "GetOverview": self.overview.get_overview, "ListPeople": self.overview.list_people,
             "ListDemoListeners": self.subscribers.list_demo_listeners,
             "VerifyStudent": self.subscribers.verify_student, "ConfirmQuote": self.subscribers.confirm_quote,
-            "GetAccount": self.subscribers.get_account,
+            "GetAccount": self.subscribers.get_account, "AnswerPriceChange": self.migrations.answer,
             "ListLaunches": self.launches.list_launches, "GetLaunch": self.launches.get_launch,
             "RetryLaunch": self.launches.retry_launch, "CancelLaunch": self.launches.cancel_launch,
         }
@@ -236,6 +242,13 @@ class Engine:
     async def end_due(self) -> list[Outcome]:
         try:
             return await end_due(self.db, self.clock, self.publisher)
+        except DatabaseUnavailable as error:
+            raise Unavailable(str(error)) from error
+
+    async def settle_migrations(self) -> list[Settled]:
+        """A pass of the price migrations: acts on every window that ended, once each."""
+        try:
+            return await self.migrations.settle_due()
         except DatabaseUnavailable as error:
             raise Unavailable(str(error)) from error
 

@@ -25,7 +25,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from commerce.domain.offers import Content, ListPrice, Offer, from_json
+from commerce.domain.offers import Content, ListPrice, Offer, PriceMigration, from_json
 from commerce.domain.validation import clash_words, clashes, needs_count
 from commerce.engine import eligibility
 from commerce.engine.database import Connection
@@ -102,10 +102,13 @@ async def first_clash(tx: Connection, offer: Offer, change_id: int, states: tupl
     return None
 
 
-async def pending_list_price(tx: Connection, change: ListPrice, change_id: int, states: tuple[str, ...]) -> Other | None:
-    """Another change of the same plan's list price in the same market, in one of these states."""
-    for other in await others(tx, "list_price", states, change_id):
-        assert isinstance(other.content, ListPrice)
-        if other.content.plan == change.plan and other.content.market == change.market:
-            return other
+async def pending_list_price(tx: Connection, change: ListPrice | PriceMigration, change_id: int,
+                             states: tuple[str, ...]) -> Other | None:
+    """Another change of the same plan's list price in the same market, in one of these states: a list price
+    or a price migration, which sets the list price too."""
+    for kind in ("list_price", "price_migration"):
+        for other in await others(tx, kind, states, change_id):
+            assert isinstance(other.content, (ListPrice, PriceMigration))
+            if other.content.plan == change.plan and other.content.market == change.market:
+                return other
     return None

@@ -89,6 +89,10 @@ class Jobs:
                 elif outcome.action == "failed" and self.ending.get(outcome.change_id) != outcome.error:
                     self.ending[outcome.change_id] = outcome.error or ""
                     log("warning", "offer_end_failed", change=outcome.change_id, error=outcome.error)
+            for settled in await engine.settle_migrations():
+                log("info", "price_change_settled", **{**settled.dates, "price_change": settled.price_change,
+                                                       "change": settled.change, "subscription": settled.subscription,
+                                                       "state": settled.state, "effect": settled.effect})
             for delivery in await engine.deliver_outbox():
                 if delivery.delivered:
                     log("info", "outbox_delivered", **{**delivery.facts, "message": delivery.message_id, "topic": delivery.topic,

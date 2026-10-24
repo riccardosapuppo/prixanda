@@ -38,7 +38,7 @@ from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, to_local
 from commerce.domain.money import Money
 from commerce.domain.validation import on_sale, resolve_price
-from commerce.engine import charging, contract, eligibility, payments, records, reference
+from commerce.engine import charging, contract, eligibility, migrations, payments, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.catalog import LIVE_OFFER, Catalog, list_price_at, live_offer
 from commerce.engine.database import Connection, utc_text
@@ -63,7 +63,8 @@ def _date(text: str) -> date:
 
 CURRENT = (
     "select id, plan_id, paid, price_minor, currency, started_on::text as started_on, billing_day, quote_id, "
-    "offer_change_id, offer_months from subscription where subscriber_id = $1 and started_on <= $2::text::date "
+    "offer_change_id, offer_months, ended_on::text as ended_on from subscription where subscriber_id = $1 "
+    "and started_on <= $2::text::date "
     "and (ended_on is null or ended_on > $2::text::date)")
 
 
@@ -114,7 +115,16 @@ class Subscribers:
             message.offer_months = months
             message.offer_months_left = schedule.offer_months_left
             message.full_price_from = schedule.full_price_from.isoformat()
-            message.full_price.CopyFrom(contract.money(now.full_price))
+            # What its first charge after the offer costs: the list price then, or a price migration's rule (§8).
+            at_full = await charging.standing(tx, market, day=schedule.full_price_from, **terms)
+            message.full_price.CopyFrom(contract.money(at_full.price))
+        # The day it ends if the listener does nothing more (§8): nothing is charged on it or after.
+        ends = await migrations.ends_on(tx, row["id"], _date(row["ended_on"]) if row["ended_on"] else None)
+        if ends is not None:
+            message.ends_on = ends.isoformat()
+            if schedule.next_billing_on >= ends:
+                message.ClearField("next_billing_on")
+                return message
         # What the next charge costs: the same rule, on that charge's day.
         following = await charging.standing(tx, market, day=schedule.next_billing_on, **terms)
         message.next_charge.CopyFrom(contract.money(following.price))
@@ -288,4 +298,5 @@ class Subscribers:
         payment = await payments.of_subscription(tx, row["id"])
         if payment is not None:
             account.payment.CopyFrom(payment)
+        account.price_changes.extend(await migrations.of_subscription(tx, row["id"], market, now))
         return subscriptions_pb2.GetAccountResponse(account=account)

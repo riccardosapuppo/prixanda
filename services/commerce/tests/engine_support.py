@@ -113,8 +113,21 @@ def family_rise(**changes) -> changes_pb2.ListPriceContent:
     return apply(content, changes)
 
 
+def family_migration(**changes) -> changes_pb2.PriceMigrationContent:
+    """§14.3: the Family plan in Germany from €18.99 to €20.99, for new subscribers from 1 December 2026; the existing
+    ones asked for their consent from 2 November 2026, 09:00 in Berlin."""
+    content = changes_pb2.PriceMigrationContent(title="Family price rise, Germany", plan="family", market="DE",
+                                                amount=eur(2_099), notices_local="2026-11-02T09:00",
+                                                starts_local="2026-12-01T00:00")
+    return apply(content, changes)
+
+
+FIELDS = {changes_pb2.OfferContent: "offer", changes_pb2.ListPriceContent: "list_price",
+          changes_pb2.PriceMigrationContent: "price_migration"}
+
+
 async def create(world: World, content, who=MARKETING) -> changes_pb2.Change:
-    field = "offer" if isinstance(content, changes_pb2.OfferContent) else "list_price"
+    field = FIELDS[type(content)]
     response = await world.call("CreateChange", changes_pb2.CreateChangeRequest(**{field: content}), who)
     assert response.WhichOneof("outcome") == "change", response
     return response.change

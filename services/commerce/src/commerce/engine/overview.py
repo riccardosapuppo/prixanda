@@ -97,13 +97,15 @@ class Overview:
             "select s.market, s.plan_id, s.paid, p.price_minor, coalesce(s.offer_months, 0) as offer_months, "
             "case when s.offer_months is null then null else s.started_on::text end as started_on, "
             "case when s.offer_months is null then null else s.billing_day end as billing_day, "
-            "case when s.offer_months is null then null else p.from_on::text end as price_from, count(*)::bigint as n "
+            "case when s.offer_months is null then null else p.from_on::text end as price_from, "
+            f"case when s.offer_months is null then null else ({charging.KEPT.format(subscription='s.id')}) end as kept, "
+            "count(*)::bigint as n "
             "from subscription s "
             "join (select key as market, value::date as day from jsonb_each_text($1::text::jsonb)) d on d.market = s.market "
             "join lateral (select h.price_minor, h.from_on from subscription_price h where h.subscription_id = s.id "
             "  and h.from_on <= d.day order by h.from_on desc limit 1) p on true "
             "where s.started_on <= d.day and (s.ended_on is null or s.ended_on > d.day) "
-            "group by 1, 2, 3, 4, 5, 6, 7, 8 order by 1, 2",
+            "group by 1, 2, 3, 4, 5, 6, 7, 8, 9 order by 1, 2",
             json.dumps({code: day.isoformat() for code, day in days.items()}))
         after_offer: dict[tuple[str, str, date], Money] = {}
         counts: dict[tuple[str, str, bool], int] = {}
@@ -122,10 +124,11 @@ class Overview:
                     key = (code, row["plan_id"], ends)
                     if key not in after_offer:
                         after_offer[key] = await charging.full_price(tx, market, row["plan_id"], ends)
+                    after = Money(row["kept"], market.currency) if row["kept"] is not None else after_offer[key]
                     price = charging.standing_from(
                         Money(price, market.currency), date.fromisoformat(row["price_from"]), started_on=started,
                         billing_day=row["billing_day"], offer_months=row["offer_months"], day=days[code],
-                        after_offer=after_offer[key]).price.amount
+                        after_offer=after).price.amount
                 terms = market.terms(self.book)
                 net = terms.net(price)
                 revenue[code] = revenue.get(code, 0) + row["n"] * net

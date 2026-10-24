@@ -1,5 +1,6 @@
-"""What a version of a change says: an offer (business book §6.1) or a new
-list price (§4.2), and how it is kept in the database.
+"""What a version of a change says: an offer (business book §6.1), a new
+list price (§4.2) or a price migration (§8), and how it is kept in the
+database.
 
 A draft may be incomplete: a missing price, page or start is something the
 validation reports (§6.4), not a reason to refuse saving. What is refused
@@ -122,7 +123,23 @@ class ListPrice:
     kind = "list_price"
 
 
-Content = Offer | ListPrice
+@dataclass(frozen=True)
+class PriceMigration:
+    """A higher price for one plan in one market, for everyone (§8, §14.3): new
+    subscribers pay it from starts; existing ones are asked, or told, from
+    notices, by the rules of their market. The change starts at notices."""
+
+    title: str
+    plan: str | None = None
+    market: str | None = None
+    amount: Money | None = None
+    notices: datetime | None = None
+    starts: datetime | None = None
+
+    kind = "price_migration"
+
+
+Content = Offer | ListPrice | PriceMigration
 
 
 @dataclass(frozen=True)
@@ -149,7 +166,7 @@ def shape_problems(content: Content, known: Known) -> list[str]:
     _text(title, TITLE_MAX, "the title", problems)
     if content.plan is not None and (content.plan not in known.plans or not known.plans[content.plan][0]):
         problems.append(f"{content.plan!r} is not a paid plan")
-    if isinstance(content, ListPrice):
+    if isinstance(content, (ListPrice, PriceMigration)):
         if content.market is not None and content.market not in known.markets:
             problems.append(f"{content.market!r} is not a market")
         if content.amount is not None:
@@ -211,6 +228,8 @@ def local_times(content: Content) -> list[tuple[str, datetime]]:
     """Every (market, local time) the version schedules, to check against the clocks."""
     if isinstance(content, ListPrice):
         return [(content.market, content.starts)] if content.market and content.starts else []
+    if isinstance(content, PriceMigration):
+        return [(content.market, moment) for moment in (content.notices, content.starts) if content.market and moment]
     found = []
     for period in content.periods:
         for moment in (period.starts, period.ends):
@@ -231,6 +250,10 @@ def to_json(content: Content) -> dict:
     if isinstance(content, ListPrice):
         return {"schema": SCHEMA, "kind": "list_price", "title": content.title, "plan": content.plan,
                 "market": content.market, "amount": _money(content.amount), "starts": _local(content.starts)}
+    if isinstance(content, PriceMigration):
+        return {"schema": SCHEMA, "kind": "price_migration", "title": content.title, "plan": content.plan,
+                "market": content.market, "amount": _money(content.amount), "notices": _local(content.notices),
+                "starts": _local(content.starts)}
     a = content.audience
     return {
         "schema": SCHEMA, "kind": "offer", "title": content.title, "plan": content.plan,
@@ -265,6 +288,10 @@ def from_json(data: Mapping) -> Content:
     if data["kind"] == "list_price":
         return ListPrice(title=data["title"], plan=data["plan"], market=data["market"],
                          amount=_read_money(data["amount"]), starts=_read_local(data["starts"]))
+    if data["kind"] == "price_migration":
+        return PriceMigration(title=data["title"], plan=data["plan"], market=data["market"],
+                              amount=_read_money(data["amount"]), notices=_read_local(data["notices"]),
+                              starts=_read_local(data["starts"]))
     if data["kind"] != "offer":
         raise ValueError(f"no content of kind {data['kind']!r}")
     a = data["audience"]

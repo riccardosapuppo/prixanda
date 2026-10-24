@@ -60,8 +60,8 @@ from datetime import datetime, timedelta
 
 from commerce.domain import policy
 from commerce.domain.localtime import describe_local, format_instant, format_local, parse_instant, to_instant, to_local
-from commerce.domain.offers import ListPrice, Offer, from_json
-from commerce.engine import clashes, contract, outbox, records, reference
+from commerce.domain.offers import ListPrice, Offer, PriceMigration, from_json
+from commerce.engine import clashes, contract, migrations, outbox, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import Connection, Database, utc_text
 from commerce.engine.errors import InvalidArgument, NotFound, Refused
@@ -432,7 +432,7 @@ class Launches:
                 raise Refusal(clash.words(ref.markets[clash.market].name, content.group)
                               + " Nothing was published, and the change stays scheduled.", clash.facts())
             return None
-        assert isinstance(content, ListPrice)
+        assert isinstance(content, (ListPrice, PriceMigration))
         market = ref.markets[content.market]
         local_now = to_local(now, market.zone)
         effective = content.starts if content.starts > local_now else _ceil_second(local_now)
@@ -471,7 +471,15 @@ class Launches:
         events: list[int] = []
         body: dict = {"change": launch.change_id, "version": launch.version, "from": "scheduled", "to": "active",
                       "launch": launch.id}
-        if isinstance(content, ListPrice):
+        if isinstance(content, PriceMigration):
+            # The existing subscribers first, while the price list still says what they pay after an offer.
+            market = ref.markets[content.market]
+            policy = (await reference.policies(tx))[market.code]
+            opened = await migrations.open_requests(tx, change_id=launch.change_id, content=content, market=market,
+                                                    policy=policy, now=now, request_id=run)
+            body.update({"asked": opened.asked, "requirement": policy.legal_requirement,
+                         "window_ends": format_local(opened.window_ends), "notices": format_local(content.notices)})
+        if isinstance(content, (ListPrice, PriceMigration)):
             market = ref.markets[content.market]
             previous = await tx.fetchrow(
                 "select id, change_id from list_price where plan_id = $1 and market = $2 and upper_inf(valid) for update",
@@ -543,13 +551,17 @@ class Launches:
             return {"live": f"the change is {state}: it went live, and a later decision took it off the site"}
         if state != "active":
             raise NotVerified(f"change #{launch.change_id} is {state} after its publication")
-        if launch.kind == "list_price":
+        if launch.kind in ("list_price", "price_migration"):
             row = await tx.fetchrow(
                 "select amount_minor, to_char(lower(valid), 'YYYY-MM-DD\"T\"HH24:MI:SS') as starts from list_price "
                 "where change_id = $1", launch.change_id)
             if row is None:
                 raise NotVerified(f"the price list holds no price of change #{launch.change_id}")
-            return {"price list": f"{row['amount_minor']} from {row['starts']}"}
+            facts: dict[str, object] = {"price list": f"{row['amount_minor']} from {row['starts']}"}
+            if launch.kind == "price_migration":
+                facts["subscribers asked or told"] = await tx.fetchval(
+                    "select count(*) from price_change_request where change_id = $1", launch.change_id)
+            return facts
         content, _, _ = await records.version_content(tx, launch.change_id, launch.version)
         at = parse_instant(published["published at"])
         ref = await reference.load(tx, at)
