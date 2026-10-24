@@ -1,0 +1,145 @@
+"""
+The site's API: the public schema of the gateway (business book §2, §4, §6).
+
+It shows what is for sale and quotes prices, and holds nothing internal: no
+floors or artists' economics, no changes, versions or approvals, no people, no
+audit. Its whole surface is listed in the gateway's contract test. The price
+is always the engine's (§4.5): nothing here accepts a price.
+
+requestQuote needs an Idempotency-Key header. Errors carry extensions.code:
+BAD_USER_INPUT, NOT_FOUND or ENGINE_UNAVAILABLE.
+"""
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+"""
+An amount of money in the currency's minor unit (cents, pence), never a float.
+Written as an object whose amount is a string of digits, so that no client
+rounds it: {"amountMinor": "579", "currency": "EUR"}.
+"""
+scalar Money
+
+"A wall-clock time in a market's time zone, ISO 8601 without an offset: 2026-10-31T23:59."
+scalar LocalDateTime
+
+"An instant, ISO 8601 in UTC: 2026-10-24T07:00:00Z."
+scalar DateTime
+
+"A market's code, ISO 3166-1 alpha-2 in capitals: IT, FR, DE, GB."
+scalar MarketCode
+
+"A plan's code: lower-case letters, digits and dashes, starting with a letter."
+scalar PlanCode
+
+type Query {
+  markets: [Market!]!
+  "The plans of a market now, with the price a new subscriber pays (§4.3)."
+  plans(market: MarketCode!): [Plan!]!
+  "The list prices of a market, past, current and announced (§4.1)."
+  prices(market: MarketCode!, plan: PlanCode): [ListPrice!]!
+  "The offers on sale now in a market: shown if and only if their prices are in force (§7.5)."
+  offers(market: MarketCode!): [Offer!]!
+}
+
+type Mutation {
+  """
+  A quote from the engine for a plan, with or without an offer (§4.5). The
+  site shows it and confirms it later by its id; it expires.
+  """
+  requestQuote(plan: PlanCode!, market: MarketCode!, offerId: ID): QuoteResult!
+}
+
+type Market {
+  code: MarketCode!
+  name: String!
+  currency: String!
+  timeZone: String!
+}
+
+enum AudioQuality {
+  STANDARD
+  LOSSLESS
+}
+
+type Entitlements {
+  "Null means unlimited."
+  skipsPerHour: Int
+  audio: AudioQuality!
+  offline: Boolean!
+  seats: Int!
+  needsStudentCheck: Boolean!
+}
+
+type Plan {
+  code: PlanCode!
+  name: String!
+  paid: Boolean!
+  entitlements: Entitlements!
+  "Null for the free plan. Prices include VAT (§3.2)."
+  listPrice: Money
+}
+
+type ListPrice {
+  plan: PlanCode!
+  market: MarketCode!
+  amount: Money!
+  validFrom: LocalDateTime!
+  "Null: open-ended."
+  validUntil: LocalDateTime
+}
+
+type MarketTime {
+  local: LocalDateTime!
+  utc: DateTime!
+}
+
+type Offer {
+  id: ID!
+  market: MarketCode!
+  plan: PlanCode!
+  title: String!
+  text: String!
+  terms: String!
+  price: Money!
+  "The list price in force today, struck through on the page: read from the price list, never typed in the offer (§6.2)."
+  listPrice: Money!
+  monthsAtOfferPrice: Int!
+  "Null: no end announced."
+  takeableUntil: MarketTime
+  "Who may take it, in words for the page."
+  audience: String!
+  needsStudentCheck: Boolean!
+}
+
+type Quote {
+  id: ID!
+  plan: PlanCode!
+  market: MarketCode!
+  price: Money!
+  listPrice: Money!
+  "Months at this price; 0 with the list price."
+  monthsAtPrice: Int!
+  "What comes after the offer: the list price in force at that time."
+  thenPrice: Money!
+  expiresAt: DateTime!
+  "Null with the list price."
+  offerId: ID
+}
+
+enum QuoteRefusalCode {
+  "The offer is no longer on sale."
+  OFFER_ENDED
+  "The person is not in the offer's audience."
+  NOT_ELIGIBLE
+  "This plan cannot be quoted here now."
+  NOT_AVAILABLE
+}
+
+type QuoteRefusal {
+  code: QuoteRefusalCode!
+  reason: String!
+}
+
+union QuoteResult = Quote | QuoteRefusal

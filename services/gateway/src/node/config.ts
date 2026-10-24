@@ -1,0 +1,217 @@
+// The gateway's configuration: settings from the environment, secrets kept
+// apart from them.
+//
+// There is one sign-in mode, the demonstration: a person of the demo is
+// picked from the engine's list, which is not authentication. So the gateway
+// refuses to start in any other mode, and refuses to serve the console's API
+// in production at all, because there the browser must never choose its own
+// privileges. What a real deployment needs instead is written in REAL_AUTH.
+//
+// Secrets: the engine's internal token (COMMERCE_INTERNAL_TOKEN) and the key
+// that signs session cookies (GATEWAY_SESSION_SECRET). In development, when
+// they are not set, each is read from a file in .data/ (ignored by git),
+// created once by whoever starts first; in production they must be set.
+import { randomBytes } from "node:crypto";
+import { link, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+
+export class ConfigError extends Error {}
+
+export const REAL_AUTH =
+  "A real deployment needs OpenID Connect: an identity provider that signs ID tokens, the gateway verifying them (issuer, audience, expiry, signature), " +
+  "roles taken from the provider's claims or a server-side directory and never from the browser, and sessions bound to the verified identity.";
+
+export type Endpoint = "internal" | "public";
+
+export type RateSetting = { readonly capacity: number; readonly perSecond: number };
+
+export type GatewayConfig = {
+  readonly production: boolean;
+  readonly host: string;
+  readonly ports: { readonly internal: number; readonly public: number };
+  readonly endpoints: readonly Endpoint[];
+  readonly engineUrl: string;
+  readonly engineToken: string;
+  /** Null when the console's API is not served. */
+  readonly sessionSecret: Uint8Array | null;
+  readonly origins: { readonly internal: readonly string[]; readonly public: readonly string[] };
+  readonly cookieSecure: boolean;
+  readonly trustProxy: boolean;
+  readonly rate: { readonly address: RateSetting; readonly session: RateSetting };
+  readonly timeouts: { readonly readMs: number; readonly writeMs: number };
+  readonly session: { readonly absoluteMs: number; readonly idleMs: number };
+};
+
+/** Every variable the gateway reads. Any other GATEWAY_ variable is refused: a misspelt setting must not pass for a default. */
+export const VARIABLES = {
+  COMMERCE_INTERNAL_TOKEN: "the engine's internal token (secret); in development, .data/internal-token when unset",
+  ENGINE_URL: "the engine's address, http://127.0.0.1:4611 by default",
+  NODE_ENV: "production turns production on",
+  GATEWAY_ENV: "development (default) or production",
+  GATEWAY_AUTH: "demo, the only sign-in mode there is",
+  GATEWAY_HOST: "the address to listen on, 127.0.0.1 by default",
+  GATEWAY_INTERNAL_PORT: "the console's API, 4621 by default",
+  GATEWAY_PUBLIC_PORT: "the site's API, 4622 by default",
+  GATEWAY_ENDPOINTS: "internal,public (default), or one of them",
+  GATEWAY_SESSION_SECRET: "64 or more hexadecimal digits that sign the session cookies (secret); in development, .data/gateway-session-secret when unset",
+  GATEWAY_CONSOLE_ORIGINS: "the console's origins, comma separated, such as http://localhost:4631",
+  GATEWAY_SITE_ORIGINS: "the site's origins, comma separated",
+  GATEWAY_COOKIE_SECURE: "true to mark the session cookie Secure (needed behind HTTPS); false by default",
+  GATEWAY_TRUST_PROXY: "true to take the client's address from X-Forwarded-For; false by default",
+  GATEWAY_RATE_PER_ADDRESS: "requests/seconds per client address, 300/60 by default",
+  GATEWAY_RATE_PER_SESSION: "requests/seconds per session, 120/60 by default",
+  GATEWAY_ENGINE_READ_TIMEOUT_MS: "deadline of the engine's reads, 5000 by default",
+  GATEWAY_ENGINE_WRITE_TIMEOUT_MS: "deadline of the engine's writes, 10000 by default",
+} as const;
+
+const HEX_SECRET = /^[0-9a-f]{64,}$/;
+
+function port(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || value === "") return fallback;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 1 || number > 65_535) throw new ConfigError(`${name} must be a port number, not ${JSON.stringify(value)}`);
+  return number;
+}
+
+function positive(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || value === "") return fallback;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 1) throw new ConfigError(`${name} must be a whole number of 1 or more, not ${JSON.stringify(value)}`);
+  return number;
+}
+
+function flag(value: string | undefined, name: string): boolean {
+  if (value === undefined || value === "" || value === "false") return false;
+  if (value === "true") return true;
+  throw new ConfigError(`${name} must be true or false, not ${JSON.stringify(value)}`);
+}
+
+function rate(value: string | undefined, fallback: string, name: string): RateSetting {
+  const match = /^(\d+)\/(\d+)$/.exec(value ?? fallback);
+  const requests = Number(match?.[1]);
+  const seconds = Number(match?.[2]);
+  if (!match || requests < 1 || seconds < 1) throw new ConfigError(`${name} must read requests/seconds, such as ${fallback}`);
+  return { capacity: requests, perSecond: requests / seconds };
+}
+
+function origins(value: string | undefined, name: string): string[] {
+  const list = (value ?? "").split(",").map((origin) => origin.trim()).filter((origin) => origin !== "");
+  for (const origin of list) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new ConfigError(`${name}: ${JSON.stringify(origin)} is not an origin such as http://localhost:4631`);
+    }
+    if (parsed.origin !== origin || !["http:", "https:"].includes(parsed.protocol)) {
+      throw new ConfigError(`${name}: ${JSON.stringify(origin)} is not an origin (scheme, host and port, nothing else)`);
+    }
+  }
+  return list;
+}
+
+/**
+ * A local secret: read from its file, or created there with 32 random bytes
+ * in hexadecimal. The file is published whole with an exclusive link, so a
+ * second process starting at the same moment never sees half a secret: it
+ * finds the file there and reads it instead of writing its own.
+ */
+export async function localSecret(file: string): Promise<string> {
+  await mkdir(join(file, ".."), { recursive: true });
+  const candidate = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  await writeFile(candidate, `${randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
+  try {
+    await link(candidate, file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  } finally {
+    await unlink(candidate);
+  }
+  // Another process may still be writing a file it created with O_EXCL: read until it is whole.
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const value = (await readFile(file, "utf8")).trim();
+    if (HEX_SECRET.test(value)) return value;
+    await sleep(50);
+  }
+  throw new ConfigError(`${file} does not hold a secret of 64 hexadecimal digits`);
+}
+
+export async function loadConfig(env: NodeJS.ProcessEnv, dataDir: string): Promise<GatewayConfig> {
+  const unknown = Object.keys(env).filter((name) => name.startsWith("GATEWAY_") && !Object.hasOwn(VARIABLES, name));
+  if (unknown.length) {
+    throw new ConfigError(`unknown settings: ${unknown.join(", ")}. The gateway reads ${Object.keys(VARIABLES).filter((name) => name.startsWith("GATEWAY_")).join(", ")}`);
+  }
+  const auth = env["GATEWAY_AUTH"] ?? "demo";
+  if (auth !== "demo") {
+    throw new ConfigError(`GATEWAY_AUTH=${auth}: the gateway has one sign-in mode, the demonstration, and it is not authentication. ${REAL_AUTH}`);
+  }
+  const mode = env["GATEWAY_ENV"] ?? (env["NODE_ENV"] === "production" ? "production" : "development");
+  if (mode !== "development" && mode !== "production") throw new ConfigError(`GATEWAY_ENV must be development or production, not ${JSON.stringify(mode)}`);
+  const production = mode === "production" || env["NODE_ENV"] === "production";
+
+  const endpoints = (env["GATEWAY_ENDPOINTS"] ?? "internal,public").split(",").map((name) => name.trim()).filter(Boolean);
+  if (endpoints.length === 0 || endpoints.some((name) => name !== "internal" && name !== "public") || new Set(endpoints).size !== endpoints.length) {
+    throw new ConfigError("GATEWAY_ENDPOINTS must list internal, public or both, once each");
+  }
+  if (production && endpoints.includes("internal")) {
+    throw new ConfigError(
+      "the console's API does not run in production: its sign-in is a demonstration that lets the browser pick a person and their roles, and this gateway has no real authentication. "
+        + `${REAL_AUTH} Set GATEWAY_ENDPOINTS=public to serve the site's API alone.`,
+    );
+  }
+
+  const engineUrl = env["ENGINE_URL"] ?? "http://127.0.0.1:4611";
+  try {
+    const parsed = new URL(engineUrl);
+    if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("scheme");
+  } catch {
+    throw new ConfigError(`ENGINE_URL must be an http or https address, not ${JSON.stringify(engineUrl)}`);
+  }
+
+  let engineToken = env["COMMERCE_INTERNAL_TOKEN"] ?? "";
+  if (engineToken === "") {
+    if (production) throw new ConfigError("COMMERCE_INTERNAL_TOKEN must be set in production: the local token file is for development only");
+    engineToken = await localSecret(join(dataDir, "internal-token"));
+  }
+
+  let sessionSecret: Uint8Array | null = null;
+  if (endpoints.includes("internal")) {
+    const configured = env["GATEWAY_SESSION_SECRET"] ?? "";
+    if (configured !== "" && !HEX_SECRET.test(configured)) throw new ConfigError("GATEWAY_SESSION_SECRET must be 64 or more hexadecimal digits (32 bytes or more)");
+    const hex = configured || (await localSecret(join(dataDir, "gateway-session-secret")));
+    sessionSecret = Uint8Array.from(Buffer.from(hex, "hex"));
+  }
+
+  const ports = {
+    internal: port(env["GATEWAY_INTERNAL_PORT"], 4621, "GATEWAY_INTERNAL_PORT"),
+    public: port(env["GATEWAY_PUBLIC_PORT"], 4622, "GATEWAY_PUBLIC_PORT"),
+  };
+  if (endpoints.length === 2 && ports.internal === ports.public) throw new ConfigError("the console's and the site's APIs need two different ports");
+
+  return {
+    production,
+    host: env["GATEWAY_HOST"] || "127.0.0.1",
+    ports,
+    endpoints: endpoints as Endpoint[],
+    engineUrl,
+    engineToken,
+    sessionSecret,
+    origins: {
+      internal: origins(env["GATEWAY_CONSOLE_ORIGINS"], "GATEWAY_CONSOLE_ORIGINS"),
+      public: origins(env["GATEWAY_SITE_ORIGINS"], "GATEWAY_SITE_ORIGINS"),
+    },
+    cookieSecure: flag(env["GATEWAY_COOKIE_SECURE"], "GATEWAY_COOKIE_SECURE"),
+    trustProxy: flag(env["GATEWAY_TRUST_PROXY"], "GATEWAY_TRUST_PROXY"),
+    rate: {
+      address: rate(env["GATEWAY_RATE_PER_ADDRESS"], "300/60", "GATEWAY_RATE_PER_ADDRESS"),
+      session: rate(env["GATEWAY_RATE_PER_SESSION"], "120/60", "GATEWAY_RATE_PER_SESSION"),
+    },
+    timeouts: {
+      readMs: positive(env["GATEWAY_ENGINE_READ_TIMEOUT_MS"], 5_000, "GATEWAY_ENGINE_READ_TIMEOUT_MS"),
+      writeMs: positive(env["GATEWAY_ENGINE_WRITE_TIMEOUT_MS"], 10_000, "GATEWAY_ENGINE_WRITE_TIMEOUT_MS"),
+    },
+    // A working day, and an hour without a request ends it.
+    session: { absoluteMs: 8 * 3_600_000, idleMs: 3_600_000 },
+  };
+}
