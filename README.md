@@ -145,6 +145,18 @@ runs the end-to-end tests on the whole system with a throwaway database; the
 last runs the console's suites with their floors. Playwright and Storybook
 run headless, and every request leaving 127.0.0.1 is refused.
 
+## The demo in the browser
+
+The same site and console run with no server at all in the demo (stage 8):
+the engine's Python code in Pyodide over PGlite, with the same migrations,
+and the gateway's core, in one worker that every tab of the address shares.
+`npm run demo:build` builds the three parts with `SANDBOX=1` and assembles
+them in `dist/demo/` (the site at `/`, the console at `/console/`, the
+sandbox at `/sandbox/`); `npm run demo:serve` serves it on
+http://127.0.0.1:4651. The check's suite `demo` builds it, serves it and
+drives headless Chromium through its journeys; it reports itself as not run
+while a part cannot be built yet.
+
 ## Layout
 
 | Folder | What |

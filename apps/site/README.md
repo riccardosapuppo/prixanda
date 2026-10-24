@@ -35,6 +35,34 @@ The build calls the API written into it at build time: `NEXT_PUBLIC_SITE_API`,
 `http://127.0.0.1:4622/graphql` when unset (the gateway's public port as
 `npm run gateway` starts it).
 
+## In the demo's sandbox (stage 8)
+
+Built with `SANDBOX=1`, the same site runs in the demo in the browser, with
+no server behind it: its requests go to the sandbox's worker, which runs the
+engine's own Python code over PGlite and the gateway's core, once for every
+tab of the address (`src/data/sandbox.ts`, over the protocol of
+`packages/sandbox`). Nothing above the transport changes: the pages, the
+hooks and the operations are the ones the full system serves. What the
+engine's jobs changed is read again when the worker says so, and when the
+demo starts over every tab reloads.
+
+The first visit waits a few seconds while the database, Python and the
+engine start on the visitor's device: a bar under the header shows the
+worker's own steps, and the page is there meanwhile, the records and the
+sessions at once and the figures as they come. If the browser cannot run
+the demo (no WebAssembly, no IndexedDB, a private window that refuses the
+storage), the bar says so and what to do. At the foot of every page, the
+line on where the data stays and where the full system and its source are,
+and the panel about the sandbox with Start over, in the words the console
+uses too (`SANDBOX` in `packages/design`). Every page carries
+`<meta name="robots" content="noindex">`.
+
+```
+npm run demo:build      # the site, the console and the sandbox, assembled in dist/demo/
+npm run demo:serve      # dist/demo/ on http://127.0.0.1:4651
+npm run photos -w site  # the photos of docs/images/, taken again from the demo
+```
+
 ## Pages
 
 | Page | What it shows |
@@ -184,6 +212,7 @@ npm run e2e -w site -- gift         # stage 7's alone
 | `site-build` | the static export, every page in it, the API it calls written in | 5 pages |
 | `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 9 tests, 9 audit events, axe on 9 pages, 20 pages fitted |
 | `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a request for consent in Germany answered, a notice in Italy, below | 9 tests, 5 audit events, axe on 9 pages, 10 pages fitted |
+| `demo` | the assembled demo served on 4651, headless Chromium with one browser and its tabs: the first start, a second tab, a campaign launched from another tab reaching the site, the data after a reload and after the worker started again, Start over in every tab; no request leaving the address, axe | 6 tests for the site |
 
 `site-e2e` starts the engine on a clock the test moves, the gateway and the
 site's build, launches the Student Autumn Pass through the console's API
