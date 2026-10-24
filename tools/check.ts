@@ -21,7 +21,7 @@ import { join, relative } from "node:path";
 import { flyway } from "./lib/flyway.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
 import { assertFree } from "./lib/ports.ts";
-import { type Cluster, createDatabase, startCluster } from "./lib/postgres.ts";
+import { type Cluster, createDatabase, dropDatabase, startCluster } from "./lib/postgres.ts";
 import { run } from "./lib/run.ts";
 
 type Outcome = "passed" | "failed" | "not run";
@@ -41,6 +41,9 @@ const FLOOR = {
   typecheckedFiles: 12, contractFiles: 47, migrations: 11, pythonTests: 573, invariants: 10, generatedSubscribers: 5_000,
   faultsInjected: 12,
 };
+// The change in two times (migrations V12 and V14): the version of the schema
+// before it, and the expansion, where the compatibility check stops on its way.
+const COMPAT = { before: "11", expansion: "12" };
 // pytest's tests by area, read from the folder each test lives in: the
 // database's own rules (tests/), the rules as plain Python (domain), the
 // business book's numbers (golden), every service against PostgreSQL
@@ -178,6 +181,70 @@ const SUITES: Suite[] = [
       if (report.checked < FLOOR.invariants) return failed(counted, `fewer than ${FLOOR.invariants} invariants`);
       if (summary.counts.subscribers < FLOOR.generatedSubscribers) return failed(counted, "the generator wrote fewer subscribers than the small size declares");
       return passed(counted, `${summary.counts.listening_days} listening rows`);
+    },
+  },
+  // The change in two times of a subscription's price (migrations V12 and
+  // V14): a database of its own stands where the version before it stood,
+  // with data written as that version wrote it; then the expansion, under
+  // which that version's reads and writes must still work; then every later
+  // migration, the invariants, and this version's engine reading the same
+  // accounts and revenue (services/commerce/src/commerce/compat.py).
+  {
+    name: "compat",
+    what: "the schema change in two times: data of the version before it, the expansion with that version still working, then every migration, the invariants and this engine reading the same",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const database = "commerce_compat";
+      await dropDatabase(cluster, database);
+      await createDatabase(cluster, database);
+      try {
+        const commerce = join(repoRoot, "services", "commerce");
+        const env = { ...process.env, PYTHONPATH: join(commerce, "src") };
+        const owner = cluster.url(database, "owner");
+        const target = { port: cluster.port, database, user: cluster.owner.user, password: cluster.owner.password };
+        const state = join(reports, "compat-state.json");
+        await rm(state, { force: true });
+        const migrate = async (upTo?: string): Promise<number> => {
+          const ran = await flyway("migrate", target, migrationsDir, upTo);
+          if (ran.code !== 0) throw new Error(`Flyway, up to ${upTo ?? "the last migration"}:\n${ran.output.slice(-3000)}`);
+          return Number(/Successfully applied (\d+) migrations?/.exec(ran.output)?.[1] ?? 0);
+        };
+        type Phase = { phase: string; failures: string[]; accounts: number; writes_mirrored?: number };
+        const phase = async (name: string, extra: string[] = []): Promise<Phase> => {
+          const ran = await run(venvPython, ["-m", "commerce.compat", "--phase", name, "--url", owner, "--state", state, ...extra],
+            { cwd: commerce, env });
+          const line = ran.output.split(/\r?\n/).find((candidate) => candidate.startsWith("{"));
+          if (line === undefined) throw new Error(`compat ${name}:\n${ran.output.slice(-3000)}`);
+          const report = JSON.parse(line) as Phase;
+          if (ran.code !== 0 && report.failures.length === 0) throw new Error(`compat ${name} exited ${ran.code}`);
+          return report;
+        };
+        const before = await migrate(COMPAT.before);
+        const generated = await run(venvPython, ["-m", "commerce.generate", "--url", owner, "--size", "small", "--seed", "7"],
+          { cwd: commerce, env });
+        if (generated.code !== 0) return failed("-", generated.output.slice(-3000));
+        const read = await phase("before");
+        const expansion = await migrate(COMPAT.expansion);
+        const expanded = await phase("expanded");
+        const rest = await migrate();
+        const invariants = await run(venvPython, ["-m", "commerce.invariants", "--url", owner], { cwd: commerce, env });
+        const checked = JSON.parse(invariants.output) as { checked: number; broken: number; invariants: Array<{ name: string; violations: number }> };
+        const contracted = await phase("contracted", ["--app-url", cluster.url(database, "app")]);
+        const counted = `${read.accounts} accounts through V${COMPAT.before}, V${COMPAT.expansion} and V${before + expansion + rest}; `
+          + `${expanded.writes_mirrored ?? 0} earlier writes mirrored; ${checked.checked} invariants, ${checked.broken} broken`;
+        const failures = [...expanded.failures, ...contracted.failures,
+          ...checked.invariants.filter((i) => i.violations).map((i) => `${i.name}: ${i.violations}`)];
+        if (failures.length || invariants.code !== 0) return failed(counted, failures.join("\n") || invariants.output.slice(-2000));
+        if (before !== Number(COMPAT.before) || expansion !== 1) return failed(counted, "Flyway did not stop where the check asked");
+        if (read.accounts < FLOOR.generatedSubscribers) return failed(counted, "fewer accounts read than the small size declares");
+        if (expanded.writes_mirrored !== 2) return failed(counted, "the earlier version's two writes were not both checked");
+        if (contracted.accounts < FLOOR.generatedSubscribers / 2) return failed(counted, "too few accounts read by this engine");
+        return passed(counted);
+      } finally {
+        await dropDatabase(cluster, database);
+      }
     },
   },
   // The gateway (stage 3). Its tests start a fake engine on 127.0.0.1:4613
