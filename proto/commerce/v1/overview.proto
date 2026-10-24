@@ -1,0 +1,84 @@
+// The console's home and the people of the demo.
+//
+// The home shows five things and each leads to an action (the brief): what
+// waits for approval, what launches in the next seven days, today's incidents,
+// paying subscribers by plan and market, and this month's revenue without VAT.
+syntax = "proto3";
+
+package commerce.v1;
+
+import "commerce/v1/changes.proto";
+import "commerce/v1/common.proto";
+
+service OverviewService {
+  rpc GetOverview(GetOverviewRequest) returns (GetOverviewResponse);
+}
+
+service PeopleService {
+  // The demo's people, named by role (§12.1): the console's entry lists them.
+  rpc ListPeople(ListPeopleRequest) returns (ListPeopleResponse);
+}
+
+message GetOverviewRequest {
+  // An instant, ISO 8601 with Z. Empty: the engine's clock.
+  string at = 1;
+}
+
+message Launch {
+  int64 change_id = 1 [jstype = JS_STRING];
+  string title = 2;
+  LocalTime starts = 3;
+  ChangeState state = 4;
+  // Not approved yet: it will not start until the missing signatures arrive.
+  bool at_risk = 5;
+  string risk = 6;
+}
+
+message Incident {
+  int64 change_id = 1 [jstype = JS_STRING];
+  string title = 2;
+  string run = 3;
+  // recovered, open.
+  string state = 4;
+  string summary = 5;
+}
+
+message SubscriberCount {
+  string market = 1;
+  string plan = 2;
+  int64 count = 3;
+}
+
+message MarketRevenue {
+  string market = 1;
+  // In the market's currency, without VAT.
+  Money revenue = 2;
+  // In euros at the declared rate (§3.6).
+  Money revenue_eur = 3;
+}
+
+message GetOverviewResponse {
+  repeated ChangeSummary waiting_for_approval = 1;
+  repeated Launch launches_next_7_days = 2;
+  repeated Incident incidents_today = 3;
+  repeated SubscriberCount paying_subscribers = 4;
+  repeated SubscriberCount free_listeners = 5;
+  repeated MarketRevenue monthly_revenue = 6;
+  Money monthly_revenue_eur = 7;
+  // "1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026)".
+  string exchange_rate_note = 8;
+  // What Encore adds this month to reach the artists' minimum (§5.5).
+  Money monthly_top_ups = 9;
+}
+
+message Person {
+  string id = 1;
+  string label = 2;
+  repeated Role roles = 3;
+}
+
+message ListPeopleRequest {}
+
+message ListPeopleResponse {
+  repeated Person people = 1;
+}

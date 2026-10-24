@@ -32,7 +32,7 @@ const failed = (counted: string, detail: string): Omit<Result, "suite" | "second
 const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome: "not run", counted: "-", detail });
 
 // The floors: what each suite must at least have checked.
-const FLOOR = { typecheckedFiles: 8, migrations: 5, pythonTests: 60, invariants: 9, generatedSubscribers: 5_000 };
+const FLOOR = { typecheckedFiles: 9, contractFiles: 30, migrations: 5, pythonTests: 60, invariants: 9, generatedSubscribers: 5_000 };
 
 const SUITES: Suite[] = [
   {
@@ -49,6 +49,19 @@ const SUITES: Suite[] = [
       if (ran.code !== 0) return failed(`${ours} files`, errors.slice(0, 8).join("\n") || ran.output.slice(0, 2000));
       if (ours < FLOOR.typecheckedFiles) return failed(`${ours} files`, `fewer than ${FLOOR.typecheckedFiles} files of tools/ were checked`);
       return passed(`${ours} files`);
+    },
+  },
+  {
+    name: "contract",
+    what: "buf lint on proto/, and the committed generated code equals a fresh generation",
+    needsDatabase: false,
+    async run() {
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const ran = await run(process.execPath, [join(repoRoot, "tools", "proto.ts"), "--check"], { cwd: repoRoot });
+      const compared = Number(/matches the contract \((\d+) files\)/.exec(ran.output)?.[1] ?? 0);
+      if (ran.code !== 0) return failed(`${compared} files`, ran.output.slice(-3000));
+      if (compared < FLOOR.contractFiles) return failed(`${compared} files`, `fewer than ${FLOOR.contractFiles} generated files compared`);
+      return passed(`${compared} files`);
     },
   },
   {

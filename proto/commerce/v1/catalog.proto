@@ -1,0 +1,135 @@
+// What Encore sells: markets, plans and what they include, the price list,
+// and the offers in force that the site may show (business book §2 to §5).
+syntax = "proto3";
+
+package commerce.v1;
+
+import "commerce/v1/common.proto";
+
+service CatalogService {
+  rpc ListMarkets(ListMarketsRequest) returns (ListMarketsResponse);
+  // The plans of a market at an instant, each with its price and where that price goes.
+  rpc ListPlans(ListPlansRequest) returns (ListPlansResponse);
+  rpc GetPriceList(GetPriceListRequest) returns (GetPriceListResponse);
+  // The offers the published catalog holds now: the site shows an offer if and
+  // only if its prices are in force (§7.5).
+  rpc ListOffers(ListOffersRequest) returns (ListOffersResponse);
+}
+
+message Market {
+  string code = 1;
+  string name = 2;
+  string currency = 3;
+  int32 minor_units = 4;
+  string time_zone = 5;
+  // Standard VAT rate in force, in basis points: 2200 is 22% (§3.1).
+  int32 vat_bp = 6;
+  // What every paying subscription pays into the artists' pool at least,
+  // every month (§5.3), and the lowest price that covers it without a top-up (§5.4).
+  Money artists_minimum = 7;
+  Money floor = 8;
+}
+
+message ListMarketsRequest {}
+
+message ListMarketsResponse {
+  repeated Market markets = 1;
+}
+
+message Entitlements {
+  // 0 means unlimited.
+  int32 skips_per_hour = 1;
+  // "standard" (160 kbps) or "lossless".
+  string audio = 2;
+  bool offline = 3;
+  int32 seats = 4;
+  bool needs_student_check = 5;
+}
+
+// Where a price goes, per subscription per month (§3.5, §5).
+message PriceBreakdown {
+  Money price = 1;
+  Money vat = 2;
+  Money net = 3;
+  // The pool share of the net amount, never less than the minimum.
+  Money artists = 4;
+  // The part of `artists` that Encore adds from its margin to reach the minimum.
+  Money top_up = 5;
+  Money payment_costs = 6;
+  Money encore_keeps = 7;
+}
+
+message Plan {
+  string id = 1;
+  string name = 2;
+  bool paid = 3;
+  Entitlements entitlements = 4;
+  // Absent for the free plan.
+  Money list_price = 5;
+  PriceBreakdown breakdown = 6;
+}
+
+message ListPlansRequest {
+  string market = 1;
+  // An instant, ISO 8601 with Z. Empty: the engine's clock.
+  string at = 2;
+}
+
+message ListPlansResponse {
+  repeated Plan plans = 1;
+}
+
+message PriceListEntry {
+  int64 id = 1 [jstype = JS_STRING];
+  string plan = 2;
+  string market = 3;
+  Money amount = 4;
+  // Local times of the market, start included, end excluded; no end: open.
+  string valid_from_local = 5;
+  string valid_until_local = 6;
+  // The approved change that created it; 0 for the price list loaded at the start of the data.
+  int64 change_id = 7 [jstype = JS_STRING];
+  // Below the market's floor: allowed only as a standing exception approved by finance (§5.5).
+  bool below_floor = 8;
+  // What the minimum costs Encore per subscription per month at this price.
+  Money top_up = 9;
+}
+
+message GetPriceListRequest {
+  // Empty: every market, every plan.
+  string market = 1;
+  string plan = 2;
+}
+
+message GetPriceListResponse {
+  repeated PriceListEntry entries = 1;
+}
+
+// An offer as the site shows it.
+message PublishedOffer {
+  int64 offer_id = 1 [jstype = JS_STRING];
+  int32 version = 2;
+  string market = 3;
+  string plan = 4;
+  string title = 5;
+  string text = 6;
+  string terms = 7;
+  Money price = 8;
+  // The list price in force today, struck through on the page: read from the
+  // price list, never typed in the offer (§6.2).
+  Money list_price = 9;
+  int32 months_at_offer_price = 10;
+  LocalTime takeable_until = 11;
+  // Who may take it, in words for the page.
+  string audience = 12;
+  bool needs_student_check = 13;
+}
+
+message ListOffersRequest {
+  string market = 1;
+  string at = 2;
+}
+
+message ListOffersResponse {
+  repeated PublishedOffer offers = 1;
+}

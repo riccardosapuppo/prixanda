@@ -1,0 +1,95 @@
+// What every service of the commerce engine shares.
+//
+// The engine answers only the gateway. Every call carries, in its metadata:
+//   x-request-id   born in the site or the console; it travels through the
+//                  gateway and the engine to the audit log (business book §11.1)
+//   x-actor        the person acting, taken from the gateway's session and
+//                  never from a field a browser filled (§7.4)
+//   x-actor-role   the role they act in
+//   authorization  "Bearer <internal token>", shared by gateway and engine
+//
+// A business refusal (the author signing their own version, a stale version,
+// a price under the floor that nobody may approve) is an answer: the response
+// carries it as a Refusal, typed. gRPC errors are kept for what is not an
+// answer: an unauthenticated call, an unknown id, an engine that broke.
+syntax = "proto3";
+
+package commerce.v1;
+
+// An amount in the currency's minor unit, cents or pence: money is an
+// integer (§3.4). JavaScript reads it as a bigint; identifiers, which are
+// opaque, are strings there (jstype = JS_STRING).
+message Money {
+  int64 amount_minor = 1;
+  // ISO 4217: EUR, GBP.
+  string currency = 2;
+}
+
+// A wall-clock time in a market's time zone, the way the business book keeps
+// anything scheduled for a market (§3.7): "09:00 in Italy" stays 09:00 in
+// Italy across a change of the clocks.
+message LocalTime {
+  // ISO 3166 code of the market: IT, FR, DE, GB.
+  string market = 1;
+  // ISO 8601 without an offset: 2026-10-26T09:00.
+  string local = 2;
+  // The instant it falls on, in UTC (ISO 8601 with Z), computed by the engine.
+  string utc = 3;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_MARKETING = 1;
+  ROLE_COMMERCIAL_LEAD = 2;
+  ROLE_FINANCE = 3;
+  ROLE_CATALOG_MANAGER = 4;
+  ROLE_ON_CALL = 5;
+  ROLE_AUDITOR = 6;
+}
+
+enum RefusalCode {
+  REFUSAL_CODE_UNSPECIFIED = 0;
+  // The author of a version cannot approve it (§7.4).
+  REFUSAL_CODE_OWN_VERSION = 1;
+  // The actor's role may not do this (§12).
+  REFUSAL_CODE_ROLE_NOT_ALLOWED = 2;
+  // Someone saved a newer version: facts["newer_version"] says which (§6.3).
+  REFUSAL_CODE_STALE_VERSION = 3;
+  // The change is not in a state that allows this (§7.1).
+  REFUSAL_CODE_WRONG_STATE = 4;
+  // Another price for the same plan and market covers part of the period (§4.1).
+  REFUSAL_CODE_OVERLAP = 5;
+  // Validation found a blocking problem; the validation report says which.
+  REFUSAL_CODE_INVALID = 6;
+  // This person, or this role, has already signed this version.
+  REFUSAL_CODE_ALREADY_SIGNED = 7;
+  // The approval names a version or fingerprint that is not the current one (§7.2).
+  REFUSAL_CODE_FINGERPRINT_MISMATCH = 8;
+  // A reason is required and none was given (rejection, suspension, negative contribution).
+  REFUSAL_CODE_REASON_REQUIRED = 9;
+  // A clock change skips or repeats that local time in the market.
+  REFUSAL_CODE_AMBIGUOUS_LOCAL_TIME = 10;
+  // The quote expired, or names an offer that is no longer in force (§4.5).
+  REFUSAL_CODE_QUOTE_EXPIRED = 11;
+  // The person is not in the offer's audience.
+  REFUSAL_CODE_NOT_ELIGIBLE = 12;
+}
+
+// The rules said no. reason is one sentence for people, in English; facts
+// carries the numbers and names the sentence is made of.
+message Refusal {
+  RefusalCode code = 1;
+  string reason = 2;
+  map<string, string> facts = 3;
+}
+
+// Keyset pagination: size and the opaque cursor of the previous page.
+message PageRequest {
+  int32 size = 1;
+  string after = 2;
+}
+
+message PageInfo {
+  // Empty on the last page.
+  string next = 1;
+}

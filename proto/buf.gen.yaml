@@ -1,0 +1,13 @@
+version: v2
+plugins:
+  # Run through node rather than the node_modules/.bin shim: on Windows the
+  # shim is a .cmd file, which buf cannot start from a path with slashes.
+  # JavaScript plus declarations: generated enums are not erasable syntax, so
+  # Node could not run them as TypeScript, while our own code stays erasable.
+  # buf runs from proto/; tools/proto.ts passes the base folder with --output,
+  # packages/contracts normally, a temporary one for the check.
+  - local: ["node", "../node_modules/@bufbuild/protoc-gen-es/bin/protoc-gen-es"]
+    out: gen
+    opt:
+      - target=js+dts
+      - import_extension=js

@@ -16,8 +16,10 @@ export const exe = (name: string) => (process.platform === "win32" ? `${name}.ex
 // The engine's virtual environment: .venv/Scripts on Windows, .venv/bin elsewhere.
 export const venvPython = join(repoRoot, ".venv", process.platform === "win32" ? "Scripts" : "bin", exe("python"));
 
-// The project's own ports (46xx), never the usual 3000s, 5432 or 8080.
+// The project's own ports (46xx), never the usual 3000s, 5432 or 8080. Two
+// checks of two copies of the repository can run side by side with
+// CHECK_POSTGRES_PORT and DEV_POSTGRES_PORT.
 export const PORTS = {
-  postgresDev: 4601,
-  postgresCheck: 4602,
+  postgresDev: Number(process.env["DEV_POSTGRES_PORT"] ?? 4601),
+  postgresCheck: Number(process.env["CHECK_POSTGRES_PORT"] ?? 4602),
 } as const;

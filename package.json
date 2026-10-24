@@ -2,18 +2,24 @@
   "name": "subscription-offers-platform",
   "private": true,
   "type": "module",
-  "description": "Box Office, the commercial console of a fictional independent-music subscription service, and Encore, the site its decisions reach.",
+  "description": "A subscription and pricing operations platform: offers, prices, approvals and catalog publication across markets, explored through a fictional independent-music service.",
   "license": "MIT",
   "engines": {
     "node": ">=24"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "setup": "node tools/setup.ts",
     "db": "node tools/db.ts",
     "check": "node tools/check.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "proto": "node tools/proto.ts"
   },
   "devDependencies": {
+    "@bufbuild/buf": "1.73.0",
+    "@bufbuild/protoc-gen-es": "2.16.0",
     "@types/node": "24.19.2",
     "@types/pg": "8.23.1",
     "pg": "8.23.1",
@@ -25,6 +31,7 @@
   },
   "allowScripts": {
     "@embedded-postgres/linux-x64@18.4.0-beta.17": true,
-    "@embedded-postgres/windows-x64@18.4.0-beta.17": true
+    "@embedded-postgres/windows-x64@18.4.0-beta.17": true,
+    "@bufbuild/buf@1.73.0": true
   }
 }

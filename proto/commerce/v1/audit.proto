@@ -1,0 +1,74 @@
+// The audit log (business book §11): read it, verify its chain, export its
+// head. Nobody changes it through the engine.
+syntax = "proto3";
+
+package commerce.v1;
+
+import "commerce/v1/common.proto";
+
+service AuditService {
+  // Newest first, by keyset on the sequence number.
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+  // Recomputes the whole chain; with an exported head, also says whether the
+  // chain still leads to it (§11.3).
+  rpc VerifyChain(VerifyChainRequest) returns (VerifyChainResponse);
+  // The head to keep outside the database. The auditor's role only.
+  rpc ExportHead(ExportHeadRequest) returns (ExportHeadResponse);
+}
+
+message AuditEvent {
+  int64 seq = 1 [jstype = JS_STRING];
+  // ISO 8601 with Z.
+  string at = 2;
+  string actor = 3;
+  // A role of the business book, or "system" for the engine's own jobs.
+  string actor_role = 4;
+  string action = 5;
+  string subject = 6;
+  string request_id = 7;
+  string reason = 8;
+  // The event's body, as the database's jsonb writes it.
+  string body_json = 9;
+  bytes prev_hash = 10;
+  bytes hash = 11;
+}
+
+message ListEventsRequest {
+  string actor = 1;
+  string action = 2;
+  string subject = 3;
+  PageRequest page = 4;
+}
+
+message ListEventsResponse {
+  repeated AuditEvent events = 1;
+  PageInfo page = 2;
+}
+
+message ChainHead {
+  int64 seq = 1 [jstype = JS_STRING];
+  bytes hash = 2;
+}
+
+message VerifyChainRequest {
+  // An exported head; absent: only the chain's own consistency.
+  ChainHead anchor = 1;
+}
+
+message VerifyChainResponse {
+  bool ok = 1;
+  int64 events = 2;
+  ChainHead head = 3;
+  // The first event that does not follow, and why.
+  int64 broken_at = 4 [jstype = JS_STRING];
+  string why = 5;
+}
+
+message ExportHeadRequest {}
+
+message ExportHeadResponse {
+  oneof outcome {
+    ChainHead head = 1;
+    Refusal refusal = 2;
+  }
+}

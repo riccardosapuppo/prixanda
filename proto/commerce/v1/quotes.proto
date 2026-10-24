@@ -1,0 +1,46 @@
+// The price is always the engine's (business book §4.5): the site asks for a
+// quote, shows it, and confirms the quote by its identifier; the engine
+// charges what it quoted. A quote expires, and a quote for an offer that has
+// ended is refused.
+syntax = "proto3";
+
+package commerce.v1;
+
+import "commerce/v1/catalog.proto";
+import "commerce/v1/common.proto";
+
+service QuoteService {
+  rpc GetQuote(GetQuoteRequest) returns (GetQuoteResponse);
+}
+
+message GetQuoteRequest {
+  string plan = 1;
+  string market = 2;
+  // 0: the list price.
+  int64 offer_id = 3 [jstype = JS_STRING];
+  // 0: someone who is not signed in yet; eligibility is then checked when they subscribe.
+  int64 subscriber_id = 4 [jstype = JS_STRING];
+}
+
+message Quote {
+  string quote_id = 1;
+  string plan = 2;
+  string market = 3;
+  Money price = 4;
+  Money list_price = 5;
+  // 0 with the list price.
+  int32 months_at_price = 6;
+  // What comes after the offer: the list price in force at that time.
+  Money then_price = 7;
+  // ISO 8601 with Z.
+  string expires_at = 8;
+  int64 offer_id = 9 [jstype = JS_STRING];
+  PriceBreakdown breakdown = 10;
+}
+
+message GetQuoteResponse {
+  oneof outcome {
+    Quote quote = 1;
+    Refusal refusal = 2;
+  }
+}

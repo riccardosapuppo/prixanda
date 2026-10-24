@@ -1,0 +1,368 @@
+// Versioned changes and their approvals: offers, list prices and, from stage
+// 7, price migrations, prepaid passes and entitlements (business book §6, §7).
+//
+// The actor of every call comes from the metadata (common.proto), never from
+// a field: there is no "approver" field to fill in, the approver is whoever
+// the gateway's session says is calling.
+syntax = "proto3";
+
+package commerce.v1;
+
+import "commerce/v1/common.proto";
+
+service ChangeService {
+  rpc CreateChange(CreateChangeRequest) returns (CreateChangeResponse);
+  // A new version from the version the author started from: refused with
+  // REFUSAL_CODE_STALE_VERSION when someone saved a newer one meanwhile (§6.3).
+  rpc SaveVersion(SaveVersionRequest) returns (SaveVersionResponse);
+  rpc GetChange(GetChangeRequest) returns (GetChangeResponse);
+  // Many changes in one call, for the gateway's DataLoader; unknown ids are left out.
+  rpc BatchGetChanges(BatchGetChangesRequest) returns (BatchGetChangesResponse);
+  rpc ListChanges(ListChangesRequest) returns (ListChangesResponse);
+  // Floor, overlaps and conflicts, dates and time zones, audience, page texts,
+  // and which signatures the version needs (§6.4). Valid: draft becomes validated.
+  rpc ValidateChange(ValidateChangeRequest) returns (ValidateChangeResponse);
+  rpc SubmitChange(SubmitChangeRequest) returns (SubmitChangeResponse);
+  // Signs the version and fingerprint the approver saw (§7.2); the role is the actor's.
+  rpc ApproveChange(ApproveChangeRequest) returns (ApproveChangeResponse);
+  rpc RejectChange(RejectChangeRequest) returns (RejectChangeResponse);
+  // Approved becomes scheduled, at the local start time of each market (§7.5).
+  rpc ScheduleChange(ScheduleChangeRequest) returns (ScheduleChangeResponse);
+  rpc CancelChange(CancelChangeRequest) returns (CancelChangeResponse);
+  // The on-call engineer stops an active change (§12).
+  rpc SuspendChange(SuspendChangeRequest) returns (SuspendChangeResponse);
+}
+
+enum ChangeKind {
+  CHANGE_KIND_UNSPECIFIED = 0;
+  CHANGE_KIND_OFFER = 1;
+  CHANGE_KIND_LIST_PRICE = 2;
+  CHANGE_KIND_ENTITLEMENT = 3;
+  CHANGE_KIND_PRICE_MIGRATION = 4;
+  CHANGE_KIND_PREPAID = 5;
+}
+
+enum ChangeState {
+  CHANGE_STATE_UNSPECIFIED = 0;
+  CHANGE_STATE_DRAFT = 1;
+  CHANGE_STATE_VALIDATED = 2;
+  CHANGE_STATE_IN_APPROVAL = 3;
+  CHANGE_STATE_APPROVED = 4;
+  CHANGE_STATE_SCHEDULED = 5;
+  CHANGE_STATE_ACTIVE = 6;
+  CHANGE_STATE_ENDED = 7;
+  CHANGE_STATE_SUSPENDED = 8;
+  CHANGE_STATE_CANCELLED = 9;
+}
+
+enum Segment {
+  SEGMENT_UNSPECIFIED = 0;
+  // People who have never paid for Encore.
+  SEGMENT_NEVER_PAID = 1;
+  // People on the free plan now.
+  SEGMENT_FREE_LISTENERS = 2;
+  // Paying subscribers on audience.current_plan now.
+  SEGMENT_SUBSCRIBERS_OF_PLAN = 3;
+  // Anyone: a gift pass bought for someone else.
+  SEGMENT_ANYONE = 4;
+}
+
+// Free listeners who played an artist for more than a set time lately (§14.2).
+message ListeningRule {
+  int32 artist_id = 1;
+  int32 min_seconds = 2;
+  int32 within_days = 3;
+}
+
+message Audience {
+  Segment segment = 1;
+  // For SEGMENT_SUBSCRIBERS_OF_PLAN.
+  string current_plan = 2;
+  bool needs_student_check = 3;
+  ListeningRule listening = 4;
+}
+
+// The price of an offer in one market: a fixed amount, or a percentage off the
+// list price in force, rounded to the currency's minor unit (§6.1).
+message OfferPrice {
+  string market = 1;
+  oneof price {
+    Money fixed = 2;
+    int32 percent_off_bp = 3;
+  }
+}
+
+// When the offer can be taken in one market, in local time; no end: open.
+message OfferPeriod {
+  string market = 1;
+  string starts_local = 2;
+  string ends_local = 3;
+}
+
+// The page of the offer in one market (§6.1).
+message OfferPage {
+  string market = 1;
+  string title = 2;
+  string text = 3;
+  string terms = 4;
+  // The editorial treatment of its campaign page, by name.
+  string treatment = 5;
+}
+
+message OfferContent {
+  string title = 1;
+  // The plan the offer sells.
+  string plan = 2;
+  Audience audience = 3;
+  repeated OfferPrice prices = 4;
+  int32 months_at_offer_price = 5;
+  repeated OfferPeriod periods = 6;
+  // Offers in the same group never stack (§6.1, §10.3).
+  string non_combinability_group = 7;
+  // 0: no cap.
+  int32 redemption_cap = 8;
+  repeated OfferPage pages = 9;
+}
+
+// A new list price for one plan and market, from a local time (§4.2).
+message ListPriceContent {
+  string title = 1;
+  string plan = 2;
+  string market = 3;
+  Money amount = 4;
+  string starts_local = 5;
+}
+
+message ChangeVersion {
+  int32 version = 1;
+  string author = 2;
+  // ISO 8601 with Z.
+  string created_at = 3;
+  // SHA-256 of the content as the database stored it: what an approval names.
+  bytes content_hash = 4;
+  oneof content {
+    OfferContent offer = 5;
+    ListPriceContent list_price = 6;
+  }
+}
+
+message Approval {
+  int32 version = 1;
+  string approver = 2;
+  Role role = 3;
+  string decided_at = 4;
+  bytes content_hash = 5;
+}
+
+// A signature the current version needs, and why (§7.3, conditions 1 to 5).
+message RequiredSignature {
+  Role role = 1;
+  repeated int32 conditions = 2;
+  string why = 3;
+  bool signed = 4;
+}
+
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  // The version cannot be submitted.
+  SEVERITY_BLOCKING = 1;
+  // It can, and someone will have to sign for it.
+  SEVERITY_NEEDS_SIGNATURE = 2;
+  SEVERITY_INFO = 3;
+}
+
+message ValidationFinding {
+  // floor, overlap, conflict, dates, time_zone, audience, page_text, signatures.
+  string check = 1;
+  Severity severity = 2;
+  string market = 3;
+  string message = 4;
+  map<string, string> facts = 5;
+}
+
+message ValidationReport {
+  int32 version = 1;
+  bool valid = 2;
+  repeated ValidationFinding findings = 3;
+  // How many people the audience reaches now, counted in the data, never typed (§6.5).
+  int64 eligible = 4;
+}
+
+message Change {
+  int64 id = 1 [jstype = JS_STRING];
+  ChangeKind kind = 2;
+  string title = 3;
+  ChangeState state = 4;
+  string state_reason = 5;
+  int32 current_version = 6;
+  string created_by = 7;
+  string created_at = 8;
+  repeated ChangeVersion versions = 9;
+  repeated Approval approvals = 10;
+  ValidationReport validation = 11;
+  repeated RequiredSignature required_signatures = 12;
+  // The difference in business words, before anyone approves (§6.5):
+  // "Italy, Student: from €5.79 to €2.99 for 3 months, new subscribers only;
+  // 10,000 eligible; conflicts: none."
+  string sentence = 13;
+  // Why the campaign is worth running despite a negative contribution (§7.3, condition 4).
+  string author_reason = 14;
+}
+
+message ChangeSummary {
+  int64 id = 1 [jstype = JS_STRING];
+  ChangeKind kind = 2;
+  string title = 3;
+  ChangeState state = 4;
+  int32 current_version = 5;
+  string created_by = 6;
+  repeated string markets = 7;
+  repeated RequiredSignature required_signatures = 8;
+  string updated_at = 9;
+}
+
+message CreateChangeRequest {
+  oneof content {
+    OfferContent offer = 1;
+    ListPriceContent list_price = 2;
+  }
+}
+
+message CreateChangeResponse {
+  oneof outcome {
+    Change change = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message SaveVersionRequest {
+  int64 change_id = 1 [jstype = JS_STRING];
+  // The version the author started from.
+  int32 base_version = 2;
+  oneof content {
+    OfferContent offer = 3;
+    ListPriceContent list_price = 4;
+  }
+}
+
+message SaveVersionResponse {
+  oneof outcome {
+    Change change = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message GetChangeRequest {
+  int64 change_id = 1 [jstype = JS_STRING];
+}
+
+message GetChangeResponse {
+  Change change = 1;
+}
+
+message BatchGetChangesRequest {
+  repeated int64 change_ids = 1 [jstype = JS_STRING];
+}
+
+message BatchGetChangesResponse {
+  repeated Change changes = 1;
+}
+
+message ListChangesRequest {
+  repeated ChangeState states = 1;
+  ChangeKind kind = 2;
+  string market = 3;
+  PageRequest page = 4;
+}
+
+message ListChangesResponse {
+  repeated ChangeSummary changes = 1;
+  PageInfo page = 2;
+}
+
+message ValidateChangeRequest {
+  int64 change_id = 1 [jstype = JS_STRING];
+  int32 version = 2;
+}
+
+message ValidateChangeResponse {
+  oneof outcome {
+    Change change = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message SubmitChangeRequest {
+  int64 change_id = 1 [jstype = JS_STRING];
+  int32 version = 2;
+  // Required when the simulated contribution is negative (§7.3, condition 4).
+  string author_reason = 3;
+}
+
+message SubmitChangeResponse {
+  oneof outcome {
+    Change change = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message ApproveChangeRequest {
+  int64 change_id = 1 [jstype = JS_STRING];
+  int32 version = 2;
+  bytes content_hash = 3;
+}
+
+message ApproveChangeResponse {
+  oneof outcome {
+    Change change = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message RejectChangeRequest {
+  int64 change_id = 1 [jstype = JS_STRING];
+  int32 version = 2;
+  string reason = 3;
+}
+
+message RejectChangeResponse {
+  oneof outcome {
+    Change change = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message ScheduleChangeRequest {
+  int64 change_id = 1 [jstype = JS_STRING];
+}
+
+message ScheduleChangeResponse {
+  oneof outcome {
+    Change change = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message CancelChangeRequest {
+  int64 change_id = 1 [jstype = JS_STRING];
+  string reason = 2;
+}
+
+message CancelChangeResponse {
+  oneof outcome {
+    Change change = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message SuspendChangeRequest {
+  int64 change_id = 1 [jstype = JS_STRING];
+  string reason = 2;
+}
+
+message SuspendChangeResponse {
+  oneof outcome {
+    Change change = 1;
+    Refusal refusal = 2;
+  }
+}
