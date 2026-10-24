@@ -101,6 +101,17 @@ dataset and checks every invariant on it, then stops the cluster and removes
 it. Each suite must reach a written minimum number of checks: a suite that
 checked nothing does not pass.
 
+The site's suites (stage 5) check its types, its GraphQL operations against
+the public schema, its unit tests, its static build, and, end to end, the
+whole system with a headless Chromium: the Student Autumn Pass launched, on
+the site within a measured time, a student subscribed at the right price,
+every step in the audit log, the same journey on the keyboard alone, and the
+pages fitted at five widths. Run them alone with
+`npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e`;
+the end-to-end test needs Playwright's Chromium (`npx playwright install
+chromium`, a download) and is reported as not run without it. Details in
+[apps/site/README.md](apps/site/README.md).
+
 A local development database, kept between runs in `.data`:
 
 ```
@@ -113,6 +124,24 @@ On Windows, stop it before `npm ci`: the server runs from `node_modules`, and
 Windows does not let npm delete a file that a running program has open, so the
 reinstall stops halfway and leaves `node_modules` incomplete.
 
+## The console
+
+The commercial team's console (stage 4) is a static Next.js export in
+[apps/console](apps/console), with its own README. From the root:
+
+```
+npm run console:stack
+npm run build -w console
+node apps/console/e2e/run.ts
+npm run check -- --only design,console-types,console-codegen,console-unit,storybook,console-build,console-e2e
+```
+
+The first starts the development database, the engine, the gateway and the
+console on 127.0.0.1:4631; the second writes the static export; the third
+runs the end-to-end tests on the whole system with a throwaway database; the
+last runs the console's suites with their floors. Playwright and Storybook
+run headless, and every request leaving 127.0.0.1 is refused.
+
 ## Layout
 
 | Folder | What |
@@ -120,6 +149,9 @@ reinstall stops halfway and leaves `node_modules` incomplete.
 | `db/migrations` | the schema and its rules, applied by Flyway |
 | `services/commerce` | the engine in Python: database access, the data generator, the invariants, and, from stage 2, the services |
 | `proto` | the gRPC contract; `npm run proto` regenerates `packages/contracts` (JavaScript) and the engine's Python modules |
+| `apps/console` | the console: Next.js built to static files, its Storybook and its end-to-end tests |
+| `apps/site` | the public site of the fictional service: a static Next.js build on the gateway's public API |
+| `packages/design` | what the console and the site share: tokens, fonts, icons, the writing of money |
 | `tools` | PostgreSQL and Flyway without installing them, the setup, the checks |
 | `docs` | the business book |
 

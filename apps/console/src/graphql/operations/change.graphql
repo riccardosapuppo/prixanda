@@ -1,0 +1,222 @@
+# A change and what moves it on: the wizard, the simulation and the approval
+# read the same fields (business book §6, §7).
+
+fragment PersonRef on Person {
+  id
+  label
+}
+
+fragment SignatureFields on RequiredSignature {
+  role
+  conditions
+  why
+  signed
+}
+
+fragment ContentFields on ChangeContent {
+  __typename
+  ... on OfferContent {
+    title
+    plan
+    audience {
+      segment
+      currentPlan
+      needsStudentCheck
+      listening {
+        artistId
+        minSeconds
+        withinDays
+      }
+    }
+    prices {
+      market
+      fixed
+      percentOffBasisPoints
+    }
+    monthsAtOfferPrice
+    periods {
+      market
+      startsLocal
+      endsLocal
+    }
+    nonCombinabilityGroup
+    redemptionCap
+    pages {
+      market
+      title
+      text
+      terms
+      treatment
+    }
+  }
+  ... on ListPriceContent {
+    title
+    plan
+    market
+    amount
+    startsLocal
+  }
+}
+
+fragment VersionFields on ChangeVersion {
+  version
+  author {
+    ...PersonRef
+  }
+  createdAt
+  fingerprint
+  content {
+    ...ContentFields
+  }
+}
+
+fragment ChangeFields on Change {
+  id
+  kind
+  title
+  state
+  stateReason
+  currentVersion
+  createdBy {
+    ...PersonRef
+  }
+  createdAt
+  versions {
+    ...VersionFields
+  }
+  current {
+    ...VersionFields
+  }
+  approvals {
+    version
+    approver {
+      ...PersonRef
+    }
+    role
+    decidedAt
+    fingerprint
+  }
+  validation {
+    version
+    valid
+    eligible
+    findings {
+      check
+      severity
+      market
+      message
+      facts {
+        name
+        value
+      }
+    }
+  }
+  requiredSignatures {
+    ...SignatureFields
+  }
+  sentence
+  authorReason
+}
+
+fragment ResultFields on ChangeResult {
+  __typename
+  ... on Change {
+    ...ChangeFields
+  }
+  ... on Refusal {
+    code
+    reason
+    facts {
+      name
+      value
+    }
+    change {
+      ...ChangeFields
+    }
+  }
+}
+
+fragment SummaryFields on ChangeSummary {
+  id
+  kind
+  title
+  state
+  currentVersion
+  createdBy {
+    ...PersonRef
+  }
+  markets
+  requiredSignatures {
+    ...SignatureFields
+  }
+  updatedAt
+}
+
+query Change($id: ID!) {
+  change(id: $id) {
+    ...ChangeFields
+  }
+}
+
+query Changes($filter: ChangeFilter, $first: Int!, $after: String) {
+  changes(filter: $filter, first: $first, after: $after) {
+    nodes {
+      ...SummaryFields
+    }
+    next
+  }
+}
+
+mutation CreateOffer($offer: OfferInput!) {
+  createOffer(offer: $offer) {
+    ...ResultFields
+  }
+}
+
+mutation SaveOfferVersion($changeId: ID!, $baseVersion: Int!, $offer: OfferInput!) {
+  saveOfferVersion(changeId: $changeId, baseVersion: $baseVersion, offer: $offer) {
+    ...ResultFields
+  }
+}
+
+mutation ValidateChange($changeId: ID!, $version: Int!) {
+  validateChange(changeId: $changeId, version: $version) {
+    ...ResultFields
+  }
+}
+
+mutation SubmitChange($changeId: ID!, $version: Int!, $authorReason: String) {
+  submitChange(changeId: $changeId, version: $version, authorReason: $authorReason) {
+    ...ResultFields
+  }
+}
+
+mutation ApproveChange($changeId: ID!, $version: Int!, $fingerprint: Sha256!) {
+  approveChange(changeId: $changeId, version: $version, fingerprint: $fingerprint) {
+    ...ResultFields
+  }
+}
+
+mutation RejectChange($changeId: ID!, $version: Int!, $reason: String!) {
+  rejectChange(changeId: $changeId, version: $version, reason: $reason) {
+    ...ResultFields
+  }
+}
+
+mutation ScheduleChange($changeId: ID!) {
+  scheduleChange(changeId: $changeId) {
+    ...ResultFields
+  }
+}
+
+mutation CancelChange($changeId: ID!, $reason: String!) {
+  cancelChange(changeId: $changeId, reason: $reason) {
+    ...ResultFields
+  }
+}
+
+mutation SuspendChange($changeId: ID!, $reason: String!) {
+  suspendChange(changeId: $changeId, reason: $reason) {
+    ...ResultFields
+  }
+}
