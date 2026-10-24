@@ -102,23 +102,22 @@ class Subscribers:
         if not row["paid"]:
             return message
         months = row["offer_months"] or 0
-        now = await charging.standing(tx, market, plan_id=row["plan_id"], price_minor=row["price_minor"],
-                                      started_on=_date(row["started_on"]), billing_day=row["billing_day"], offer_months=months,
-                                      day=today)
+        terms = {"subscription_id": row["id"], "plan_id": row["plan_id"], "started_on": _date(row["started_on"]),
+                 "billing_day": row["billing_day"], "offer_months": months}
+        now = await charging.standing(tx, market, day=today, **terms)
         schedule = now.schedule
-        message.price.CopyFrom(contract.money(now.price))  # after the offer's months, the list price of that day
+        message.price.CopyFrom(contract.money(now.price))  # from its price history, or the list price after an offer
         message.billing_day = row["billing_day"]
         message.next_billing_on = schedule.next_billing_on.isoformat()
-        next_charge = Money(row["price_minor"], market.currency)
         if months:
             message.offer_title = await tx.fetchval("select title from change where id = $1", row["offer_change_id"])
             message.offer_months = months
             message.offer_months_left = schedule.offer_months_left
             message.full_price_from = schedule.full_price_from.isoformat()
             message.full_price.CopyFrom(contract.money(now.full_price))
-            if not schedule.next_at_offer_price:
-                next_charge = now.full_price
-        message.next_charge.CopyFrom(contract.money(next_charge))
+        # What the next charge costs: the same rule, on that charge's day.
+        following = await charging.standing(tx, market, day=schedule.next_billing_on, **terms)
+        message.next_charge.CopyFrom(contract.money(following.price))
         return message
 
     async def _event(self, tx: Connection, call: Call, subscriber_id: int, action: str, subject: str, body: dict,

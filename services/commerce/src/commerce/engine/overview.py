@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime, time, timedelta
 
-from commerce.domain import policy
+from commerce.domain import billing, policy
 from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, format_local, to_instant
 from commerce.domain.money import Money
@@ -89,18 +89,23 @@ class Overview:
                 closed_at=records.iso(row["closed_at"]) if closed else "",
                 resolution=(row["resolution"] or "") if closed else ""))
 
-        # Subscriptions current on each market's own calendar day. Those taken with an offer are grouped by what
-        # decides their price on the day (their start, billing day and months); the others by their price alone.
+        # Subscriptions current on each market's own calendar day, each at the price of its history in force that
+        # day. Those taken with an offer are grouped by what decides their price on the day (their start, billing
+        # day and months, and when that price took over); the others by their price alone.
         days = {code: m.today(at) for code, m in ref.markets.items()}
         rows = await tx.fetch(
-            "select s.market, s.plan_id, s.paid, s.price_minor, coalesce(s.offer_months, 0) as offer_months, "
+            "select s.market, s.plan_id, s.paid, p.price_minor, coalesce(s.offer_months, 0) as offer_months, "
             "case when s.offer_months is null then null else s.started_on::text end as started_on, "
-            "case when s.offer_months is null then null else s.billing_day end as billing_day, count(*)::bigint as n "
+            "case when s.offer_months is null then null else s.billing_day end as billing_day, "
+            "case when s.offer_months is null then null else p.from_on::text end as price_from, count(*)::bigint as n "
             "from subscription s "
             "join (select key as market, value::date as day from jsonb_each_text($1::text::jsonb)) d on d.market = s.market "
+            "join lateral (select h.price_minor, h.from_on from subscription_price h where h.subscription_id = s.id "
+            "  and h.from_on <= d.day order by h.from_on desc limit 1) p on true "
             "where s.started_on <= d.day and (s.ended_on is null or s.ended_on > d.day) "
-            "group by 1, 2, 3, 4, 5, 6, 7 order by 1, 2",
+            "group by 1, 2, 3, 4, 5, 6, 7, 8 order by 1, 2",
             json.dumps({code: day.isoformat() for code, day in days.items()}))
+        after_offer: dict[tuple[str, str, date], Money] = {}
         counts: dict[tuple[str, str, bool], int] = {}
         revenue: dict[str, int] = {}
         top_ups: dict[str, int] = {}
@@ -112,9 +117,15 @@ class Overview:
                 market = ref.markets[code]
                 price = row["price_minor"]
                 if row["offer_months"]:
-                    price = (await charging.standing(
-                        tx, market, plan_id=row["plan_id"], price_minor=price, started_on=date.fromisoformat(row["started_on"]),
-                        billing_day=row["billing_day"], offer_months=row["offer_months"], day=days[code])).price.amount
+                    started = date.fromisoformat(row["started_on"])
+                    ends = billing.schedule(started, row["billing_day"], row["offer_months"], days[code]).full_price_from
+                    key = (code, row["plan_id"], ends)
+                    if key not in after_offer:
+                        after_offer[key] = await charging.full_price(tx, market, row["plan_id"], ends)
+                    price = charging.standing_from(
+                        Money(price, market.currency), date.fromisoformat(row["price_from"]), started_on=started,
+                        billing_day=row["billing_day"], offer_months=row["offer_months"], day=days[code],
+                        after_offer=after_offer[key]).price.amount
                 terms = market.terms(self.book)
                 net = terms.net(price)
                 revenue[code] = revenue.get(code, 0) + row["n"] * net

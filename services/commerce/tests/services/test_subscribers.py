@@ -15,8 +15,8 @@ from commerce.engine import payments
 from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound
 from commerce.engine.providers import FAILED, ChargeResult, ProviderEvent
 from commerce.invariants import check
-from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, quotes_pb2, subscriptions_pb2
-from engine_support import FINANCE, MARKETING, ON_CALL, PUBLIC, new_key, scheduled, student_autumn
+from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, subscriptions_pb2
+from engine_support import FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, family_rise, new_key, scheduled, student_autumn
 
 REFUSAL = common_pb2.RefusalCode
 
@@ -428,3 +428,17 @@ async def test_a_confirmation_outside_the_audience_names_the_market_as_it_is_wri
     assert refused.code == REFUSAL.REFUSAL_CODE_NOT_ELIGIBLE
     assert refused.reason == "The offer is for verified students in Italy who have never had a paid plan."
     assert refused.facts["subscriber"] == "104" and "#" not in refused.reason
+
+
+async def test_the_account_and_the_home_read_the_price_from_the_subscription_s_history(world):
+    # Family in Germany at 18,99 €, charged on the 10th; from 10 November its history says 20,99 €.
+    rise = await world.call("CreateChange", changes_pb2.CreateChangeRequest(list_price=family_rise()), LEAD)
+    family = await world.owner.fetchval("select id from subscription where subscriber_id = 203 and ended_on is null")
+    await world.owner.execute("insert into subscription_price (subscription_id, from_on, price_minor, change_id) "
+                              "values ($1, '2026-11-10', 2099, $2)", family, rise.change.id)
+    now = (await account(world, 203)).subscription
+    assert (now.price.amount_minor, now.next_billing_on, now.next_charge.amount_minor) == (1899, "2026-11-10", 2099)
+    world.clock.at = at(2026, 11, 15, 12, 0)
+    assert (await account(world, 203)).subscription.price.amount_minor == 2099
+    home = await world.call("GetOverview", overview_pb2.GetOverviewRequest(), FINANCE)
+    assert {r.market: r.revenue.amount_minor for r in home.monthly_revenue}["DE"] == 1764  # 20,99 € net of 19% VAT
