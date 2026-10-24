@@ -76,8 +76,18 @@ async def test_an_idempotent_call_records_its_outcome_once_and_keeps_its_request
     await db.app.execute(complete, b"\x0a\x00", T0)
     assert await sqlstate_of(db.app.execute(complete, b"\x0a\x01", T0)) == "RL006"
     assert await sqlstate_of(db.owner.execute("update idempotent_call set request_hash = $1", b"\x01" * 32)) == "RL006"
-    assert await sqlstate_of(db.owner.execute("delete from idempotent_call")) == "RL006"
-    assert await sqlstate_of(db.app.execute("delete from idempotent_call")) == "42501"
+
+
+async def test_only_the_key_of_a_finished_call_is_pruned(db):
+    await db.app.execute(CLAIM, "finance-1", "key-00000001", bytes(32), T0)
+    await db.app.execute(CLAIM, "finance-1", "key-00000002", bytes(32), T0)
+    await db.app.execute("update idempotent_call set response = $1, outcome = 'answer', completed_at = $2 "
+                         "where key = 'key-00000001'", b"\x0a\x00", T0)
+    running = "delete from idempotent_call where key = 'key-00000002'"
+    assert await sqlstate_of(db.app.execute(running)) == "RL006"
+    assert await sqlstate_of(db.owner.execute(running)) == "RL006"
+    await db.app.execute("delete from idempotent_call where key = 'key-00000001'")
+    assert await db.app.fetchval("select array_agg(key) from idempotent_call") == ["key-00000002"]
 
 
 async def test_an_outcome_comes_whole(db):
