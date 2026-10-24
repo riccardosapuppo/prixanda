@@ -17,7 +17,8 @@ import {
   AuditEventsDocument, type AuditEventsQuery, ExportAuditHeadDocument, PeopleDocument, VerifyAuditChainDocument, type VerifyAuditChainQuery,
 } from "../../graphql/generated.ts";
 import { asRole, can, logRule, primaryRole, ROLE_NAME, type Role, whoDoes } from "../../lib/permissions.ts";
-import { useAction, useGateway, useGatewayQuery } from "../../lib/react/gateway.tsx";
+import { useAction, useGateway, useGatewayPages, useGatewayQuery } from "../../lib/react/gateway.tsx";
+import { seek } from "../../lib/seek.ts";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatUtcTime } from "../../lib/time.ts";
 
@@ -62,7 +63,6 @@ export function AuditScreen() {
   const action = search.get("action") ?? "";
   const actor = search.get("actor") ?? "";
   const highlight = search.get("seq");
-  const [pages, setPages] = useState<readonly (string | null)[]>([null]);
   const [exported, setExported] = useState<Head | null>(null);
   const people = useGatewayQuery(PeopleDocument, {}, { staleTime: 5 * 60_000 });
   const eventsId = useId();
@@ -73,7 +73,6 @@ export function AuditScreen() {
     if (value) params.set(name, value);
     else params.delete(name);
     params.delete("seq");
-    setPages([null]);
     router.replace(`/audit/?${params.toString()}`, { scroll: false });
   };
 
@@ -130,39 +129,73 @@ export function AuditScreen() {
               <input className="input w-[9rem]" inputMode="numeric" value={change} onChange={(event) => setFilter("change", event.target.value.replace(/\D/g, ""))} />
             </label>
             {change || action || actor ? (
-              <Button size="small" weight="quiet" icon="arrow-counter-clockwise" onClick={() => {
-                setPages([null]);
-                router.replace("/audit/", { scroll: false });
-              }}>Clear filters</Button>
+              <Button size="small" weight="quiet" icon="arrow-counter-clockwise" onClick={() => router.replace("/audit/", { scroll: false })}>Clear filters</Button>
             ) : null}
           </div>
-          {pages.map((after, index) => (
-            <EventsPage key={`${JSON.stringify(filter)}-${after ?? "first"}`} filter={filter} after={after} labelledBy={eventsId} highlight={highlight} last={index === pages.length - 1} onMore={(next) => setPages((current) => [...current, next])} />
-          ))}
+          <Events filter={filter} labelledBy={eventsId} highlight={highlight} filtered={Boolean(change || action || actor)} />
         </section>
       </PageBody>
     </>
   );
 }
 
-function EventsPage({ filter, after, labelledBy, highlight, last, onMore }: {
+/** The log is read this many events at a time, newest first. */
+const EVENTS_PAGE = 50;
+
+/**
+ * The events, newest first, a page at a time. An event a link names
+ * (`?seq=12`, from an approval, a launch or the head's export) is read for:
+ * the pages go on until it is among the events read, then it is highlighted
+ * and brought into view; when the log has no such event, or not with these
+ * filters, the page says so. A page that fails stops the search where it is
+ * (the query's own retries have run by then): the page says so, and the next
+ * try is the person's, with Try again.
+ */
+function Events({ filter, labelledBy, highlight, filtered }: {
   readonly filter: Record<string, string>;
-  readonly after: string | null;
   readonly labelledBy: string;
   readonly highlight: string | null;
-  readonly last: boolean;
-  readonly onMore: (next: string) => void;
+  readonly filtered: boolean;
 }) {
-  const page = useGatewayQuery(AuditEventsDocument, { filter: Object.keys(filter).length ? filter : null, first: 50, after });
+  const events = useGatewayPages(
+    AuditEventsDocument,
+    (after) => ({ filter: Object.keys(filter).length ? filter : null, first: EVENTS_PAGE, after }),
+    (page) => page.auditEvents.next,
+  );
+  const rows = events.data?.pages.flatMap((page) => page.auditEvents.nodes) ?? [];
+  const found = seek(highlight, { loaded: events.data !== undefined, seqs: rows.map((event) => event.seq), more: events.hasNextPage });
+  const reading = events.isFetchingNextPage;
+  // A page that failed keeps its cursor: the search waits for the person rather than asking for it again and again.
+  const failed = events.isError;
+  const { hasNextPage, fetchNextPage } = events;
+  const pagesRead = events.data?.pages.length ?? 0;
   useEffect(() => {
-    if (highlight && page.data) document.getElementById(`event-${highlight}`)?.scrollIntoView({ block: "center" });
-  }, [highlight, page.data]);
-  if (page.isPending) return <Loading what="the events" lines={8} />;
-  if (page.isError) return <ErrorPanel error={page.error} retry={() => void page.refetch()} />;
-  const rows = page.data.auditEvents.nodes;
-  if (rows.length === 0 && after === null) return <Empty icon="scroll">No event matches these filters.</Empty>;
+    if (found === "seeking" && hasNextPage && !reading && !failed) void fetchNextPage();
+  }, [found, hasNextPage, reading, failed, pagesRead, fetchNextPage]);
+  useEffect(() => {
+    if (found === "found") document.getElementById(`event-${highlight}`)?.scrollIntoView({ block: "center" });
+  }, [found, highlight]);
+
+  const named = highlight === null ? null : (
+    found === "found" ? (
+      <p role="status" className="flex items-baseline gap-2 text-sm"><Icon name="check-circle" size={15} className="translate-y-0.5 text-indigo" />Event #{highlight}, the one the link names, is highlighted below.</p>
+    ) : found === "seeking" && failed ? (
+      <p role="status" className="flex items-baseline gap-2 text-sm"><Icon name="warning" size={15} className="translate-y-0.5 text-madder" />Event #{highlight} is not reached yet: a page of older events did not load. Try again below.</p>
+    ) : found === "seeking" ? (
+      <p role="status" className="flex items-baseline gap-2 text-sm text-ink-2"><Icon name="hourglass-medium" size={15} className="translate-y-0.5" />Looking for event #{highlight} among older events: {rows.length} read so far.</p>
+    ) : (
+      <Callout tone="error" icon="warning" role="alert">
+        <p className="font-bold">Event #{highlight} is not in the log{filtered ? " with these filters" : ""}.</p>
+        <p>{filtered ? "Clear the filters to look for it in the whole log." : "The link names an event the log does not hold."} The newest events are below.</p>
+      </Callout>
+    )
+  );
+  if (events.isPending) return <>{named}<Loading what="the events" lines={8} /></>;
+  if (events.isError && events.data === undefined) return <>{named}<ErrorPanel error={events.error} retry={() => void events.refetch()} /></>;
+  if (rows.length === 0) return <>{named}<Empty icon="scroll">No event matches these filters.</Empty></>;
   return (
     <>
+      {named}
       <div className="table-scroll" tabIndex={0} role="region" aria-labelledby={labelledBy}>
         <table className="data min-w-[64rem]" aria-labelledby={labelledBy}>
           <thead>
@@ -183,8 +216,10 @@ function EventsPage({ filter, after, labelledBy, highlight, last, onMore }: {
           </tbody>
         </table>
       </div>
-      {last && page.data.auditEvents.next ? (
-        <Button size="small" icon="arrow-down" className="justify-self-start" onClick={() => onMore(page.data.auditEvents.next ?? "")}>Show 50 older events</Button>
+      {failed ? (
+        <ErrorPanel error={events.error} retry={() => void events.fetchNextPage()} />
+      ) : events.hasNextPage ? (
+        <Button size="small" icon="arrow-down" className="justify-self-start" busy={reading} onClick={() => void events.fetchNextPage()}>Show {EVENTS_PAGE} older events</Button>
       ) : null}
     </>
   );
@@ -193,7 +228,7 @@ function EventsPage({ filter, after, labelledBy, highlight, last, onMore }: {
 function EventRow({ event, highlighted }: { readonly event: Event; readonly highlighted: boolean }) {
   const subject = event.subject.startsWith("change:") ? <Link href={`/campaigns/approval/?id=${event.subject.slice(7)}`}>Change #{event.subject.slice(7)}</Link> : event.subject;
   return (
-    <tr id={`event-${event.seq}`} className={highlighted ? "bg-silk-saffron" : ""}>
+    <tr id={`event-${event.seq}`} className={highlighted ? "bg-silk-saffron" : ""} {...(highlighted ? { "aria-current": "true" as const } : {})}>
       <th scope="row" className="pl-2">{event.seq}</th>
       <td>{formatInstantIn(event.at, CONSOLE_ZONE, { seconds: true })}<small className="block text-xs text-ink-2">{formatUtcTime(event.at, { seconds: true })}</small></td>
       <td className="wrap">{actorRole(event.actorRole)}<small className="block text-xs text-ink-2">{event.actor}</small></td>

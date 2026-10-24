@@ -9,13 +9,14 @@ import { LABELS, RELEASES } from "../content/editorial.ts";
 import {
   SiteActivatePrepaidPass, SiteAnswerPriceChange, SiteBuyPrepaidPass, SiteConfirmSubscription, SiteDemoListeners, SiteMarkets, SiteMe,
   type SiteMeQuery, SiteOffers, type SiteOffersQuery, SitePlans, SitePrepaidPasses, type SitePrepaidPassesQuery, SiteRequestQuote,
-  type SiteRequestQuoteMutationVariables, SiteSignIn, SiteSignOut, SiteVerifyStudent,
+  type SiteRequestQuoteMutationVariables, SiteVerifyStudent,
 } from "../graphql/generated.ts";
 import type { SiteApi } from "./api.ts";
 import { OFFERS_REFRESH_MS } from "./config.ts";
 import { keys } from "./keys.ts";
 import { isSiteMarket, SITE_MARKETS, type SiteMarket } from "./markets.ts";
 import { useSiteApi } from "./provider.tsx";
+import { signInOptions, signOutOptions } from "./session.ts";
 
 export type Offer = SiteOffersQuery["offers"][number];
 export type PrepaidPass = SitePrepaidPassesQuery["prepaidPasses"][number];
@@ -148,22 +149,18 @@ export function useDemoListeners() {
   });
 }
 
+/** Enters as one of the demo's listeners; the readings of `me` still on their way are cancelled first (session.ts). */
 export function useSignIn() {
   const api = useSiteApi();
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: (listenerId: string) => api.mutate(SiteSignIn, { listenerId }, { idempotencyKey: null }),
-    onSuccess: (data) => client.setQueryData<SiteMeQuery["me"]>(keys.me, data.signInAsListener),
-  });
+  return useMutation(signInOptions(api, client));
 }
 
+/** Leaves the demo; the readings of `me` still on their way are cancelled first (session.ts). */
 export function useSignOut() {
   const api = useSiteApi();
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: () => api.mutate(SiteSignOut, {}, { idempotencyKey: null }),
-    onSuccess: () => client.setQueryData<SiteMeQuery["me"]>(keys.me, null),
-  });
+  return useMutation(signOutOptions(api, client));
 }
 
 /** The simulated provider checks the session's listener as a student; the account then shows the check. */

@@ -4,7 +4,7 @@
 // that has not published can be given up; a published one cannot.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { elapsed, type LaunchDetail, launchActions, launchLook, launchWords, liveNow, stepCounts, stepLook } from "../src/lib/launch.ts";
+import { elapsed, type LaunchDetail, launchActions, launchLook, launchWords, now, publication, stepCounts, stepLook } from "../src/lib/launch.ts";
 
 type StepState = LaunchDetail["steps"][number]["state"];
 const NAMES = ["check", "prepare", "publish", "notify", "verify"] as const;
@@ -26,10 +26,23 @@ function launch(state: LaunchDetail["state"], steps: readonly StepState[], extra
 describe("a launch, step by step", () => {
   it("keeps the catalog of before live until the publish step is done", () => {
     const failing = launch("RUNNING", ["DONE", "DONE", "FAILED"], { retryAt: "2026-10-26T07:59:05Z" });
-    assert.deepEqual(liveNow(failing), { catalog: "417", published: false, words: "No part of the change is on the site: the catalog of before stays live until the new one is published." });
+    assert.deepEqual(publication(failing), { published: false, catalog: "417", at: null, words: "Nothing yet: catalog #417 stays live until the publish step is done." });
     const done = launch("DONE", ["DONE", "DONE", "DONE", "DONE", "DONE"], { snapshotAfter: "418" });
-    assert.equal(liveNow(done).catalog, "418");
-    assert.equal(liveNow(done).published, true);
+    assert.equal(publication(done).catalog, "418");
+    assert.equal(publication(done).published, true);
+  });
+
+  it("tells what the launch published apart from what is live today", () => {
+    const done = (state: LaunchDetail["change"]["state"]) => launch("DONE", ["DONE", "DONE", "DONE", "DONE", "DONE"], { snapshotAfter: "418", change: { id: "7", currentVersion: 3, state } });
+    // Today as the launch left it: nothing to say.
+    assert.deepEqual(now(done("ACTIVE"), "418"), { catalog: "418", words: "Student Autumn Pass v3 is live on the site.", differs: null });
+    // Suspended since: the launch's own publication stays history, and today says otherwise.
+    const suspended = now(done("SUSPENDED"), "431");
+    assert.equal(suspended.words, "Student Autumn Pass v3 is suspended: it is not on the site.");
+    assert.equal(suspended.differs, "Not what this launch left: it published catalog #418 with the change live; since then the change was suspended, and catalog #431 is the live one.");
+    assert.equal(publication(done("SUSPENDED")).catalog, "418");
+    // Still live, in a later catalog.
+    assert.equal(now(done("ACTIVE"), "430").differs, "Catalog #430 is the live one now, published after this launch's #418; the change is still in it.");
   });
 
   it("says a failed step of a waiting launch will be tried again, and of a stopped one that it failed", () => {

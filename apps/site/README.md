@@ -178,9 +178,9 @@ npm run e2e -w site -- gift         # stage 7's alone
 
 | Suite | What it checks | Floor |
 |---|---|---|
-| `site-types` | `tsc` over the pages and components as Next.js builds them, then over what Node runs | 44 and 31 files |
+| `site-types` | `tsc` over the pages and components as Next.js builds them, then over what Node runs | 45 and 34 files |
 | `site-codegen` | every operation validates against the public schema, and the generated types equal a fresh generation | 14 operations |
-| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator | 69 tests |
+| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit | 72 tests |
 | `site-build` | the static export, every page in it, the API it calls written in | 5 pages |
 | `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 9 tests, 9 audit events, axe on 9 pages, 20 pages fitted |
 | `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a request for consent in Germany answered, a notice in Italy, below | 9 tests, 5 audit events, axe on 9 pages, 10 pages fitted |
