@@ -584,13 +584,17 @@ class Launches:
                 facts["subscribers asked or told"] = await tx.fetchval(
                     "select count(*) from price_change_request where change_id = $1", launch.change_id)
             return facts
+        # What the site shows now is the latest snapshot: the offer belongs in every market whose period had not
+        # ended when that snapshot was built. A later publication that left out a market whose period ended since
+        # this launch published is right, and a launch resumed after it verifies as well.
         content, _, _ = await records.version_content(tx, launch.change_id, launch.version)
-        at = parse_instant(published["published at"])
-        ref = await reference.load(tx, at)
+        latest = await self.publisher.latest(tx)
+        built = parse_instant(await tx.fetchval(f"select {utc_text('created_at')} from catalog_snapshot where id = $1",
+                                                latest.snapshot_id))
+        ref = await reference.load(tx, built)
         expected = sorted(p.market for p in content.prices
                           if (period := content.period_in(p.market)) is not None
-                          and (period.ends is None or to_instant(period.ends, ref.markets[p.market].zone) > at))
-        latest = await self.publisher.latest(tx)
+                          and (period.ends is None or to_instant(period.ends, ref.markets[p.market].zone) > built))
         shown = sorted(r["market"].strip() for r in await tx.fetch(
             "select market from catalog_offer where snapshot_id = $1 and change_id = $2 and version = $3",
             latest.snapshot_id, launch.change_id, launch.version))
