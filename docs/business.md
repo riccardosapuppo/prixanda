@@ -147,7 +147,19 @@ subscribe.
 §4.5 **The price is always the engine's.** A browser never sends a price.
 The site asks the engine for a quote (plan, market, offer), shows it, and
 confirms the quote by its identifier; the engine charges what it quoted. A
-quote expires; a quote for an offer that ended is refused.
+quote expires; a quote for an offer that ended is refused. The engine
+decides a confirmation at the moment it holds what it decides on: the quote
+must not have expired by then, and the offer must still be active and cost
+less than the list price in force at that moment.
+
+The subscription starts when the quote is confirmed, and its first month is
+charged after the confirmation is recorded, never inside it: the payment
+provider is asked through the outbox (§7.5), and its answers settle the
+payment. Each answer counts once, however often and in whatever order it
+arrives; the receipt is issued when the payment succeeds. If the provider
+declines the charge, the paid subscription ends at the end of that day and
+the listener is back on the free plan the next day. The provider is
+simulated and accepts every charge (§15).
 
 ## 5. The artists' economics
 
@@ -363,6 +375,22 @@ single transaction, so the site shows an offer if and only if its prices are
 in force. If activation fails halfway, nothing half-done is visible, and the
 job resumes from where it stopped.
 
+The job is a launch of five steps, each recorded with its times, attempts
+and errors: check that the change is still the approved version and that
+nothing stands in its way (a clash, §6.4, or a later price, §4.1); prepare
+the new catalog; publish it, in the one transaction that also makes the
+change active; tell the site, through an outbox that delivers the notice at
+least once to a site that takes it once; and verify what the site now
+shows. A step that fails is tried again after 5, 15, 45 and 135 seconds, and
+a step that is done is never done again, so a launch publishes once however
+often it resumes. After five failures in a row the launch fails; a check
+that finds a clash or a later price refuses it at once. A failed or refused
+launch opens an incident, and so does a scheduled change that is not live
+five minutes after its start; the console's home counts them among today's
+incidents. The on-call engineer retries the launch or cancels it, with the
+change (§12); what to do, step by step, is in the runbook
+(docs/runbook.md).
+
 ## 8. Price changes for existing subscribers
 
 §8.1 **Two separate questions.** For each market Plancia keeps a policy
@@ -510,7 +538,7 @@ Plancia.
 | Commercial lead | own the price list and commercial rules, create price changes, approve campaigns within the thresholds | approve own versions; sign for finance |
 | Finance | approve price changes and anything over a finance condition (§7.3); read revenue and unearned value | approve own versions |
 | Catalog manager | define plans and entitlements | approve own versions; change prices |
-| On-call engineer | suspend an active change and roll back a launch | create or approve anything |
+| On-call engineer | suspend an active change; retry or cancel a launch that stopped (roll back a launch) | create or approve anything |
 | Auditor | read and export the audit log | change anything |
 
 ## 13. Subscribers and data
@@ -563,7 +591,10 @@ verification expires after 12 months; incompatible discounts do not stack
 activation. Plancia never leaves half a configuration live, recovers on
 its own and shows what happened, step by step. In the full system the
 faults are real (the engine stopped, the database connection cut at every
-step); in the browser demo the fault is simulated and says so.
+step); in the browser demo the fault is simulated and says so. The checks
+inject both faults in each of the five steps of an offer's launch, and in
+the publish step of a list price's, and count the partial activations they
+leave behind: there must be none.
 
 §14.7 **A second company, in tests only.** A fictional software company
 with seat-based plans goes through the same flows. It shows that Plancia
