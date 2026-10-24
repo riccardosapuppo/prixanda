@@ -489,9 +489,8 @@ run the real gateway over HTTP against a fake engine
 served over real gRPC on 127.0.0.1:4613, with the engine's
 behaviours as the coordinator fixed them (codes, metadata, idempotency,
 refusals, the role matrix written again on its own) and, for the
-subscriber's service, the engine's own order of checks, its four demo
-listeners and its billing schedule, and a fifth listener for §14.3, a Family
-subscriber in Germany, until the engine's own §14.3 service is there. The
+subscriber's service, the engine's own order of checks, its six demo
+listeners and its billing schedule. The
 clock is injected, so sessions expire, quotes run out, subscriptions reach
 their list price and price changes reach their deadline without waiting.
 

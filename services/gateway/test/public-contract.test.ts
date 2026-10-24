@@ -435,7 +435,7 @@ describe("the site's API, answered by an engine that plants marked values in eve
       artists: { amountMinor: "300", currency: "EUR" }, topUp: { amountMinor: "153", currency: "EUR" }, paymentCosts: { amountMinor: "5", currency: "EUR" },
       companyKeeps: { amountMinor: "-60", currency: "EUR" },
     });
-    assert.equal(catalog["demoListeners"].length, 5);
+    assert.equal(catalog["demoListeners"].length, 6);
     assert.equal(catalog["me"].id, LISTENERS.verified);
     assert.equal(catalog["me"].account.subscription.plan, "free");
     assert.equal(catalog["me"].account.studentVerification.valid, true);

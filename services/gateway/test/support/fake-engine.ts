@@ -275,16 +275,18 @@ export type StoredQuote = {
 export type OfferRules = { neverPaid: boolean; group: string; cap: number };
 
 /** The demo's listeners by what they show, as the engine's generator labels them. */
-export const LISTENERS = { verified: "5001", unverified: "5002", paidBefore: "5003", freeInFrance: "5004", familyInGermany: "5005" } as const;
+export const LISTENERS = {
+  verified: "5001", unverified: "5002", paidBefore: "5003", freeInFrance: "5004", familyInGermany: "5005", individualInItaly: "5006",
+} as const;
 
 const RECEIPT_NOTE = "Demonstration receipt from a simulated payment provider: no payment was taken, no money moved, "
   + "and no subscription contract was made.";
 
 /**
- * The engine's four demo listeners (its generator's DEMO_LISTENERS), with
+ * The engine's six demo listeners (its generator's DEMO_LISTENERS), with
  * their days fixed around the tests' 24 October 2026 instead of counted back
- * from the data's last day; and a fifth for the price rise of §14.3, a Family
- * subscriber in Germany, until the engine's own arrives with its §14.3 service.
+ * from the data's last day: four on the free plan, and two who pay, whom a
+ * price rise asks for consent (Germany) or tells in advance (Italy).
  */
 function demoListeners(): StoredListener[] {
   const free = (id: string, startedOn: string, endedOn: string | null = null): StoredSubscription => ({
@@ -322,14 +324,25 @@ function demoListeners(): StoredListener[] {
       verifications: [],
       subscriptions: [free("6", "2025-12-28")],
     },
-    // Stage 7 (§14.3): who a Family price rise in Germany asks for consent.
+    // Stage 7 (§14.3): who a Family price rise in Germany asks for consent, and a rise in Italy tells in advance.
     {
-      id: LISTENERS.familyInGermany, market: "DE", title: "Family listener in Germany", student: false,
-      label: "Simulated listener. On Family in Germany since June 2025: a higher price needs their yes, and silence is no.",
+      id: LISTENERS.familyInGermany, market: "DE", title: "Family subscriber in Germany", student: false,
+      label: "Simulated listener. Pays for Family in Germany since June 2025, billed on the 15th: a price rise there "
+        + "asks for their consent first (§8.2).",
       verifications: [],
       subscriptions: [
-        free("7", "2025-03-01", "2025-06-15"),
+        free("7", "2025-03-03", "2025-06-15"),
         { id: "8", plan: "family", paid: true, priceMinor: 1899n, startedOn: "2025-06-15", endedOn: null, billingDay: 15, quoteId: null, offerId: null, offerMonths: 0 },
+      ],
+    },
+    {
+      id: LISTENERS.individualInItaly, market: "IT", title: "Individual subscriber in Italy", student: false,
+      label: "Simulated listener. Pays for Individual in Italy since May 2026, billed on the 8th: a price rise there "
+        + "comes with notice, and they may leave before it applies (§8.3).",
+      verifications: [],
+      subscriptions: [
+        free("9", "2026-02-06", "2026-05-08"),
+        { id: "10", plan: "individual", paid: true, priceMinor: 1049n, startedOn: "2026-05-08", endedOn: null, billingDay: 8, quoteId: null, offerId: null, offerMonths: 0 },
       ],
     },
   ];
