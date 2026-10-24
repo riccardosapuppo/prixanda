@@ -1,13 +1,15 @@
 // Both endpoints, each on its own port: the console's API and the site's API
 // never share a server, so the site's port cannot even reach the console's
-// schema.
+// schema. Each keeps its own sessions: the console's people, the site's
+// listeners, in two stores with two cookies.
+import type { Listener, Viewer } from "../core/context.ts";
 import { buildInternalSchema, buildPublicSchema } from "../core/schemas.ts";
 import { TokenBuckets } from "../core/rate-limit.ts";
 import type { EngineClient } from "../core/engine.ts";
 import type { GatewayConfig } from "./config.ts";
 import { type EndpointServer, serveEndpoint } from "./http.ts";
 import type { Logger } from "./log.ts";
-import { SessionStore } from "./sessions.ts";
+import { SessionStore, SITE_COOKIE } from "./sessions.ts";
 
 export type Gateway = {
   readonly internal: EndpointServer | null;
@@ -45,12 +47,17 @@ export async function startGateway(config: GatewayConfig, deps: {
     let site: EndpointServer | null = null;
     if (config.endpoints.includes("internal")) {
       if (config.sessionSecret === null) throw new Error("the console's API needs a session key");
-      const sessions = new SessionStore({ secret: config.sessionSecret, clock: deps.clock, ...config.session });
+      const sessions = new SessionStore<Viewer>({ secret: config.sessionSecret, clock: deps.clock, ...config.session });
       internal = await serveEndpoint({ ...common, endpoint: "internal", schema: buildInternalSchema(), sessions });
       started.push(internal);
     }
     if (config.endpoints.includes("public")) {
-      site = await serveEndpoint({ ...common, endpoint: "public", schema: buildPublicSchema() });
+      let siteSessions: SessionStore<Listener> | undefined;
+      if (config.siteSessions) {
+        if (config.sessionSecret === null) throw new Error("the site's sessions need a session key");
+        siteSessions = new SessionStore<Listener>({ secret: config.sessionSecret, clock: deps.clock, ...config.session, cookie: SITE_COOKIE });
+      }
+      site = await serveEndpoint({ ...common, endpoint: "public", schema: buildPublicSchema(), ...(siteSessions ? { siteSessions } : {}) });
       started.push(site);
     }
     return {

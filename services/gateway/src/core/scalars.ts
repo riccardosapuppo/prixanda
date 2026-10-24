@@ -9,6 +9,8 @@ export type MoneyValue = { readonly amountMinor: bigint; readonly currency: stri
 export type LocalDateTimeValue = string;
 /** ISO 8601 instant in UTC, ending in Z. */
 export type DateTimeValue = string;
+/** ISO 8601 day, in a market's calendar: 2026-10-26. */
+export type DateValue = string;
 export type MarketCodeValue = string;
 export type PlanCodeValue = string;
 /** 64 lower-case hexadecimal digits. */
@@ -19,6 +21,7 @@ const INT64_MAX = 2n ** 63n - 1n;
 const CURRENCY = /^[A-Z]{3}$/;
 const INTEGER = /^-?(0|[1-9][0-9]*)$/;
 const LOCAL = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
+const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?Z$/;
 export const MARKET_CODE = /^[A-Z]{2}$/;
 export const PLAN_CODE = /^[a-z][a-z0-9-]{0,30}$/;
@@ -121,6 +124,11 @@ export const DateTimeScalar = stringScalar("DateTime", (value) => {
   return match !== null && onTheCalendar(match.slice(1));
 }, "an instant in UTC such as 2026-10-24T07:00:00Z");
 
+export const DateScalar = stringScalar("Date", (value) => {
+  const match = DAY.exec(value);
+  return match !== null && onTheCalendar([...match.slice(1), "0", "0", "0"]);
+}, "a day such as 2026-10-26");
+
 export const MarketCodeScalar = stringScalar("MarketCode", (value) => MARKET_CODE.test(value), "two capital letters (ISO 3166-1 alpha-2), such as IT");
 
 export const PlanCodeScalar = stringScalar("PlanCode", (value) => PLAN_CODE.test(value),
@@ -130,5 +138,5 @@ export const PlanCodeScalar = stringScalar("PlanCode", (value) => PLAN_CODE.test
 export const Sha256Scalar = stringScalar("Sha256", (value) => SHA256.test(value.toLowerCase()),
   "a SHA-256 digest of 64 hexadecimal digits", (value) => value.toLowerCase());
 
-export const PUBLIC_SCALARS = [MoneyScalar, LocalDateTimeScalar, DateTimeScalar, MarketCodeScalar, PlanCodeScalar] as const;
-export const INTERNAL_SCALARS = [...PUBLIC_SCALARS, Sha256Scalar] as const;
+export const PUBLIC_SCALARS = [MoneyScalar, LocalDateTimeScalar, DateTimeScalar, DateScalar, MarketCodeScalar, PlanCodeScalar] as const;
+export const INTERNAL_SCALARS = [MoneyScalar, LocalDateTimeScalar, DateTimeScalar, MarketCodeScalar, PlanCodeScalar, Sha256Scalar] as const;

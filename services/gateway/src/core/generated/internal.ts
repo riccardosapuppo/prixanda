@@ -220,7 +220,7 @@ export type Role =
   | 'ON_CALL'
   | 'AUDITOR';
 
-/** Who wrote an audit event: a role of the book, or the engine's own jobs. */
+/** Who wrote an audit event: a role of the book, the engine's own jobs, or a subscriber of the site (§11.1). */
 export type ActorRole =
   | 'MARKETING'
   | 'COMMERCIAL_LEAD'
@@ -228,7 +228,8 @@ export type ActorRole =
   | 'CATALOG_MANAGER'
   | 'ON_CALL'
   | 'AUDITOR'
-  | 'SYSTEM';
+  | 'SYSTEM'
+  | 'SUBSCRIBER';
 
 /** A person of the demo, named by role, never by a person's name (§12.1). */
 export type Person = {
@@ -614,7 +615,15 @@ export type RefusalCode =
   /** The quote expired, or names an offer that is no longer in force (§4.5). */
   | 'QUOTE_EXPIRED'
   /** The person is not in the offer's audience. */
-  | 'NOT_ELIGIBLE';
+  | 'NOT_ELIGIBLE'
+  /** A paid subscription of this listener is already running. */
+  | 'ALREADY_SUBSCRIBED'
+  /** The listener already took an offer of the same non-combinability group (§10.3). */
+  | 'NOT_COMBINABLE'
+  /** The offer's cap on redemptions is reached (§6.1). */
+  | 'CAP_REACHED'
+  /** The payment provider declined the charge (the simulated one never does). */
+  | 'PAYMENT_DECLINED';
 
 /** The rules said no: an answer, not an error. */
 export type Refusal = {
@@ -634,6 +643,7 @@ export type Overview = {
   readonly __typename?: 'Overview';
   readonly waitingForApproval: ReadonlyArray<ChangeSummary>;
   readonly launchesNext7Days: ReadonlyArray<Launch>;
+  /** The incidents open at this instant, and those opened or closed on its day (UTC), newest first. */
   readonly incidentsToday: ReadonlyArray<Incident>;
   readonly payingSubscribers: ReadonlyArray<SubscriberCount>;
   readonly freeListeners: ReadonlyArray<SubscriberCount>;
@@ -665,9 +675,13 @@ export type Launch = {
   readonly risk?: Maybe<Scalars['String']['output']>;
 };
 
+/** How an incident of a launch stands. */
 export type IncidentState =
+  /** Its launch went through on its own, and nobody had to act. */
   | 'RECOVERED'
-  | 'OPEN';
+  | 'OPEN'
+  /** A person retried or cancelled the launch. */
+  | 'RESOLVED';
 
 export type Incident = {
   readonly __typename?: 'Incident';

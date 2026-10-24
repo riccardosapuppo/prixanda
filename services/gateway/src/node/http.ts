@@ -9,8 +9,9 @@
 //      Retry-After;
 //   4. the body: POST of JSON up to 64 KiB, or GET; the Idempotency-Key
 //      header checked for its shape;
-//   5. the session (console only) from its signed cookie, and the CSRF token
-//      every mutation must carry while a session exists;
+//   5. the session from its signed cookie (the console's person, or the
+//      site's listener, each API reading its own cookie only), and the CSRF
+//      token every mutation must carry while a session exists;
 //   6. Apollo, with the schema's limits, no stack traces, no landing page, no
 //      reporting to any outside service.
 import { randomUUID } from "node:crypto";
@@ -21,7 +22,9 @@ import {
   ApolloServerPluginSchemaReportingDisabled, ApolloServerPluginUsageReportingDisabled,
 } from "@apollo/server/plugin/disabled";
 import { GraphQLError, type GraphQLFormattedError, type GraphQLSchema } from "graphql";
-import { createInternalContext, createPublicContext, type InternalContext, type PublicContext } from "../core/context.ts";
+import {
+  createInternalContext, createPublicContext, type InternalContext, type Listener, type PublicContext, type Viewer,
+} from "../core/context.ts";
 import type { CallSettings, EngineClient } from "../core/engine.ts";
 import { ERROR_CODES } from "../core/errors.ts";
 import { idempotencyKeyFrom, requestIdFrom } from "../core/ids.ts";
@@ -59,7 +62,9 @@ export type EndpointOptions = {
   readonly engine: EngineClient;
   readonly engineHealth: () => Promise<string>;
   /** The console's sessions; absent for the site. */
-  readonly sessions?: SessionStore;
+  readonly sessions?: SessionStore<Viewer>;
+  /** The site's sessions: absent for the console, and for the site where it has none (in production). */
+  readonly siteSessions?: SessionStore<Listener>;
   readonly limits: { readonly address: TokenBuckets; readonly session: TokenBuckets };
   readonly logger: Logger;
   readonly newId?: () => string;
@@ -85,7 +90,7 @@ export function formatError(formatted: GraphQLFormattedError): GraphQLFormattedE
   return { message: "Internal error. The gateway's log has it under this response's request id.", ...where, extensions: { code: "INTERNAL_SERVER_ERROR" } };
 }
 
-function plugins(endpoint: Endpoint, logger: Logger): ApolloServerPlugin<Served<InternalContext | PublicContext>>[] {
+function plugins(logger: Logger): ApolloServerPlugin<Served<InternalContext | PublicContext>>[] {
   return [
     ApolloServerPluginLandingPageDisabled(),
     ApolloServerPluginUsageReportingDisabled(),
@@ -98,8 +103,8 @@ function plugins(endpoint: Endpoint, logger: Logger): ApolloServerPlugin<Served<
           async didResolveOperation({ operation, operationName, contextValue }) {
             contextValue.record.operation = operationName ?? operation?.name?.value ?? null;
             // CSRF: while a session cookie travels, a mutation must also carry
-            // the token that only a page of the console could have read.
-            if (endpoint === "internal" && operation?.operation === "mutation" && contextValue.record.csrf === "wrong") {
+            // the token that only a page of the console, or of the site, could have read.
+            if (operation?.operation === "mutation" && contextValue.record.csrf === "wrong") {
               throw new GraphQLError("This mutation needs the session's CSRF token in the X-CSRF-Token header.", {
                 extensions: { code: "FORBIDDEN", http: { status: 403 } },
               });
@@ -160,12 +165,27 @@ const header = (request: IncomingMessage, name: string): string | undefined => {
   return Array.isArray(value) ? value.join(", ") : value;
 };
 
+/** Who the request's session is for, for the log line: the console's person or the site's listener. */
+function whoIs(context: InternalContext | PublicContext): { person?: string; listener?: string } {
+  if (context.endpoint === "internal") {
+    const person = context.sessions.current()?.viewer.personId;
+    return person ? { person } : {};
+  }
+  const listener = context.sessions?.current()?.viewer.subscriberId;
+  return listener ? { listener } : {};
+}
+
 export async function serveEndpoint(options: EndpointOptions): Promise<EndpointServer> {
   const { endpoint, config, logger } = options;
   const internal = endpoint === "internal";
   if (internal && options.sessions === undefined) throw new Error("the console's API needs its session store");
+  if (internal ? options.siteSessions !== undefined : options.sessions !== undefined) {
+    throw new Error("each API reads its own sessions only");
+  }
   const newId = options.newId ?? randomUUID;
   const allowed = new Set(config.origins[endpoint]);
+  const consoleSessions = internal ? options.sessions : undefined;
+  const siteSessions = internal ? undefined : options.siteSessions;
   const apollo = new ApolloServer<Served<InternalContext | PublicContext>>({
     schema: options.schema,
     // The site's schema is not introspectable in production; the console's API never runs there.
@@ -186,14 +206,14 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
       warn: (message: unknown) => logger.log("warn", String(message), { endpoint }),
       error: (message: unknown) => logger.log("error", String(message), { endpoint }),
     },
-    plugins: plugins(endpoint, logger),
+    plugins: plugins(logger),
   });
   await apollo.start();
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const started = performance.now();
     const { id: requestId } = requestIdFrom(header(request, "x-request-id"), newId);
-    const url = new URL(request.url ?? "/", "http://gateway.invalid");
+    let path = "(not a path)";
     const common: Record<string, string> = {
       "x-request-id": requestId,
       "cache-control": "no-store",
@@ -202,20 +222,29 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
       vary: "Origin",
     };
     let status = 0;
-    let person: string | null = null;
+    let who: { person?: string; listener?: string } = {};
     let record: Record_ | null = null;
     const finish = (code: number, body: unknown, extra: Record<string, string> = {}) => {
       status = code;
       send(response, code, body, { ...common, ...extra });
     };
     try {
+      // A target such as //[ is no URL at all: an answer, like any other bad request.
+      let url: URL;
+      try {
+        url = new URL(request.url ?? "/", "http://gateway.invalid");
+      } catch {
+        return finish(400, failure(requestId, "BAD_REQUEST", "The request's target is not a path."));
+      }
+      path = url.pathname;
       // 2. CORS.
       const origin = header(request, "origin");
       if (origin !== undefined) {
         if (!allowed.has(origin)) return finish(403, failure(requestId, "FORBIDDEN", `Requests from ${origin} are not accepted here.`));
         common["access-control-allow-origin"] = origin;
         common["access-control-expose-headers"] = "X-Request-Id, Retry-After";
-        if (internal) common["access-control-allow-credentials"] = "true";
+        // The session cookie travels only to an API that keeps sessions, and only from its own origins.
+        if (consoleSessions !== undefined || siteSessions !== undefined) common["access-control-allow-credentials"] = "true";
         if (request.method === "OPTIONS") {
           status = 204;
           response.writeHead(204, {
@@ -229,9 +258,13 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
         }
       }
       // 3. Rate limits, before any work: per address always, per session when there is one.
-      const store = options.sessions;
-      const found = store?.read(cookieValueFrom(header(request, "cookie"))) ?? null;
-      person = found?.info.viewer.personId ?? null;
+      // Each API reads its own cookie only: the browser sends both to either port of one host.
+      const cookies = header(request, "cookie");
+      const consoleFound = consoleSessions?.read(cookieValueFrom(cookies, consoleSessions.cookie)) ?? null;
+      const siteFound = siteSessions?.read(cookieValueFrom(cookies, siteSessions.cookie)) ?? null;
+      const found = consoleFound ?? siteFound;
+      if (consoleFound) who = { person: consoleFound.info.viewer.personId };
+      if (siteFound) who = { listener: siteFound.info.viewer.subscriberId };
       for (const verdict of [options.limits.address.take(clientAddress(request, config.trustProxy)), found ? options.limits.session.take(found.id) : null]) {
         if (verdict !== null && !verdict.allowed) {
           return finish(429, failure(requestId, "RATE_LIMITED", `Too many requests: try again in ${verdict.retryAfterSeconds} s.`), {
@@ -268,12 +301,14 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
 
       // 5. The context: the session, the engine bound to this request.
       const pending: string[] = [];
+      const token = header(request, "x-csrf-token");
+      const csrfValid = consoleFound ? consoleSessions?.csrfMatches(consoleFound.id, token) : siteFound ? siteSessions?.csrfMatches(siteFound.id, token) : false;
       record = {
         requestId,
         operation: null,
         engineCalls: 0,
         engineFailures: 0,
-        csrf: found === null ? "no session" : store?.csrfMatches(found.id, header(request, "x-csrf-token")) ? "valid" : "wrong",
+        csrf: found === null ? "no session" : csrfValid ? "valid" : "wrong",
       };
       const kept = record;
       const settings: CallSettings = {
@@ -291,17 +326,26 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
           }
         },
       };
-      const context: Served<InternalContext | PublicContext> = internal && store
+      const cookieOptions = { secure: config.cookieSecure, maxAgeSeconds: Math.round(config.session.absoluteMs / 1000) };
+      const keep = (cookie: string) => pending.push(cookie);
+      const context: Served<InternalContext | PublicContext> = consoleSessions
         ? {
           ...createInternalContext({
             client: options.engine,
             settings,
-            sessions: requestSessions(store, found, { secure: config.cookieSecure, maxAgeSeconds: Math.round(config.session.absoluteMs / 1000) }, (cookie) => pending.push(cookie)),
+            sessions: requestSessions(consoleSessions, consoleFound, cookieOptions, keep),
             ...(options.batch === undefined ? {} : { batch: options.batch }),
           }),
           record: kept,
         }
-        : { ...createPublicContext({ client: options.engine, settings }), record: kept };
+        : {
+          ...createPublicContext({
+            client: options.engine,
+            settings,
+            sessions: siteSessions ? requestSessions(siteSessions, siteFound, cookieOptions, keep) : null,
+          }),
+          record: kept,
+        };
 
       // 6. Apollo.
       const headers = new HeaderMap();
@@ -316,7 +360,7 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
       const out: Record<string, string | string[]> = { ...common };
       for (const [name, value] of answer.headers) out[name] = value;
       if (pending.length) out["set-cookie"] = pending;
-      person = internal && "sessions" in context ? context.sessions.current()?.viewer.personId ?? null : null;
+      who = whoIs(context);
       response.writeHead(status, out);
       if (answer.body.kind === "complete") {
         response.end(answer.body.string);
@@ -330,16 +374,31 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
       else response.end();
     } finally {
       logger.log("info", "request", {
-        requestId, endpoint, method: request.method, path: url.pathname, status, ms: Math.round(performance.now() - started),
+        requestId, endpoint, method: request.method, path, status, ms: Math.round(performance.now() - started),
         ...(record?.operation ? { operation: record.operation } : {}),
-        ...(person ? { person } : {}),
+        ...who,
         ...(record ? { engineCalls: record.engineCalls, engineFailures: record.engineFailures } : {}),
       });
     }
   };
 
+  // handle() answers its own failures; this is the last guard, for whatever
+  // fails outside them (its log line, say): a request never takes the process
+  // down, and with it the other API, which lives in the same process.
   const server = createServer((request, response) => {
-    void handle(request, response);
+    handle(request, response).catch((error: unknown) => {
+      try {
+        logger.log("error", "request handler failed", { endpoint, error: error instanceof Error ? error.message : String(error) });
+      } catch {
+        // Nothing left to tell it to.
+      }
+      if (!response.headersSent) {
+        response.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        response.end(JSON.stringify({ errors: [{ message: "Internal error.", extensions: { code: "INTERNAL_SERVER_ERROR" } }] }));
+      } else if (!response.writableEnded) {
+        response.destroy();
+      }
+    });
   });
   // Slow clients do not hold connections open for ever.
   server.headersTimeout = 10_000;

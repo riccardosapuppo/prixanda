@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { buildSchema, parse, specifiedRules, validate } from "graphql";
-import { deepestPath, depthAndCostRule, INTERNAL_LIMITS, measure, PUBLIC_LIMITS } from "../src/core/limits.ts";
+import { deepestPath, depthAndCostRule, INTERNAL_LIMITS, limitRules, measure, PUBLIC_LIMITS } from "../src/core/limits.ts";
 import { buildInternalSchema, buildPublicSchema } from "../src/core/schemas.ts";
 import { codes, type Harness, startHarness } from "./support/harness.ts";
 
@@ -19,6 +19,18 @@ const ALIASED_PAGES = `query ($n: Int!) { ${Array.from({ length: 12 }, (_, index
   `a${index}: changes(first: $n) { nodes { id details { title current { content { __typename ... on OfferContent { pages { title text terms } } } } } } }`).join(" ")} }`;
 
 const SITE_ALIASES = (count: number) => `{ ${Array.from({ length: count }, (_, index) => `a${index}: offers(market: "IT") { id title price listPrice }`).join(" ")} }`;
+
+/** Twelve pages of 100 changes with their pages' texts, written out: 43,224 by the estimate, over the console's 25,000. */
+const TWELVE_PAGES = Array.from({ length: 12 }, (_, index) =>
+  `a${index}: changes(first: 100) { nodes { id details { title current { content { __typename ... on OfferContent { pages { title text terms } } } } } } }`).join(" ");
+
+/** A page that never runs, asked with minus two billion rows, in front of the twelve pages: it must buy them nothing. */
+const CREDIT = "credit: changes(first: -2147483648) @skip(if: true) { nodes { id } }";
+
+/** What the console's API says about a document, with graphql's own rules and the gateway's limits. */
+function refusals(query: string): string[] {
+  return validate(buildInternalSchema(), parse(query), [...specifiedRules, ...limitRules(INTERNAL_LIMITS)]).map((error) => error.message);
+}
 
 function cost(schema: ReturnType<typeof buildInternalSchema>, query: string, limits = INTERNAL_LIMITS) {
   const document = parse(query);
@@ -39,9 +51,44 @@ describe("depth", () => {
     assert.equal(deepestPath(looping), Number.POSITIVE_INFINITY);
     const deep = `{ node { ${"child { ".repeat(9)}id${" }".repeat(9)} } }`;
     const errors = validate(looping, parse(deep), [...specifiedRules, depthAndCostRule(INTERNAL_LIMITS)]);
-    assert.deepEqual(errors.map((error) => error.message), ["This operation is 11 fields deep; the limit is 8."]);
+    assert.deepEqual(errors.map((error) => error.message), ["This operation is 11 fields deep or more; the limit is 8."]);
     const shallow = `{ node { child { child { id } } } }`;
     assert.deepEqual(validate(looping, parse(shallow), [...specifiedRules, depthAndCostRule(INTERNAL_LIMITS)]), []);
+  });
+});
+
+/**
+ * F0 asks markets { code }; each Fk spreads F(k-1) twice. Read naively, every
+ * level doubles the work: 30 levels are a billion expansions, from a document
+ * of a few hundred tokens.
+ */
+function doublingFragments(levels: number): string {
+  const fragments = [`fragment F0 on Query { markets { code } }`];
+  for (let level = 1; level <= levels; level += 1) fragments.push(`fragment F${level} on Query { ...F${level - 1} ...F${level - 1} }`);
+  return `{ ...F${levels} } ${fragments.join(" ")}`;
+}
+
+describe("fragments spread inside fragments", () => {
+  /** What a refusal may take at most, on a slow machine with other work running: the naive reading took about 3 s at 20 levels. */
+  const QUICK_MS = 250;
+
+  test("thirty levels of doubling fragments are refused, quickly", () => {
+    const schema = buildPublicSchema();
+    const started = performance.now();
+    const errors = validate(schema, parse(doublingFragments(30)), [...specifiedRules, depthAndCostRule(PUBLIC_LIMITS)]);
+    const took = performance.now() - started;
+    assert.ok(took < QUICK_MS, `validation took ${Math.round(took)} ms`);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0]?.message ?? "", /would cost more than 600/);
+  });
+
+  test("a fragment is measured once per operation, and gives the same cost as the fields written out", () => {
+    const schema = buildPublicSchema();
+    const written = cost(schema, '{ a: markets { code } b: markets { code } c: plans(market: "IT") { code entitlements { seats } } }', PUBLIC_LIMITS);
+    const spread = cost(schema, '{ ...M ...P } fragment M on Query { a: markets { code } b: markets { code } } fragment P on Query { c: plans(market: "IT") { code entitlements { seats } } }', PUBLIC_LIMITS);
+    assert.deepEqual(spread, written);
+    // markets { code } costs 1 + 10 × 1; three levels of doubling ask for it eight times.
+    assert.deepEqual(cost(schema, doublingFragments(3), PUBLIC_LIMITS), { depth: 2, cost: 8 * 11 });
   });
 });
 
@@ -56,7 +103,59 @@ describe("cost", () => {
 
   test("counts aliases one by one", () => {
     const schema = buildPublicSchema();
-    assert.equal(cost(schema, SITE_ALIASES(20), PUBLIC_LIMITS).cost, 20 * cost(schema, SITE_ALIASES(1), PUBLIC_LIMITS).cost);
+    assert.equal(cost(schema, SITE_ALIASES(10), PUBLIC_LIMITS).cost, 10 * cost(schema, SITE_ALIASES(1), PUBLIC_LIMITS).cost);
+  });
+
+  test("stops counting once past the limit: what it says is then a lower bound, still past it", () => {
+    const schema = buildPublicSchema();
+    const one = cost(schema, SITE_ALIASES(1), PUBLIC_LIMITS).cost;
+    const many = cost(schema, SITE_ALIASES(1_000), PUBLIC_LIMITS).cost;
+    assert.ok(many > PUBLIC_LIMITS.maxCost && many <= PUBLIC_LIMITS.maxCost + one, `${many}`);
+  });
+});
+
+describe("pages that would lower the cost", () => {
+  test("a page counts one row at least, however few its first argument asks for", () => {
+    const schema = buildInternalSchema();
+    const page = (first: string) => cost(schema, `{ changes(first: ${first}) { nodes { id title } } }`).cost;
+    assert.equal(page("1"), 1 + 1 + 1 * 2);
+    for (const first of ["0", "-1", "-2147483648"]) assert.equal(page(first), page("1"), `first: ${first}`);
+    assert.equal(page("2147483647"), page("100"), "and as many as the largest page, however many it asks for");
+  });
+
+  test("a skipped page of minus two billion rows does not let twelve costly pages through", () => {
+    const messages = refusals(`{ ${CREDIT} ${TWELVE_PAGES} }`);
+    assert.ok(messages.some((message) => /would cost more than 25000/.test(message)), messages.join("; "));
+    // Without the credit, the twelve pages were refused already: the credit was what let them through.
+    assert.ok(refusals(`{ ${TWELVE_PAGES} }`).some((message) => /would cost more than 25000/.test(message)));
+  });
+
+  test("a first argument written under 1 or over the largest page is refused in validation, skipped or not", () => {
+    for (const first of ["0", "-1", "-2147483648", "101"]) {
+      for (const directive of ["", "@skip(if: true)", "@include(if: false)"]) {
+        const messages = refusals(`{ changes(first: ${first}) ${directive} { nodes { id } } }`);
+        assert.deepEqual(messages, [`first must be between 1 and 100: ${first} is not a page size.`], `first: ${first} ${directive}`);
+      }
+    }
+    for (const first of ["1", "100"]) assert.deepEqual(refusals(`{ changes(first: ${first}) { nodes { id } } }`), [], `first: ${first}`);
+    // Inside a fragment, and on the audit log's pages, the same.
+    assert.equal(refusals("{ ...F } fragment F on Query { auditEvents(first: 0) { nodes { seq } } }").length, 1);
+    // A variable is known only when the query runs, and the resolver checks it then (through HTTP, below).
+    assert.deepEqual(refusals("query ($n: Int!) { changes(first: $n) { nodes { id } } }"), []);
+  });
+
+  test("a field under @skip or @include costs what it would cost if it ran", () => {
+    const schema = buildInternalSchema();
+    const plain = cost(schema, `{ ${TWELVE_PAGES} }`);
+    assert.ok(plain.cost > INTERNAL_LIMITS.maxCost);
+    const page = "changes(first: 100) { nodes { id details { title } } }";
+    const alone = cost(schema, `{ ${page} }`).cost;
+    for (const directive of ["@skip(if: true)", "@include(if: false)", "@skip(if: $no)", "@include(if: $yes)"]) {
+      assert.equal(cost(schema, `query ($no: Boolean!, $yes: Boolean!) { changes(first: 100) ${directive} { nodes { id details { title } } } }`).cost, alone, directive);
+    }
+    // A negative page through a variable is counted as the largest page: it buys nothing either.
+    const credited = cost(schema, `query ($n: Int!) { credit: changes(first: $n) @skip(if: true) { nodes { id } } ${page} }`).cost;
+    assert.ok(credited > alone, `${credited} vs ${alone}`);
   });
 });
 
@@ -84,19 +183,65 @@ describe("limits through HTTP", () => {
     const answer = await client.graphql(ALIASED_PAGES, { variables: { n: 100 } });
     assert.equal(answer.status, 400);
     assert.deepEqual(codes(answer), ["GRAPHQL_VALIDATION_FAILED"]);
-    assert.match(answer.body.errors[0].message, /would cost about \d+ .* the limit is 25000/);
+    assert.match(answer.body.errors[0].message, /would cost more than 25000/);
     assert.equal(harness.engine.count(), 0);
   });
 
-  test("the site's whole catalog passes, and its offers asked twenty times do not", async () => {
+  test("a skipped page with a negative first, in front of twelve costly pages, is refused before the engine", async () => {
+    const client = harness.console();
+    await client.signIn("auditor-1");
+    harness.engine.clearCalls();
+    const answer = await client.graphql(`{ ${CREDIT} ${TWELVE_PAGES} }`);
+    assert.equal(answer.status, 400, answer.text.slice(0, 300));
+    assert.deepEqual(codes(answer), ["GRAPHQL_VALIDATION_FAILED", "GRAPHQL_VALIDATION_FAILED"]);
+    const messages = answer.body.errors.map((error: { message: string }) => error.message);
+    assert.ok(messages.some((message: string) => /first must be between 1 and 100/.test(message)), messages.join("; "));
+    assert.ok(messages.some((message: string) => /would cost more than 25000/.test(message)), messages.join("; "));
+    assert.equal(harness.engine.count("ListChanges"), 0, "none of the twelve pages reached the engine");
+  });
+
+  test("a page size in a variable is checked when the field runs, and a skipped field runs nothing", async () => {
+    const client = harness.console();
+    await client.signIn("auditor-1");
+    harness.engine.clearCalls();
+    const negative = await client.graphql("query ($n: Int!) { changes(first: $n) { nodes { id } } }", { variables: { n: -1 } });
+    assert.deepEqual(codes(negative), ["BAD_USER_INPUT"]);
+    assert.match(negative.body.errors[0].message, /first must be between 1 and 100/);
+    const skipped = await client.graphql("query ($n: Int!) { changes(first: $n) @skip(if: true) { nodes { id } } }", { variables: { n: -2147483648 } });
+    assert.deepEqual(skipped.body, { data: {}, extensions: { requestId: skipped.headers["x-request-id"] } });
+    assert.equal(harness.engine.count("ListChanges"), 0);
+  });
+
+  test("the site's whole catalog passes, where each price goes included, and its offers asked twenty times do not", async () => {
     const site = harness.site();
-    const catalog = await site.graphql(`{ markets { code name currency timeZone } plans(market: "IT") { code name paid listPrice entitlements { skipsPerHour audio offline seats needsStudentCheck } }
-      prices(market: "IT") { plan market amount validFrom validUntil } offers(market: "IT") { id market plan title text terms price listPrice monthsAtOfferPrice takeableUntil { local utc } audience needsStudentCheck } }`);
+    const breakdown = "breakdown { price vat net artists topUp paymentCosts companyKeeps }";
+    const catalog = await site.graphql(`{ markets { code name currency timeZone vatBasisPoints artistsMinimum }
+      plans(market: "IT") { code name paid listPrice entitlements { skipsPerHour audio offline seats needsStudentCheck } ${breakdown} }
+      prices(market: "IT") { plan market amount validFrom validUntil }
+      offers(market: "IT") { id market plan title text terms price listPrice monthsAtOfferPrice takeableUntil { local utc } audience needsStudentCheck ${breakdown} } }`);
     assert.equal(catalog.body.errors, undefined, catalog.text);
     harness.engine.clearCalls();
     const greedy = await site.graphql(SITE_ALIASES(20));
     assert.deepEqual(codes(greedy), ["GRAPHQL_VALIDATION_FAILED"]);
     assert.equal(harness.engine.count(), 0);
+  });
+
+  test("thirty levels of doubling fragments are refused quickly through HTTP too, and the server keeps answering", async () => {
+    const site = harness.site();
+    const started = performance.now();
+    const answer = await site.graphql(doublingFragments(30));
+    const took = performance.now() - started;
+    assert.deepEqual(codes(answer), ["GRAPHQL_VALIDATION_FAILED"]);
+    assert.ok(took < 1_000, `the refusal took ${Math.round(took)} ms`);
+    const mutations = ["fragment M0 on Mutation { signOut }",
+      ...Array.from({ length: 30 }, (_, index) => `fragment M${index + 1} on Mutation { ...M${index} ...M${index} }`)].join(" ");
+    const startedMutation = performance.now();
+    const doubled = await harness.console().graphql(`mutation { ...M30 } ${mutations}`, { key: false });
+    assert.ok(performance.now() - startedMutation < 1_000);
+    // Refused twice over: a billion root fields cost too much, and are more than one mutation.
+    assert.deepEqual(codes(doubled), ["GRAPHQL_VALIDATION_FAILED", "GRAPHQL_VALIDATION_FAILED"]);
+    assert.ok(doubled.body.errors.some((error: { message: string }) => /One mutation per request/.test(error.message)), doubled.text);
+    assert.equal((await site.graphql('{ markets { code } }')).status, 200);
   });
 
   test("a document of too many tokens is refused while it is parsed", async () => {

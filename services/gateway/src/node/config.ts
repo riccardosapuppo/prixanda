@@ -2,25 +2,28 @@
 // apart from them.
 //
 // There is one sign-in mode, the demonstration: a person of the demo is
-// picked from the engine's list, which is not authentication. So the gateway
-// refuses to start in any other mode, and refuses to serve the console's API
-// in production at all, because there the browser must never choose its own
-// privileges. What a real deployment needs instead is written in REAL_AUTH.
+// picked from the engine's list, which is not authentication, and so is one
+// of the demo's listeners on the site. So the gateway refuses to start in any
+// other mode, refuses to serve the console's API in production at all, and
+// keeps no sessions on the site's API in production, because there the
+// browser must never choose who it is. What a real deployment needs instead
+// is written in REAL_AUTH.
 //
 // Secrets: the engine's internal token (COMMERCE_INTERNAL_TOKEN) and the key
-// that signs session cookies (GATEWAY_SESSION_SECRET). In development, when
-// they are not set, each is read from a file in .data/ (ignored by git),
-// created once by whoever starts first; in production they must be set.
-import { randomBytes } from "node:crypto";
-import { link, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+// that signs both APIs' session cookies (GATEWAY_SESSION_SECRET). In
+// development, when they are not set, each is read from a file in .data/
+// (ignored by git), created once by whoever starts first, through the same
+// code `npm run engine` uses (tools/lib/internal-token.ts); in production
+// they must be set.
 import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
+import { internalToken, localSecret } from "../../../../tools/lib/internal-token.ts";
 
 export class ConfigError extends Error {}
 
 export const REAL_AUTH =
   "A real deployment needs OpenID Connect: an identity provider that signs ID tokens, the gateway verifying them (issuer, audience, expiry, signature), " +
-  "roles taken from the provider's claims or a server-side directory and never from the browser, and sessions bound to the verified identity.";
+  "roles taken from the provider's claims or a server-side directory and never from the browser, and sessions bound to the verified identity; " +
+  "the site's listeners sign in the same way, as themselves.";
 
 export type Endpoint = "internal" | "public";
 
@@ -33,8 +36,10 @@ export type GatewayConfig = {
   readonly endpoints: readonly Endpoint[];
   readonly engineUrl: string;
   readonly engineToken: string;
-  /** Null when the console's API is not served. */
+  /** Null when no API keeps sessions: the console's is not served, and the site's keeps none. */
   readonly sessionSecret: Uint8Array | null;
+  /** Whether the site's API keeps sessions, in which one of the demo's listeners is chosen: in development only. */
+  readonly siteSessions: boolean;
   readonly origins: { readonly internal: readonly string[]; readonly public: readonly string[] };
   readonly cookieSecure: boolean;
   readonly trustProxy: boolean;
@@ -54,7 +59,7 @@ export const VARIABLES = {
   GATEWAY_INTERNAL_PORT: "the console's API, 4621 by default",
   GATEWAY_PUBLIC_PORT: "the site's API, 4622 by default",
   GATEWAY_ENDPOINTS: "internal,public (default), or one of them",
-  GATEWAY_SESSION_SECRET: "64 or more hexadecimal digits that sign the session cookies (secret); in development, .data/gateway-session-secret when unset",
+  GATEWAY_SESSION_SECRET: "64 or more hexadecimal digits that sign both APIs' session cookies (secret); in development, .data/gateway-session-secret when unset",
   GATEWAY_CONSOLE_ORIGINS: "the console's origins, comma separated, such as http://localhost:4631",
   GATEWAY_SITE_ORIGINS: "the site's origins, comma separated",
   GATEWAY_COOKIE_SECURE: "true to mark the session cookie Secure (needed behind HTTPS); false by default",
@@ -111,30 +116,13 @@ function origins(value: string | undefined, name: string): string[] {
   return list;
 }
 
-/**
- * A local secret: read from its file, or created there with 32 random bytes
- * in hexadecimal. The file is published whole with an exclusive link, so a
- * second process starting at the same moment never sees half a secret: it
- * finds the file there and reads it instead of writing its own.
- */
-export async function localSecret(file: string): Promise<string> {
-  await mkdir(join(file, ".."), { recursive: true });
-  const candidate = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-  await writeFile(candidate, `${randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
+/** A development secret read from .data/, a failure reported as the configuration's. */
+async function developmentSecret(read: () => Promise<string>): Promise<string> {
   try {
-    await link(candidate, file);
+    return await read();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  } finally {
-    await unlink(candidate);
+    throw new ConfigError(error instanceof Error ? error.message : String(error));
   }
-  // Another process may still be writing a file it created with O_EXCL: read until it is whole.
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const value = (await readFile(file, "utf8")).trim();
-    if (HEX_SECRET.test(value)) return value;
-    await sleep(50);
-  }
-  throw new ConfigError(`${file} does not hold a secret of 64 hexadecimal digits`);
 }
 
 export async function loadConfig(env: NodeJS.ProcessEnv, dataDir: string): Promise<GatewayConfig> {
@@ -169,17 +157,18 @@ export async function loadConfig(env: NodeJS.ProcessEnv, dataDir: string): Promi
     throw new ConfigError(`ENGINE_URL must be an http or https address, not ${JSON.stringify(engineUrl)}`);
   }
 
-  let engineToken = env["COMMERCE_INTERNAL_TOKEN"] ?? "";
-  if (engineToken === "") {
-    if (production) throw new ConfigError("COMMERCE_INTERNAL_TOKEN must be set in production: the local token file is for development only");
-    engineToken = await localSecret(join(dataDir, "internal-token"));
+  if (!env["COMMERCE_INTERNAL_TOKEN"] && production) {
+    throw new ConfigError("COMMERCE_INTERNAL_TOKEN must be set in production: the local token file is for development only");
   }
+  const engineToken = await developmentSecret(async () => (await internalToken(env, dataDir)).token);
 
+  // The site's sessions let the browser pick a listener: a demonstration, so never in production.
+  const siteSessions = endpoints.includes("public") && !production;
   let sessionSecret: Uint8Array | null = null;
-  if (endpoints.includes("internal")) {
+  if (endpoints.includes("internal") || siteSessions) {
     const configured = env["GATEWAY_SESSION_SECRET"] ?? "";
     if (configured !== "" && !HEX_SECRET.test(configured)) throw new ConfigError("GATEWAY_SESSION_SECRET must be 64 or more hexadecimal digits (32 bytes or more)");
-    const hex = configured || (await localSecret(join(dataDir, "gateway-session-secret")));
+    const hex = configured || (await developmentSecret(async () => (await localSecret(join(dataDir, "gateway-session-secret"))).secret));
     sessionSecret = Uint8Array.from(Buffer.from(hex, "hex"));
   }
 
@@ -197,6 +186,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv, dataDir: string): Promi
     engineUrl,
     engineToken,
     sessionSecret,
+    siteSessions,
     origins: {
       internal: origins(env["GATEWAY_CONSOLE_ORIGINS"], "GATEWAY_CONSOLE_ORIGINS"),
       public: origins(env["GATEWAY_SITE_ORIGINS"], "GATEWAY_SITE_ORIGINS"),
