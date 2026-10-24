@@ -1,0 +1,18 @@
+{
+  "name": "sandbox",
+  "private": true,
+  "type": "module",
+  "description": "The demo in the browser: the engine in Pyodide over PGlite and the gateway's core, in one worker that the site and the console of an origin share.",
+  "license": "MIT",
+  "exports": {
+    "./engine": "./src/engine/index.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "pyodide": "0.29.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright": "1.62.1"
+  }
+}

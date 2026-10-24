@@ -1,0 +1,12 @@
+{
+  // The engine's side of the sandbox as the browser runs it: a browser's
+  // types and none of Node's, so that a node: import, a Buffer or a process
+  // here does not compile. The build and the tests are checked apart, with
+  // Node's types (../../tsconfig.engine.json).
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2024", "dom"],
+    "types": []
+  },
+  "include": ["*.ts"]
+}

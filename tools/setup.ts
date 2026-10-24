@@ -7,12 +7,18 @@
 //    already on the machine, that copy is checked against the lock instead.
 // 2. The engine's Python environment in .venv/, with the pinned packages of
 //    services/commerce/requirements-dev.txt.
+// 3. The two wheels the browser's demo loads in Pyodide (protobuf, tzdata),
+//    pinned by the hashes of Pyodide's lock file (packages/sandbox/src/
+//    engine/build/wheels.ts): a copy pointed to by PYODIDE_PACKAGES or
+//    .tools/pyodide-packages.json is only checked; otherwise they are
+//    downloaded into .tools/pyodide-packages and checked there.
 //
 // It can run again at any time: whatever is there and matches is kept.
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { checkedWheels, lockedWheels, sha256, wheelsHome } from "../packages/sandbox/src/engine/build/wheels.ts";
 import { flywayHome, flywayLock, pinnedRuntime } from "./lib/flyway.ts";
 import { commerceDir, repoRoot, toolsDir, venvPython } from "./lib/paths.ts";
 import { run, runOrThrow } from "./lib/run.ts";
@@ -84,6 +90,26 @@ async function pythonEnvironment(): Promise<void> {
   await runOrThrow(venvPython, ["-m", "pip", "install", "--disable-pip-version-check", "--quiet", "-r", join(commerceDir, "requirements-dev.txt")], { echo: true });
 }
 
+async function pyodideWheels(): Promise<void> {
+  const home = wheelsHome(repoRoot);
+  const wheels = lockedWheels();
+  if (home.from === ".tools") {
+    await mkdir(home.dir, { recursive: true });
+    for (const wheel of wheels) {
+      const file = join(home.dir, wheel.file);
+      if (existsSync(file) && sha256(await readFile(file)) === wheel.sha256) continue;
+      say(`downloading ${wheel.file} from ${new URL(wheel.url).host}`);
+      const response = await fetch(wheel.url);
+      if (!response.ok) throw new Error(`${wheel.url} answered ${response.status}`);
+      const data = Buffer.from(await response.arrayBuffer());
+      if (sha256(data) !== wheel.sha256) throw new Error(`${wheel.url}: sha256 ${sha256(data)}; Pyodide's lock file says ${wheel.sha256}`);
+      await writeFile(file, data);
+    }
+  }
+  await checkedWheels(home.dir, wheels);
+  say(`Pyodide's wheels: ${wheels.map((w) => w.file).join(", ")} match its lock file, from ${home.from}`);
+}
+
 const home = flywayHome();
 // Only a copy of its own is downloaded and completed; one pointed to by
 // FLYWAY_JAVA and FLYWAY_LIB or by .tools/flyway-home.json is only checked.
@@ -95,4 +121,5 @@ if (java.code !== 0) throw new Error(`${home.java} does not run:\n${java.output}
 say(`Flyway ${flywayLock.flyway}: ${flywayLock.jars.length} jars match the lock (${fetched} downloaded now), from ${home.from}`);
 say(`Java: ${java.output.split(/\r?\n/)[0]?.trim()}`);
 await pythonEnvironment();
+await pyodideWheels();
 say("done");
