@@ -1443,10 +1443,23 @@
     align-items: center;
     gap: 0.6rem;
   }
+  /* the steps done, in the demo's indigo: the browser's own bar has a colour of its own */
   .sandbox-meter progress {
     width: 8rem;
     height: 0.5rem;
-    accent-color: var(--color-indigo);
+    border: 0;
+    background: var(--color-stone-2);
+    box-shadow: inset 0 0 0 1px var(--color-edge);
+    appearance: none;
+  }
+  .sandbox-meter progress::-webkit-progress-bar {
+    background: var(--color-stone-2);
+  }
+  .sandbox-meter progress::-webkit-progress-value {
+    background: var(--color-indigo);
+  }
+  .sandbox-meter progress::-moz-progress-bar {
+    background: var(--color-indigo);
   }
   .sandbox-foot {
     display: grid;
