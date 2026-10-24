@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from commerce.v1 import common_pb2 as commerce_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1f\x63ommerce/v1/subscriptions.proto\x12\x0b\x63ommerce.v1\x1a\x18\x63ommerce/v1/common.proto\"\x7f\n\x0c\x44\x65moListener\x12\x19\n\rsubscriber_id\x18\x01 \x01(\x03\x42\x02\x30\x01\x12\x0e\n\x06market\x18\x02 \x01(\t\x12\r\n\x05title\x18\x03 \x01(\t\x12\r\n\x05label\x18\x04 \x01(\t\x12\x0c\n\x04plan\x18\x05 \x01(\t\x12\x18\n\x10student_verified\x18\x06 \x01(\x08\"\x1a\n\x18ListDemoListenersRequest\"I\n\x19ListDemoListenersResponse\x12,\n\tlisteners\x18\x01 \x03(\x0b\x32\x19.commerce.v1.DemoListener\"s\n\x13StudentVerification\x12\x13\n\x0bverified_on\x18\x01 \x01(\t\x12\x13\n\x0bvalid_until\x18\x02 \x01(\t\x12\x10\n\x08provider\x18\x03 \x01(\t\x12\x11\n\treference\x18\x04 \x01(\t\x12\r\n\x05valid\x18\x05 \x01(\x08\"1\n\x14VerifyStudentRequest\x12\x19\n\rsubscriber_id\x18\x01 \x01(\x03\x42\x02\x30\x01\"\x85\x01\n\x15VerifyStudentResponse\x12\x38\n\x0cverification\x18\x01 \x01(\x0b\x32 .commerce.v1.StudentVerificationH\x00\x12\'\n\x07refusal\x18\x02 \x01(\x0b\x32\x14.commerce.v1.RefusalH\x00\x42\t\n\x07outcome\"\x82\x03\n\x0cSubscription\x12\x1b\n\x0fsubscription_id\x18\x01 \x01(\x03\x42\x02\x30\x01\x12\x0c\n\x04plan\x18\x02 \x01(\t\x12\x0e\n\x06market\x18\x03 \x01(\t\x12\x0c\n\x04paid\x18\x04 \x01(\x08\x12!\n\x05price\x18\x05 \x01(\x0b\x32\x12.commerce.v1.Money\x12\x12\n\nstarted_on\x18\x06 \x01(\t\x12\x13\n\x0b\x62illing_day\x18\x07 \x01(\x05\x12\x14\n\x08offer_id\x18\x08 \x01(\x03\x42\x02\x30\x01\x12\x13\n\x0boffer_title\x18\t \x01(\t\x12\x14\n\x0coffer_months\x18\n \x01(\x05\x12\x19\n\x11offer_months_left\x18\x0b \x01(\x05\x12\x17\n\x0f\x66ull_price_from\x18\x0c \x01(\t\x12&\n\nfull_price\x18\r \x01(\x0b\x32\x12.commerce.v1.Money\x12\x17\n\x0fnext_billing_on\x18\x0e \x01(\t\x12\'\n\x0bnext_charge\x18\x0f \x01(\x0b\x32\x12.commerce.v1.Money\"\xa7\x01\n\x07Receipt\x12\x12\n\nreceipt_id\x18\x01 \x01(\t\x12\"\n\x06\x61mount\x18\x02 \x01(\x0b\x32\x12.commerce.v1.Money\x12\x11\n\tissued_at\x18\x03 \x01(\t\x12\x10\n\x08provider\x18\x04 \x01(\t\x12\x1a\n\x12provider_reference\x18\x05 \x01(\t\x12\x15\n\rdemonstration\x18\x06 \x01(\x08\x12\x0c\n\x04note\x18\x07 \x01(\t\"f\n\x0c\x43onfirmation\x12/\n\x0csubscription\x18\x01 \x01(\x0b\x32\x19.commerce.v1.Subscription\x12%\n\x07receipt\x18\x02 \x01(\x0b\x32\x14.commerce.v1.Receipt\"B\n\x13\x43onfirmQuoteRequest\x12\x10\n\x08quote_id\x18\x01 \x01(\t\x12\x19\n\rsubscriber_id\x18\x02 \x01(\x03\x42\x02\x30\x01\"}\n\x14\x43onfirmQuoteResponse\x12\x31\n\x0c\x63onfirmation\x18\x01 \x01(\x0b\x32\x19.commerce.v1.ConfirmationH\x00\x12\'\n\x07refusal\x18\x02 \x01(\x0b\x32\x14.commerce.v1.RefusalH\x00\x42\t\n\x07outcome\"\xa5\x01\n\x07\x41\x63\x63ount\x12\x19\n\rsubscriber_id\x18\x01 \x01(\x03\x42\x02\x30\x01\x12\x0e\n\x06market\x18\x02 \x01(\t\x12/\n\x0csubscription\x18\x03 \x01(\x0b\x32\x19.commerce.v1.Subscription\x12>\n\x14student_verification\x18\x04 \x01(\x0b\x32 .commerce.v1.StudentVerification\".\n\x11GetAccountRequest\x12\x19\n\rsubscriber_id\x18\x01 \x01(\x03\x42\x02\x30\x01\";\n\x12GetAccountResponse\x12%\n\x07\x61\x63\x63ount\x18\x01 \x01(\x0b\x32\x14.commerce.v1.Account2\xf3\x02\n\x11SubscriberService\x12\x62\n\x11ListDemoListeners\x12%.commerce.v1.ListDemoListenersRequest\x1a&.commerce.v1.ListDemoListenersResponse\x12V\n\rVerifyStudent\x12!.commerce.v1.VerifyStudentRequest\x1a\".commerce.v1.VerifyStudentResponse\x12S\n\x0c\x43onfirmQuote\x12 .commerce.v1.ConfirmQuoteRequest\x1a!.commerce.v1.ConfirmQuoteResponse\x12M\n\nGetAccount\x12\x1e.commerce.v1.GetAccountRequest\x1a\x1f.commerce.v1.GetAccountResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1f\x63ommerce/v1/subscriptions.proto\x12\x0b\x63ommerce.v1\x1a\x18\x63ommerce/v1/common.proto\"\x7f\n\x0c\x44\x65moListener\x12\x19\n\rsubscriber_id\x18\x01 \x01(\x03\x42\x02\x30\x01\x12\x0e\n\x06market\x18\x02 \x01(\t\x12\r\n\x05title\x18\x03 \x01(\t\x12\r\n\x05label\x18\x04 \x01(\t\x12\x0c\n\x04plan\x18\x05 \x01(\t\x12\x18\n\x10student_verified\x18\x06 \x01(\x08\"\x1a\n\x18ListDemoListenersRequest\"I\n\x19ListDemoListenersResponse\x12,\n\tlisteners\x18\x01 \x03(\x0b\x32\x19.commerce.v1.DemoListener\"s\n\x13StudentVerification\x12\x13\n\x0bverified_on\x18\x01 \x01(\t\x12\x13\n\x0bvalid_until\x18\x02 \x01(\t\x12\x10\n\x08provider\x18\x03 \x01(\t\x12\x11\n\treference\x18\x04 \x01(\t\x12\r\n\x05valid\x18\x05 \x01(\x08\"1\n\x14VerifyStudentRequest\x12\x19\n\rsubscriber_id\x18\x01 \x01(\x03\x42\x02\x30\x01\"\x85\x01\n\x15VerifyStudentResponse\x12\x38\n\x0cverification\x18\x01 \x01(\x0b\x32 .commerce.v1.StudentVerificationH\x00\x12\'\n\x07refusal\x18\x02 \x01(\x0b\x32\x14.commerce.v1.RefusalH\x00\x42\t\n\x07outcome\"\x82\x03\n\x0cSubscription\x12\x1b\n\x0fsubscription_id\x18\x01 \x01(\x03\x42\x02\x30\x01\x12\x0c\n\x04plan\x18\x02 \x01(\t\x12\x0e\n\x06market\x18\x03 \x01(\t\x12\x0c\n\x04paid\x18\x04 \x01(\x08\x12!\n\x05price\x18\x05 \x01(\x0b\x32\x12.commerce.v1.Money\x12\x12\n\nstarted_on\x18\x06 \x01(\t\x12\x13\n\x0b\x62illing_day\x18\x07 \x01(\x05\x12\x14\n\x08offer_id\x18\x08 \x01(\x03\x42\x02\x30\x01\x12\x13\n\x0boffer_title\x18\t \x01(\t\x12\x14\n\x0coffer_months\x18\n \x01(\x05\x12\x19\n\x11offer_months_left\x18\x0b \x01(\x05\x12\x17\n\x0f\x66ull_price_from\x18\x0c \x01(\t\x12&\n\nfull_price\x18\r \x01(\x0b\x32\x12.commerce.v1.Money\x12\x17\n\x0fnext_billing_on\x18\x0e \x01(\t\x12\'\n\x0bnext_charge\x18\x0f \x01(\x0b\x32\x12.commerce.v1.Money\"\xa7\x01\n\x07Receipt\x12\x12\n\nreceipt_id\x18\x01 \x01(\t\x12\"\n\x06\x61mount\x18\x02 \x01(\x0b\x32\x12.commerce.v1.Money\x12\x11\n\tissued_at\x18\x03 \x01(\t\x12\x10\n\x08provider\x18\x04 \x01(\t\x12\x1a\n\x12provider_reference\x18\x05 \x01(\t\x12\x15\n\rdemonstration\x18\x06 \x01(\x08\x12\x0c\n\x04note\x18\x07 \x01(\t\"\xe6\x01\n\x07Payment\x12\x12\n\npayment_id\x18\x01 \x01(\t\x12(\n\x05state\x18\x02 \x01(\x0e\x32\x19.commerce.v1.PaymentState\x12\"\n\x06\x61mount\x18\x03 \x01(\x0b\x32\x12.commerce.v1.Money\x12\x10\n\x08provider\x18\x04 \x01(\t\x12\x14\n\x0crequested_at\x18\x05 \x01(\t\x12\x12\n\nsettled_at\x18\x06 \x01(\t\x12\x16\n\x0e\x66\x61ilure_reason\x18\x07 \x01(\t\x12%\n\x07receipt\x18\x08 \x01(\x0b\x32\x14.commerce.v1.Receipt\"\x91\x01\n\x0c\x43onfirmation\x12/\n\x0csubscription\x18\x01 \x01(\x0b\x32\x19.commerce.v1.Subscription\x12)\n\x07receipt\x18\x02 \x01(\x0b\x32\x14.commerce.v1.ReceiptB\x02\x18\x01\x12%\n\x07payment\x18\x03 \x01(\x0b\x32\x14.commerce.v1.Payment\"B\n\x13\x43onfirmQuoteRequest\x12\x10\n\x08quote_id\x18\x01 \x01(\t\x12\x19\n\rsubscriber_id\x18\x02 \x01(\x03\x42\x02\x30\x01\"}\n\x14\x43onfirmQuoteResponse\x12\x31\n\x0c\x63onfirmation\x18\x01 \x01(\x0b\x32\x19.commerce.v1.ConfirmationH\x00\x12\'\n\x07refusal\x18\x02 \x01(\x0b\x32\x14.commerce.v1.RefusalH\x00\x42\t\n\x07outcome\"\xcc\x01\n\x07\x41\x63\x63ount\x12\x19\n\rsubscriber_id\x18\x01 \x01(\x03\x42\x02\x30\x01\x12\x0e\n\x06market\x18\x02 \x01(\t\x12/\n\x0csubscription\x18\x03 \x01(\x0b\x32\x19.commerce.v1.Subscription\x12>\n\x14student_verification\x18\x04 \x01(\x0b\x32 .commerce.v1.StudentVerification\x12%\n\x07payment\x18\x05 \x01(\x0b\x32\x14.commerce.v1.Payment\".\n\x11GetAccountRequest\x12\x19\n\rsubscriber_id\x18\x01 \x01(\x03\x42\x02\x30\x01\";\n\x12GetAccountResponse\x12%\n\x07\x61\x63\x63ount\x18\x01 \x01(\x0b\x32\x14.commerce.v1.Account*\x7f\n\x0cPaymentState\x12\x1d\n\x19PAYMENT_STATE_UNSPECIFIED\x10\x00\x12\x19\n\x15PAYMENT_STATE_PENDING\x10\x01\x12\x1b\n\x17PAYMENT_STATE_SUCCEEDED\x10\x02\x12\x18\n\x14PAYMENT_STATE_FAILED\x10\x03\x32\xf3\x02\n\x11SubscriberService\x12\x62\n\x11ListDemoListeners\x12%.commerce.v1.ListDemoListenersRequest\x1a&.commerce.v1.ListDemoListenersResponse\x12V\n\rVerifyStudent\x12!.commerce.v1.VerifyStudentRequest\x1a\".commerce.v1.VerifyStudentResponse\x12S\n\x0c\x43onfirmQuote\x12 .commerce.v1.ConfirmQuoteRequest\x1a!.commerce.v1.ConfirmQuoteResponse\x12M\n\nGetAccount\x12\x1e.commerce.v1.GetAccountRequest\x1a\x1f.commerce.v1.GetAccountResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -40,12 +40,16 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_SUBSCRIPTION'].fields_by_name['subscription_id']._serialized_options = b'0\001'
   _globals['_SUBSCRIPTION'].fields_by_name['offer_id']._loaded_options = None
   _globals['_SUBSCRIPTION'].fields_by_name['offer_id']._serialized_options = b'0\001'
+  _globals['_CONFIRMATION'].fields_by_name['receipt']._loaded_options = None
+  _globals['_CONFIRMATION'].fields_by_name['receipt']._serialized_options = b'\030\001'
   _globals['_CONFIRMQUOTEREQUEST'].fields_by_name['subscriber_id']._loaded_options = None
   _globals['_CONFIRMQUOTEREQUEST'].fields_by_name['subscriber_id']._serialized_options = b'0\001'
   _globals['_ACCOUNT'].fields_by_name['subscriber_id']._loaded_options = None
   _globals['_ACCOUNT'].fields_by_name['subscriber_id']._serialized_options = b'0\001'
   _globals['_GETACCOUNTREQUEST'].fields_by_name['subscriber_id']._loaded_options = None
   _globals['_GETACCOUNTREQUEST'].fields_by_name['subscriber_id']._serialized_options = b'0\001'
+  _globals['_PAYMENTSTATE']._serialized_start=2061
+  _globals['_PAYMENTSTATE']._serialized_end=2188
   _globals['_DEMOLISTENER']._serialized_start=74
   _globals['_DEMOLISTENER']._serialized_end=201
   _globals['_LISTDEMOLISTENERSREQUEST']._serialized_start=203
@@ -62,18 +66,20 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_SUBSCRIPTION']._serialized_end=997
   _globals['_RECEIPT']._serialized_start=1000
   _globals['_RECEIPT']._serialized_end=1167
-  _globals['_CONFIRMATION']._serialized_start=1169
-  _globals['_CONFIRMATION']._serialized_end=1271
-  _globals['_CONFIRMQUOTEREQUEST']._serialized_start=1273
-  _globals['_CONFIRMQUOTEREQUEST']._serialized_end=1339
-  _globals['_CONFIRMQUOTERESPONSE']._serialized_start=1341
-  _globals['_CONFIRMQUOTERESPONSE']._serialized_end=1466
-  _globals['_ACCOUNT']._serialized_start=1469
-  _globals['_ACCOUNT']._serialized_end=1634
-  _globals['_GETACCOUNTREQUEST']._serialized_start=1636
-  _globals['_GETACCOUNTREQUEST']._serialized_end=1682
-  _globals['_GETACCOUNTRESPONSE']._serialized_start=1684
-  _globals['_GETACCOUNTRESPONSE']._serialized_end=1743
-  _globals['_SUBSCRIBERSERVICE']._serialized_start=1746
-  _globals['_SUBSCRIBERSERVICE']._serialized_end=2117
+  _globals['_PAYMENT']._serialized_start=1170
+  _globals['_PAYMENT']._serialized_end=1400
+  _globals['_CONFIRMATION']._serialized_start=1403
+  _globals['_CONFIRMATION']._serialized_end=1548
+  _globals['_CONFIRMQUOTEREQUEST']._serialized_start=1550
+  _globals['_CONFIRMQUOTEREQUEST']._serialized_end=1616
+  _globals['_CONFIRMQUOTERESPONSE']._serialized_start=1618
+  _globals['_CONFIRMQUOTERESPONSE']._serialized_end=1743
+  _globals['_ACCOUNT']._serialized_start=1746
+  _globals['_ACCOUNT']._serialized_end=1950
+  _globals['_GETACCOUNTREQUEST']._serialized_start=1952
+  _globals['_GETACCOUNTREQUEST']._serialized_end=1998
+  _globals['_GETACCOUNTRESPONSE']._serialized_start=2000
+  _globals['_GETACCOUNTRESPONSE']._serialized_end=2059
+  _globals['_SUBSCRIBERSERVICE']._serialized_start=2191
+  _globals['_SUBSCRIBERSERVICE']._serialized_end=2562
 # @@protoc_insertion_point(module_scope)

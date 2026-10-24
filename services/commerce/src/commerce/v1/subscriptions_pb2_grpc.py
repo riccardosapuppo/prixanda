@@ -84,8 +84,11 @@ class SubscriberServiceServicer(object):
         is still on sale, the listener is in its audience (§6, §10), the offer's
         cap on redemptions is not reached, the listener never took another offer
         of the same non-combinability group (§10.3), and no paid subscription is
-        already running. The first month is charged through the simulated
-        provider, and the receipt says it is a demonstration.
+        already running. The subscription starts at once and its first month's
+        payment comes back PENDING: the engine asks the simulated provider for it
+        after the confirmation commits, through the outbox, as it would ask a real
+        one. The provider's events settle the payment, and GetAccount then shows
+        it succeeded, with a receipt that says it is a demonstration.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
