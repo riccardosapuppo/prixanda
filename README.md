@@ -1,20 +1,20 @@
-# Box Office
+# Plancia
 
-*Working name.* An independent personal software project: a subscription and
+*Provisional name.* An independent personal software project: a subscription and
 pricing operations platform.
 
-Box Office governs what a subscription business sells: the plans and what
+Plancia governs what a subscription business sells: the plans and what
 they include, the price of each plan in each market, the promotional offers,
 who has to sign them, and when they reach the public catalog. Every change is
 a version, every version is approved by someone other than its author, and
 every decision lands in a hash-chained audit log. The rules that matter most
 are enforced twice: by the engine and again by the database.
 
-The platform is explored through a fictional business. **Encore** is an
+The platform is explored through a fictional business. **Rione**, a provisional name too, is an
 independent-music streaming service in Italy, France, Germany and the United
 Kingdom, and it makes one promise that shapes every price: each paying
 subscription pays the artists at least €3.00 (£2.60) a month, whatever
-discount the subscriber is on. A promotion below that floor costs Encore the
+discount the subscriber is on. A promotion below that floor costs Rione the
 difference out of its own margin, so it needs finance's signature. The
 company, its artists and its subscribers are invented and the data is
 synthetic; the arithmetic, the approval rules and the audit log are real. The

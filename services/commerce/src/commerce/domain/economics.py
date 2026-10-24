@@ -48,7 +48,7 @@ ECB_23_OCTOBER_2026 = ExchangeRate("EUR", "GBP", 83_728, 100_000, "ECB reference
 class Book:
     """The assumptions of the business book (§16), with its defaults.
 
-    Box Office is meant to let finance edit them; until a settings screen
+    The platform is meant to let finance edit them; until a settings screen
     exists the engine is built with these values, injected, never read from
     module constants inside the rules.
     """

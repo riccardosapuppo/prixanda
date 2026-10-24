@@ -214,7 +214,7 @@ export declare type SimulationResult = Message<"commerce.v1.SimulationResult"> &
   discountCost?: Money | undefined;
 
   /**
-   * What the artists' minimum costs Encore during the offer months.
+   * What the artists' minimum costs the music service during the offer months.
    *
    * @generated from field: commerce.v1.Money top_up_cost = 9;
    */

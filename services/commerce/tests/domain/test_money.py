@@ -1,4 +1,4 @@
-"""Money as integers, the one rounding rule, and how Box Office writes
+"""Money as integers, the one rounding rule, and how the console writes
 amounts (business book §3.4)."""
 
 from __future__ import annotations

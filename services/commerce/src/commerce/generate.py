@@ -1,4 +1,4 @@
-"""The generated data of Encore: deterministic for a seed, in two sizes.
+"""The generated data of the music service: deterministic for a seed, in two sizes.
 
     python -m commerce.generate --url <owner URL> --size small --seed 7
 

@@ -220,7 +220,7 @@ export declare type GetOverviewResponse = Message<"commerce.v1.GetOverviewRespon
   exchangeRateNote: string;
 
   /**
-   * What Encore adds this month to reach the artists' minimum (§5.5).
+   * What the music service adds this month to reach the artists' minimum (§5.5).
    *
    * @generated from field: commerce.v1.Money monthly_top_ups = 9;
    */
