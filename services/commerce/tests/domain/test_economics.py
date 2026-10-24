@@ -30,7 +30,7 @@ def brute_force_break_even(campaign: Campaign) -> int | None:
 
 
 @pytest.mark.parametrize("market", MARKETS)
-def test_a_price_splits_into_vat_artists_payment_and_what_encore_keeps(market):
+def test_a_price_splits_into_vat_artists_payment_and_what_is_kept(market):
     terms = BOOK.terms(*MARKETS[market])
     for price in (199, 579, 610, 949, 1099, 2099):
         b = terms.breakdown(price)
