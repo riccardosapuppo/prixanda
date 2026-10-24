@@ -182,7 +182,7 @@ export function explain(error: unknown): { title: string; detail: string; reques
     case "FORBIDDEN":
       return { title: "This role cannot read this.", detail: error.message, requestId };
     case "NOT_FOUND":
-      return { title: "Not found.", detail: error.message, requestId };
+      return { title: "The engine has nothing with that number.", detail: error.message, requestId };
     case "BAD_USER_INPUT":
       return { title: "The gateway refused the request as malformed.", detail: error.message, requestId };
     case "BAD_RESPONSE":

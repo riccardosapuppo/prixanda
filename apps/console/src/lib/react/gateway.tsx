@@ -1,15 +1,12 @@
 "use client";
 // The gateway client for React: queries through TanStack Query, keyed by the
 // operation and its variables, and actions (mutations) that carry one
-// idempotency key per action. A key lives until the action has an answer:
-// when the request did not get one (the gateway or the engine did not
-// answer), trying again sends the same key, so the engine replays its saved
-// outcome instead of acting twice.
+// idempotency key per action, kept until the action has an answer.
 import { keepPreviousData, type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useRef } from "react";
 import type { Operation } from "../../graphql/operation.ts";
-import { type GatewayClient, GatewayError } from "../gateway.ts";
-import { newIdempotencyKey } from "../ids.ts";
+import { ActionKey, runAction } from "../action-key.ts";
+import type { GatewayClient } from "../gateway.ts";
 
 const GatewayContext = createContext<GatewayClient | null>(null);
 
@@ -53,29 +50,18 @@ export function useGatewayQuery<TData, TVariables>(
 
 /**
  * An action that changes something: run(variables) sends the mutation with
- * this action's idempotency key. The key is made on the first try and kept
- * while the answer is missing; a different request gets a new key.
+ * this action's idempotency key (lib/action-key.ts). The key stays until an
+ * answer comes back, so trying again after any failure replays the action
+ * instead of repeating it; a different request gets a new key.
  */
 export function useAction<TData, TVariables>(operation: Operation<TData, TVariables>, actionName: string, options: { readonly onDone?: (data: TData) => void | Promise<void> } = {}) {
   const gateway = useGateway();
-  const pending = useRef<{ readonly key: string; readonly request: string } | null>(null);
+  const keys = useRef<ActionKey | null>(null);
+  keys.current ??= new ActionKey(actionName);
+  const held = keys.current;
   return useMutation<TData, Error, TVariables>({
     mutationKey: [operation.name],
-    mutationFn: async (variables) => {
-      const request = JSON.stringify(variables);
-      if (pending.current === null || pending.current.request !== request) {
-        pending.current = { key: newIdempotencyKey(actionName), request };
-      }
-      try {
-        const data = await gateway.run(operation, variables, { idempotencyKey: pending.current.key });
-        pending.current = null;
-        return data;
-      } catch (error) {
-        // Only an unanswered request keeps its key for the retry.
-        if (!(error instanceof GatewayError && error.transient)) pending.current = null;
-        throw error;
-      }
-    },
+    mutationFn: (variables) => runAction(gateway, operation, variables, held),
     onSuccess: async (data) => {
       await options.onDone?.(data);
     },
