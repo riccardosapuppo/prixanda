@@ -376,7 +376,7 @@ export class FakeEngine {
       listPrice: money(579n, "EUR"),
       monthsAtOfferPrice: 3,
       takeableUntil: { market: "IT", local: "2026-11-30T23:59", utc: "2026-11-30T22:59:00Z" },
-      audience: "Verified students who have never paid",
+      audience: "Verified students in Italy who have never had a paid plan",
       needsStudentCheck: true,
       // §14.1: €1.47 of the artists' €3.00 comes from the subscriber, and the music service adds €1.53.
       breakdown: breakdownOf(299n, MARKETS[0]),

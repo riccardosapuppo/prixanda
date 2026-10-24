@@ -167,11 +167,17 @@ A refusal on the site is `Refusal { code reason }`, with the site's codes:
 `OFFER_ENDED` (asking for a quote of an offer no longer on sale),
 `QUOTE_EXPIRED`, `NOT_ELIGIBLE`, `ALREADY_SUBSCRIBED`, `NOT_COMBINABLE`,
 `CAP_REACHED`, `PAYMENT_DECLINED` (a charge declined at the confirmation, by
-an engine that still charges there), and `NOT_AVAILABLE` for any other. The
-engine's sentence travels only where it names nothing the site does not
-already show; for `NOT_COMBINABLE`, `CAP_REACHED` and `PAYMENT_DECLINED`,
-whose sentences name an offer's group, its cap or the provider's words, and
-for `NOT_AVAILABLE`, the gateway writes its own.
+an engine that still charges there), and `NOT_AVAILABLE` for any other.
+Every reason is a sentence of the gateway's, never the engine's: the engine
+writes for the console, naming listeners and offers by their numbers
+("Subscriber #5003 is not among..."), and groups and caps the site does not
+show. A `NOT_ELIGIBLE` reason says who the offer is for, in the words of its
+page ("It is for: verified students in Italy who have never had a paid
+plan."), or that a student verification is missing, or that the offer is not
+sold in the listener's market. In the tests every answer of the site's API
+goes through a guard that fails on a number written with `#`, the word
+`Subscriber` or an identifier of the audit log (`INTERNAL_IN_PUBLIC` in
+`test/support/harness.ts`).
 
 ## Answers and errors
 
