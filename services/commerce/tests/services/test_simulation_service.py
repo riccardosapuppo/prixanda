@@ -96,3 +96,13 @@ async def test_simulation_errors_and_refusals(world):
     dear = await create(world, student_autumn(prices=[changes_pb2.OfferPrice(
         market="IT", fixed=common_pb2.Money(amount_minor=600, currency="EUR"))]))
     assert (await simulate(world, dear.id)).refusal.code == REFUSAL.REFUSAL_CODE_INVALID
+
+
+async def test_an_offer_longer_than_the_book_s_horizon_is_simulated_over_all_its_months(world):
+    # 24 months at the offer price: the default horizon covers them and the book's 12 months after.
+    change = await create(world, student_autumn(months_at_offer_price=24))
+    result = (await simulate(world, change.id, overrides=WORKED_EXAMPLE, who=FINANCE)).result
+    assert result.horizon_months == 36
+    horizon = next(a for a in result.assumptions if a.name == "horizon_months")
+    assert (horizon.value, horizon.source) == (36, "default for an offer longer than the book's horizon: its months, "
+                                                   "then the book's 12 months after them (§6.6)")

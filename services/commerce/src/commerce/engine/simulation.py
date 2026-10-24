@@ -80,7 +80,7 @@ class Simulation:
         if offer_price >= list_price:
             raise Refused("INVALID", f"The offer costs {format_money(offer_price)}, not less than the list price "
                                      f"{format_money(list_price)}: there is no campaign to simulate.")
-        horizon = typed.get("horizon_months", self.book.horizon_months)
+        horizon = typed.get("horizon_months", self.book.horizon_for(offer.months_at_offer_price))
         if horizon < offer.months_at_offer_price:
             raise InvalidArgument(f"the horizon must cover the {offer.months_at_offer_price} months at the offer price")
 
@@ -99,7 +99,10 @@ class Simulation:
                    "take_up": "default: business book §6.7 (illustrative)",
                    "incremental": "default: business book §6.7 (illustrative)",
                    "retention": "default: business book §6.7 (illustrative)",
-                   "horizon_months": "default: business book §6.6"}
+                   "horizon_months": "default: business book §6.6"
+                   if offer.months_at_offer_price <= self.book.horizon_months else
+                   f"default for an offer longer than the book's horizon: its months, then the book's "
+                   f"{self.book.horizon_months} months after them (§6.6)"}
         assumptions = [simulation_pb2.Assumption(name=name, value=values[name], source=typed_by if name in typed else default[name])
                        for name in ASSUMPTIONS]
 

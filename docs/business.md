@@ -242,9 +242,11 @@ none." N, the number of eligible people, is counted in the data when the
 sentence is written, never typed by the author.
 
 §6.6 **The simulation of a campaign.** A campaign is compared with not
-running it, over a horizon of `H` months. The assumptions are visible and
-editable, and each one carries its source (a default from this book, or a
-value someone typed, with their role and the time):
+running it, over a horizon of `H` months. An offer that lasts longer than
+`H` months is simulated over its own months and then `H` months after them,
+so that the simulation always covers the whole offer. The assumptions are
+visible and editable, and each one carries its source (a default from this
+book, or a value someone typed, with their role and the time):
 
 - `E`: the eligible audience (from the data);
 - `u`: take-up, the share of `E` that takes the offer;
@@ -324,7 +326,10 @@ round to zero (an audience too small for the assumptions: 1 eligible person
 at 12% take-up is 0 takers). The simulation then shows no effect either way,
 not even a loss, and an effect that cannot be shown is finance's to sign;
 the author writes why, as for a negative contribution. This is a prudent
-choice of this book, not a rule from elsewhere.
+choice of this book, not a rule from elsewhere. For the same reason, when a
+campaign cannot be simulated at all (no list price in force to compare
+with, for example), conditions 3 and 4 both count as met: a simulation that
+is missing never reads as a condition not met.
 
 Otherwise the commercial lead or finance may approve.
 

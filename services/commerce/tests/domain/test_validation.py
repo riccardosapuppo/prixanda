@@ -269,3 +269,31 @@ def test_an_audience_too_small_to_simulate_needs_finance():
     report = validate(offer, context(IT=market("IT", list_price=1_049, eligible=3)))
     assert report.valid and report.simulations["IT"].takers == 0
     assert [(s.role, s.conditions) for s in report.signatures] == [("finance", (4,))]
+
+
+@pytest.mark.parametrize("months", [12, 13, 36])
+def test_an_offer_longer_than_the_horizon_is_still_simulated_and_finance_signs(months):
+    # Individual at €8.99 against €10.49 for a million people: the discount alone is far above the threshold,
+    # however many months the offer lasts. An offer longer than the book's horizon used to skip the simulation
+    # and with it conditions 3 and 4, leaving the signature to the commercial lead.
+    offer = student_autumn(plan="individual", audience=Audience("never_paid", None, False, None),
+                           prices=(OfferPrice("IT", Money(899, "EUR")),), months_at_offer_price=months)
+    report = validate(offer, context(IT=market("IT", list_price=1_049, eligible=1_000_000)))
+    assert report.valid and "IT" in report.simulations
+    [need] = report.signatures
+    assert need.role == "finance" and 3 in need.conditions
+
+
+def test_a_simulation_that_cannot_run_counts_as_conditions_3_and_4():
+    # No list price in force in France: the version is invalid, and its report never says that the
+    # simulated conditions are not met.
+    offer = student_autumn(plan="individual", audience=Audience("never_paid", None, False, None),
+                           prices=(OfferPrice("IT", Money(899, "EUR")), OfferPrice("FR", Money(899, "EUR"))),
+                           periods=(OfferPeriod("IT", local("2026-10-26T09:00"), None),
+                                    OfferPeriod("FR", local("2026-10-26T09:00"), None)),
+                           pages=(OfferPage("IT", "a", "b", "c", ""), OfferPage("FR", "a", "b", "c", "")))
+    report = validate(offer, context(IT=market("IT", list_price=1_049, eligible=1_000),
+                                     FR=market("FR", list_price=None, eligible=1_000)))
+    assert not report.valid
+    met = {c.number: c for c in report.conditions if c.met}
+    assert {3, 4} <= set(met) and "cannot be simulated (France: no list price in force)" in met[3].detail

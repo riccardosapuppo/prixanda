@@ -20,7 +20,10 @@ Checks, by the name a finding carries:
 
 The simulated conditions (§7.3, conditions 3 and 4) use the book's default
 assumptions, never values the author typed: otherwise an author could type
-an optimistic retention and avoid finance's signature.
+an optimistic retention and avoid finance's signature. The horizon covers
+the whole offer, however long it lasts (§6.6), and a campaign that cannot be
+simulated meets both conditions: a missing simulation never reads as a
+condition not met.
 """
 
 from __future__ import annotations
@@ -215,6 +218,9 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
 
     below_floor: list[str] = []
     simulations: dict[str, CampaignResult] = {}
+    # Why a market could not be simulated; a simulation that is missing never reads as a condition not met.
+    unsimulated: list[str] = [] if offer.prices else ["no market is priced"]
+    horizon = book.horizon_for(max(offer.months_at_offer_price, 1))
     per_market: dict[str, dict[str, object]] = {}
     clauses: list[str] = []
     eligible_total = 0
@@ -268,14 +274,18 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
                           f"the same people in the same period, in the same group {offer.group}: they never stack.",
                           change=other.change_id)
 
-        simulation = None
-        if (plan is not None and market.list_price is not None and offer_price is not None
-                and offer_price < market.list_price and offer.months_at_offer_price >= 1
-                and book.horizon_months >= offer.months_at_offer_price):
-            simulation = simulate(Campaign(terms, market.list_price.amount, offer_price.amount, offer.months_at_offer_price,
-                                           book.horizon_months, market.eligible, book.take_up_bp, book.incremental_bp,
-                                           book.retention_bp))
-            simulations[code] = simulation
+        if plan is None:
+            unsimulated.append("no plan chosen")
+        elif market.list_price is None:
+            unsimulated.append(f"{market.name}: no list price in force")
+        elif offer_price is None or offer_price >= market.list_price:
+            unsimulated.append(f"{market.name}: the offer price is not below the list price")
+        elif offer.months_at_offer_price < 1:
+            unsimulated.append("no months at the offer price")
+        else:
+            simulations[code] = simulate(Campaign(
+                terms, market.list_price.amount, offer_price.amount, offer.months_at_offer_price, horizon,
+                market.eligible, book.take_up_bp, book.incremental_bp, book.retention_bp))
         per_market[code] = {
             "eligible": market.eligible,
             "list_price": None if market.list_price is None else market.list_price.amount,
@@ -301,7 +311,8 @@ def validate_offer(offer: Offer, ctx: Context) -> Report:
             contribution += rate.to_base(Money(result.contribution, currency))
     no_takers = [ctx.markets[code].name for code, result in simulations.items() if result.takers == 0]
     conditions = finance_conditions(book, sets_list_price=False, below_floor=below_floor, discount_and_top_up=cost,
-                                    contribution=contribution, horizon_months=book.horizon_months, no_takers=no_takers)
+                                    contribution=contribution, horizon_months=horizon, no_takers=no_takers,
+                                    unsimulated=list(dict.fromkeys(unsimulated)))
     signatures = signatures_needed(conditions)
     _signature_finding(found, signatures)
     sentence = " ".join(clauses) if clauses else f"{offer.title}: not priced in any market yet."
