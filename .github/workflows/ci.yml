@@ -1,0 +1,57 @@
+# The repository's checks on every push to main and every pull request, and
+# once a week without a push: a check that only runs when something is pushed
+# can go stale unseen. On Linux and on Windows, because the project is built
+# on Windows and `npm test` must work on both. Each job has a time limit: a job
+# that hangs is a failure, not a wait.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: npm test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/commerce/requirements*.txt
+      # Flyway's jars and the Java runtime, pinned by checksum in the lock file:
+      # downloaded once per version of the lock, then restored.
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('tools/flyway-lock.json') }}
+      # The commands of the README, as it gives them.
+      - run: npm ci
+      - run: npm run setup
+      - run: npm test
+      - name: Keep the reports of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ matrix.os }}
+          path: |
+            reports/
+            .data/*/server.log
+          if-no-files-found: ignore
