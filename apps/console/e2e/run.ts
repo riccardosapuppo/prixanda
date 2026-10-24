@@ -15,20 +15,15 @@ import { flyway } from "../../../tools/lib/flyway.ts";
 import { dataDir, PORTS, repoRoot } from "../../../tools/lib/paths.ts";
 import { type Cluster, createDatabase, startCluster } from "../../../tools/lib/postgres.ts";
 import { run } from "../../../tools/lib/run.ts";
+import { type Built, buildStatic } from "../scripts/build.ts";
 import { appDir, STACK_PORTS, startStack } from "../scripts/stack.ts";
 
 const say = (line: string) => console.log(`[e2e] ${line}`);
 export const GATEWAY_URL = `http://127.0.0.1:${STACK_PORTS.gatewayInternal}/graphql`;
 
-/** Builds the console's static export for a gateway address; returns how many pages it wrote. */
-export async function buildConsole(gatewayUrl: string): Promise<{ code: number | null; pages: number; output: string }> {
-  await rm(join(appDir, "out"), { recursive: true, force: true });
-  const built = await run(process.execPath, [join(repoRoot, "node_modules", "next", "dist", "bin", "next"), "build"], {
-    cwd: appDir,
-    env: { ...process.env, NEXT_PUBLIC_GATEWAY_URL: gatewayUrl, NEXT_TELEMETRY_DISABLED: "1" },
-  });
-  const pages = (built.output.match(/^[├└┌] ○ \//gm) ?? []).length;
-  return { code: built.code, pages, output: built.output };
+/** Builds the console's static export for a gateway address (scripts/build.ts); returns how many pages it wrote. */
+export async function buildConsole(gatewayUrl: string): Promise<Built> {
+  return buildStatic({ NEXT_PUBLIC_GATEWAY_URL: gatewayUrl });
 }
 
 export type E2eOutcome = { readonly tests: number; readonly failures: number; readonly skipped: number; readonly code: number | null; readonly output: string };
