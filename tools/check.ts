@@ -37,7 +37,7 @@ const failed = (counted: string, detail: string): Omit<Result, "suite" | "second
 const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome: "not run", counted: "-", detail });
 
 // The floors: what each suite must at least have checked.
-const FLOOR = { typecheckedFiles: 12, contractFiles: 30, migrations: 9, pythonTests: 438, invariants: 9, generatedSubscribers: 5_000 };
+const FLOOR = { typecheckedFiles: 12, contractFiles: 30, migrations: 9, pythonTests: 438, invariants: 10, generatedSubscribers: 5_000 };
 // pytest's tests by area, read from the folder each test lives in: the
 // database's own rules (tests/), the rules as plain Python (domain), the
 // business book's numbers (golden), every service against PostgreSQL

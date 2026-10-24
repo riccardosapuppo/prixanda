@@ -88,13 +88,26 @@ INVARIANTS = [
     ),
     Invariant(
         "paid_subscriptions_start_at_the_list_price",
-        "§4.3: a paid subscription pays the list price in force in its market on the day it started "
-        "(until offers and price migrations arrive, in stages 2 and 7)",
+        "§4.3: a paid subscription loaded with the data pays the list price in force in its market on the day it "
+        "started (one confirmed from a quote pays the quote, below; price migrations arrive in stage 7)",
         """
         select s.id as subscription, s.plan_id as plan, s.market, s.price_minor as pays, p.amount_minor as list_price
         from subscription s
         left join list_price p on p.plan_id = s.plan_id and p.market = s.market and p.valid @> s.started_on::timestamp
-        where s.paid and (p.amount_minor is null or p.amount_minor <> s.price_minor)
+        where s.paid and s.quote_id is null and (p.amount_minor is null or p.amount_minor <> s.price_minor)
+        """,
+    ),
+    Invariant(
+        "confirmed_subscriptions_pay_their_quote",
+        "§4.5: a subscription confirmed from a quote is the quoted plan, market and offer, pays the quoted price for "
+        "the quoted months, and has its demonstration receipt for that amount",
+        """
+        select s.id as subscription, s.price_minor as pays, q.price_minor as quoted, r.amount_minor as receipt
+        from subscription s join quote q on q.id = s.quote_id
+        left join receipt r on r.subscription_id = s.id
+        where s.price_minor <> q.price_minor or s.plan_id <> q.plan_id or s.market <> q.market
+           or s.offer_change_id is distinct from q.offer_change_id or coalesce(s.offer_months, 0) <> q.months_at_price
+           or r.amount_minor is distinct from q.price_minor
         """,
     ),
     Invariant(
