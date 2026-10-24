@@ -1,11 +1,19 @@
 # The Encore business book
 
-Encore is a subscription music service for independent music. It is
-fictional: the company, its people, artists, releases, subscribers and
-numbers are invented, and every figure that the product shows comes from a
-deterministic data generator. Box Office is the internal console where
-Encore decides what it sells, to whom, at what price, from when, and with
-whose sign-off.
+Box Office is a subscription and pricing operations platform: it decides what
+a subscription business sells, to whom, at what price, from when, and with
+whose sign-off, and publishes those decisions safely. This book describes the
+business the platform is explored through. Encore is a subscription music
+service for independent music, and it is fictional: the company, its people,
+artists, releases, subscribers and numbers are invented, and every figure
+the product shows comes from a deterministic data generator. The rules the
+book states are the ones the platform really applies: they are what the code
+and the tests are measured against.
+
+Three things are kept apart throughout: what a law requires, with its source,
+territory and date; what Encore, a fictional company, decides as a commercial
+policy; and what the browser sandbox simplifies. A rule of the first kind is
+never presented as general legal compliance.
 
 Every feature of the product points to a paragraph of this book (written as
 § and a number). A feature that answers no paragraph is not built.
