@@ -24,7 +24,8 @@ from commerce.v1 import (
     catalog_pb2, changes_pb2, common_pb2, overview_pb2, simulation_pb2, subscriptions_pb2,
 )
 from engine_support import (
-    FINANCE, LEAD, MARKETING, PUBLIC, apply, create, eur, family_migration, gift_pass, scheduled,
+    FINANCE, LEAD, MARKETING, PUBLIC, apply, approved, create, eur, family_migration, gift_pass, nordflur, scheduled,
+    student_autumn,
 )
 
 REFUSAL = common_pb2.RefusalCode
@@ -104,6 +105,48 @@ async def test_the_commercial_lead_writes_a_pass_and_finance_signs_it(world):
     percent = gift_pass(prices=[changes_pb2.OfferPrice(market="IT", percent_off_bp=1_000)])
     with pytest.raises(InvalidArgument, match="a pass has a fixed price"):
         await world.call("CreateChange", changes_pb2.CreateChangeRequest(prepaid=percent), LEAD)
+
+
+# -- scheduling ----------------------------------------------------------------------------
+
+async def schedule(world, change: changes_pb2.Change):
+    return await world.call("ScheduleChange", changes_pb2.ScheduleChangeRequest(change_id=change.id), LEAD)
+
+
+async def test_a_pass_is_scheduled_beside_offers_approved_and_live(world):
+    """A pass is a product of its own (§9): no offer clashes with it, so scheduling it reads no offer's audience,
+    with offers approved and live in the same markets."""
+    autumn = await scheduled(world, student_autumn())
+    world.clock.at = at(2026, 10, 26, 7, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome  # live in Italy until 30 November
+    await approved(world, student_autumn(title="Student Winter Pass", periods=[changes_pb2.OfferPeriod(
+        market="IT", starts_local="2026-12-01T09:00", ends_local="2027-01-31T00:00")]))
+    await approved(world, nordflur())
+    change = await approved(world, gift_pass(), LEAD, FINANCE)
+    done = (await schedule(world, change)).change
+    assert done.state == changes_pb2.CHANGE_STATE_SCHEDULED
+    [event] = [e for e in await world.events("change.scheduled") if e["subject"] == f"change:{change.id}"]
+    assert json.loads(event["body"])["starts"] == [{"market": "IT", "local": "2026-11-01T00:00", "utc": "2026-10-31T23:00:00Z"}]
+    world.clock.at = at(2026, 10, 31, 22, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert (outcome.change_id, outcome.action) == (change.id, "activated"), outcome
+    world.clock.at = at(2026, 11, 1, 9, 0)
+    assert [p.pass_id for p in await passes(world, "IT")] == [change.id]
+    offers = (await world.call("ListOffers", catalog_pb2.ListOffersRequest(market="IT"), PUBLIC)).offers
+    assert [o.offer_id for o in offers] == [autumn.id]
+
+
+async def test_a_pass_whose_sale_has_ended_is_not_scheduled(world):
+    october = [changes_pb2.OfferPeriod(market="IT", starts_local="2026-10-25T00:00", ends_local="2026-10-31T00:00")]
+    in_time, too_late = [await approved(world, gift_pass(title=title, periods=october), LEAD, FINANCE)
+                         for title in ("October gift pass", "October gift pass, again")]
+    world.clock.at = at(2026, 10, 30, 22, 59)  # 23:59 in Rome, on the last day of sale
+    assert (await schedule(world, in_time)).change.state == changes_pb2.CHANGE_STATE_SCHEDULED
+    world.clock.at = at(2026, 10, 30, 23, 0)  # midnight in Rome: the sale is over
+    refused = (await schedule(world, too_late)).refusal
+    assert (refused.code, refused.facts["markets"]) == (REFUSAL.REFUSAL_CODE_INVALID, "IT")
+    assert refused.reason.startswith("The pass's period of sale has already ended in IT")
 
 
 # -- buying ------------------------------------------------------------------------------
