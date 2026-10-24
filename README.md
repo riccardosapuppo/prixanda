@@ -101,6 +101,16 @@ dataset and checks every invariant on it, then stops the cluster and removes
 it. Each suite must reach a written minimum number of checks: a suite that
 checked nothing does not pass.
 
+The site's suites (stage 5) check its types, its GraphQL operations against
+the public schema, its unit tests, its static build, and, end to end, the
+whole system with a headless Chromium: the Student Autumn Pass launched, on
+the site within a measured time, a student subscribed at the right price,
+every step in the audit log. Run them alone with
+`npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e`;
+the end-to-end test needs Playwright's Chromium (`npx playwright install
+chromium`, a download) and is reported as not run without it. Details in
+[apps/site/README.md](apps/site/README.md).
+
 A local development database, kept between runs in `.data`:
 
 ```
@@ -120,6 +130,7 @@ reinstall stops halfway and leaves `node_modules` incomplete.
 | `db/migrations` | the schema and its rules, applied by Flyway |
 | `services/commerce` | the engine in Python: database access, the data generator, the invariants, and, from stage 2, the services |
 | `proto` | the gRPC contract; `npm run proto` regenerates `packages/contracts` (JavaScript) and the engine's Python modules |
+| `apps/site` | the public site of the fictional service: a static Next.js build on the gateway's public API |
 | `tools` | PostgreSQL and Flyway without installing them, the setup, the checks |
 | `docs` | the business book |
 

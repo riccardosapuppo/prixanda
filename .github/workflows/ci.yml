@@ -45,6 +45,12 @@ jobs:
       # The commands of the README, as it gives them.
       - run: npm ci
       - run: npm run setup
+      # The site's end-to-end test drives a headless Chromium: the one of the
+      # pinned Playwright, downloaded here (with its system libraries on Linux).
+      - run: npx playwright install --with-deps chromium
+        if: runner.os == 'Linux'
+      - run: npx playwright install chromium
+        if: runner.os == 'Windows'
       - run: npm test
       - name: Keep the reports of a failed run
         if: failure()
