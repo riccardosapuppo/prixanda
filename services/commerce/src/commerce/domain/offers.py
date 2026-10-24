@@ -1,5 +1,6 @@
-"""What a version of a change says: an offer (business book §6.1) or a new
-list price (§4.2), and how it is kept in the database.
+"""What a version of a change says: an offer (business book §6.1), a new
+list price (§4.2), a price migration (§8) or a prepaid pass (§9), and how it
+is kept in the database.
 
 A draft may be incomplete: a missing price, page or start is something the
 validation reports (§6.4), not a reason to refuse saving. What is refused
@@ -32,6 +33,8 @@ PAGE_TEXT_MAX = 2_000
 PAGE_TERMS_MAX = 4_000
 TREATMENT_MAX = 40
 MONTHS_MAX = 36
+PASS_MONTHS_MAX = 24
+CODE_VALID_MONTHS_MAX = 36
 LISTENING_DAYS_MAX = 90
 LISTENING_SECONDS_MAX = 90 * 86_400
 GROUP = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
@@ -122,7 +125,53 @@ class ListPrice:
     kind = "list_price"
 
 
-Content = Offer | ListPrice
+@dataclass(frozen=True)
+class PriceMigration:
+    """A higher price for one plan in one market, for everyone (§8, §14.3): new
+    subscribers pay it from starts; existing ones are asked, or told, from
+    notices, by the rules of their market. The change starts at notices."""
+
+    title: str
+    plan: str | None = None
+    market: str | None = None
+    amount: Money | None = None
+    notices: datetime | None = None
+    starts: datetime | None = None
+
+    kind = "price_migration"
+
+
+@dataclass(frozen=True)
+class PrepaidPass:
+    """Months of a plan paid in advance, sold as a single-use code that can be given as a gift (§9, §14.4): a
+    fixed price and a period of sale in each market where it is sold, its page there, and how long a code sold
+    can wait to be activated. It starts when the first of its periods does."""
+
+    title: str
+    plan: str | None = None
+    months: int = 0
+    prices: tuple[OfferPrice, ...] = ()
+    periods: tuple[OfferPeriod, ...] = ()
+    code_valid_months: int = 0
+    pages: tuple[OfferPage, ...] = ()
+
+    kind = "prepaid"
+
+    def markets(self) -> list[str]:
+        """The markets it is sold in: those with a price, in order."""
+        return [p.market for p in self.prices]
+
+    def price_in(self, market: str) -> OfferPrice | None:
+        return next((p for p in self.prices if p.market == market), None)
+
+    def period_in(self, market: str) -> OfferPeriod | None:
+        return next((p for p in self.periods if p.market == market), None)
+
+    def page_in(self, market: str) -> OfferPage | None:
+        return next((p for p in self.pages if p.market == market), None)
+
+
+Content = Offer | ListPrice | PriceMigration | PrepaidPass
 
 
 @dataclass(frozen=True)
@@ -149,7 +198,7 @@ def shape_problems(content: Content, known: Known) -> list[str]:
     _text(title, TITLE_MAX, "the title", problems)
     if content.plan is not None and (content.plan not in known.plans or not known.plans[content.plan][0]):
         problems.append(f"{content.plan!r} is not a paid plan")
-    if isinstance(content, ListPrice):
+    if isinstance(content, (ListPrice, PriceMigration)):
         if content.market is not None and content.market not in known.markets:
             problems.append(f"{content.market!r} is not a market")
         if content.amount is not None:
@@ -157,6 +206,16 @@ def shape_problems(content: Content, known: Known) -> list[str]:
                 problems.append(f"a price in {content.market} is in {known.markets[content.market]}, not {content.amount.currency}")
             if content.amount.amount <= 0:
                 problems.append("a list price is more than zero")
+        return problems
+    if isinstance(content, PrepaidPass):
+        _sold_where(content.prices, content.periods, content.pages, known, problems)
+        for price in content.prices:
+            if price.fixed is None or price.percent_off_bp is not None:
+                problems.append(f"a pass has a fixed price, in {price.market} too")
+        if not 0 <= content.months <= PASS_MONTHS_MAX:
+            problems.append(f"a pass lasts between 1 and {PASS_MONTHS_MAX} months")
+        if not 0 <= content.code_valid_months <= CODE_VALID_MONTHS_MAX:
+            problems.append(f"a code can wait between 1 and {CODE_VALID_MONTHS_MAX} months to be activated")
         return problems
 
     audience = content.audience
@@ -172,32 +231,10 @@ def shape_problems(content: Content, known: Known) -> list[str]:
             problems.append(f"a listening rule counts between 1 second and {LISTENING_DAYS_MAX} days of listening")
         if not 1 <= rule.within_days <= LISTENING_DAYS_MAX:
             problems.append(f"a listening rule looks back between 1 and {LISTENING_DAYS_MAX} days")
-    for what, entries in (("price", content.prices), ("period", content.periods), ("page", content.pages)):
-        seen: set[str] = set()
-        for entry in entries:
-            if entry.market not in known.markets:
-                problems.append(f"{entry.market!r} is not a market")
-            if entry.market in seen:
-                problems.append(f"two {what}s for {entry.market}")
-            seen.add(entry.market)
+    _sold_where(content.prices, content.periods, content.pages, known, problems)
     for price in content.prices:
-        if (price.fixed is None) == (price.percent_off_bp is None):
-            problems.append(f"the price in {price.market} is either a fixed amount or a percentage off")
-        elif price.fixed is not None:
-            if price.market in known.markets and price.fixed.currency != known.markets[price.market]:
-                problems.append(f"a price in {price.market} is in {known.markets[price.market]}, not {price.fixed.currency}")
-            if price.fixed.amount <= 0:
-                problems.append(f"the price in {price.market} is more than zero")
-        elif price.percent_off_bp is not None and not 1 <= price.percent_off_bp <= 9_999:
+        if price.percent_off_bp is not None and price.fixed is None and not 1 <= price.percent_off_bp <= 9_999:
             problems.append(f"a percentage off in {price.market} is between 0.01% and 99.99%")
-    for period in content.periods:
-        if period.starts is None:
-            problems.append(f"the period in {period.market} needs its start")
-    for page in content.pages:
-        _text(page.title, PAGE_TITLE_MAX, f"the page title in {page.market}", problems)
-        _text(page.text, PAGE_TEXT_MAX, f"the page text in {page.market}", problems)
-        _text(page.terms, PAGE_TERMS_MAX, f"the terms in {page.market}", problems)
-        _text(page.treatment, TREATMENT_MAX, f"the treatment in {page.market}", problems)
     if not 0 <= content.months_at_offer_price <= MONTHS_MAX:
         problems.append(f"an offer lasts between 1 and {MONTHS_MAX} months at its price")
     if content.group is not None and not GROUP.match(content.group):
@@ -207,10 +244,41 @@ def shape_problems(content: Content, known: Known) -> list[str]:
     return problems
 
 
+def _sold_where(prices: tuple[OfferPrice, ...], periods: tuple[OfferPeriod, ...], pages: tuple[OfferPage, ...],
+                known: Known, problems: list[str]) -> None:
+    """What an offer and a pass share: a price, a period and a page per market, each meaningful on its own."""
+    for what, entries in (("price", prices), ("period", periods), ("page", pages)):
+        seen: set[str] = set()
+        for entry in entries:
+            if entry.market not in known.markets:
+                problems.append(f"{entry.market!r} is not a market")
+            if entry.market in seen:
+                problems.append(f"two {what}s for {entry.market}")
+            seen.add(entry.market)
+    for price in prices:
+        if (price.fixed is None) == (price.percent_off_bp is None):
+            problems.append(f"the price in {price.market} is either a fixed amount or a percentage off")
+        elif price.fixed is not None:
+            if price.market in known.markets and price.fixed.currency != known.markets[price.market]:
+                problems.append(f"a price in {price.market} is in {known.markets[price.market]}, not {price.fixed.currency}")
+            if price.fixed.amount <= 0:
+                problems.append(f"the price in {price.market} is more than zero")
+    for period in periods:
+        if period.starts is None:
+            problems.append(f"the period in {period.market} needs its start")
+    for page in pages:
+        _text(page.title, PAGE_TITLE_MAX, f"the page title in {page.market}", problems)
+        _text(page.text, PAGE_TEXT_MAX, f"the page text in {page.market}", problems)
+        _text(page.terms, PAGE_TERMS_MAX, f"the terms in {page.market}", problems)
+        _text(page.treatment, TREATMENT_MAX, f"the treatment in {page.market}", problems)
+
+
 def local_times(content: Content) -> list[tuple[str, datetime]]:
     """Every (market, local time) the version schedules, to check against the clocks."""
     if isinstance(content, ListPrice):
         return [(content.market, content.starts)] if content.market and content.starts else []
+    if isinstance(content, PriceMigration):
+        return [(content.market, moment) for moment in (content.notices, content.starts) if content.market and moment]
     found = []
     for period in content.periods:
         for moment in (period.starts, period.ends):
@@ -231,6 +299,18 @@ def to_json(content: Content) -> dict:
     if isinstance(content, ListPrice):
         return {"schema": SCHEMA, "kind": "list_price", "title": content.title, "plan": content.plan,
                 "market": content.market, "amount": _money(content.amount), "starts": _local(content.starts)}
+    if isinstance(content, PriceMigration):
+        return {"schema": SCHEMA, "kind": "price_migration", "title": content.title, "plan": content.plan,
+                "market": content.market, "amount": _money(content.amount), "notices": _local(content.notices),
+                "starts": _local(content.starts)}
+    if isinstance(content, PrepaidPass):
+        return {"schema": SCHEMA, "kind": "prepaid", "title": content.title, "plan": content.plan, "months": content.months,
+                "prices": [{"market": p.market, "fixed": _money(p.fixed), "percent_off_bp": p.percent_off_bp}
+                           for p in content.prices],
+                "periods": [{"market": p.market, "starts": _local(p.starts), "ends": _local(p.ends)} for p in content.periods],
+                "code_valid_months": content.code_valid_months,
+                "pages": [{"market": p.market, "title": p.title, "text": p.text, "terms": p.terms, "treatment": p.treatment}
+                          for p in content.pages]}
     a = content.audience
     return {
         "schema": SCHEMA, "kind": "offer", "title": content.title, "plan": content.plan,
@@ -265,6 +345,17 @@ def from_json(data: Mapping) -> Content:
     if data["kind"] == "list_price":
         return ListPrice(title=data["title"], plan=data["plan"], market=data["market"],
                          amount=_read_money(data["amount"]), starts=_read_local(data["starts"]))
+    if data["kind"] == "price_migration":
+        return PriceMigration(title=data["title"], plan=data["plan"], market=data["market"],
+                              amount=_read_money(data["amount"]), notices=_read_local(data["notices"]),
+                              starts=_read_local(data["starts"]))
+    if data["kind"] == "prepaid":
+        return PrepaidPass(
+            title=data["title"], plan=data["plan"], months=data["months"],
+            prices=tuple(OfferPrice(p["market"], _read_money(p["fixed"]), p["percent_off_bp"]) for p in data["prices"]),
+            periods=tuple(OfferPeriod(p["market"], _read_local(p["starts"]), _read_local(p["ends"])) for p in data["periods"]),
+            code_valid_months=data["code_valid_months"],
+            pages=tuple(OfferPage(p["market"], p["title"], p["text"], p["terms"], p["treatment"]) for p in data["pages"]))
     if data["kind"] != "offer":
         raise ValueError(f"no content of kind {data['kind']!r}")
     a = data["audience"]

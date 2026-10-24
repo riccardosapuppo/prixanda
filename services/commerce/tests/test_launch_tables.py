@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from helpers import T0, add_people, approve, move, new_change, sqlstate_of
+from helpers import T0, add_people, add_subscription, approve, move, new_change, sqlstate_of
 
 LAUNCH = ("insert into launch (change_id, version, kind, starts_market, starts_local, starts_at, due_at, started_at) "
           "values ($1, 1, 'offer', 'IT', '2026-10-26 09:00', '2026-10-26 08:00+00', '2026-10-26 07:59+00', $2) returning id")
@@ -121,9 +121,8 @@ async def payment(db) -> str:
                            "months_at_price, then_price_minor, subscriber_id, request_id) values ($1, $2, $3, 'FR', 'EUR', "
                            "'individual', 1099, 1099, 0, 1099, 401, 'req-00000001')", "q_" + "a" * 32, T0,
                            T0.replace(hour=9))
-    await db.owner.execute("insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, started_on, "
-                           "billing_day, quote_id) values (7, 401, 'FR', 'EUR', 'individual', true, 1099, '2026-10-24', 24, $1)",
-                           "q_" + "a" * 32)
+    await add_subscription(db.owner, 401, "FR", "individual", 1099, "2026-10-24", subscription=7, billing_day=24,
+                           quote_id="q_" + "a" * 32)
     await db.app.execute("insert into payment (id, quote_id, subscription_id, subscriber_id, amount_minor, currency, provider, "
                          "requested_at, request_id) values ($1, $2, 7, 401, 1099, 'EUR', 'simulated', $3, 'req-00000001')",
                          "p_" + "b" * 32, "q_" + "a" * 32, T0)

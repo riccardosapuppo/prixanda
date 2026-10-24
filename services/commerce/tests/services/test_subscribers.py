@@ -15,8 +15,9 @@ from commerce.engine import payments
 from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound
 from commerce.engine.providers import FAILED, ChargeResult, ProviderEvent
 from commerce.invariants import check
-from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, quotes_pb2, subscriptions_pb2
-from engine_support import FINANCE, MARKETING, ON_CALL, PUBLIC, new_key, scheduled, student_autumn
+from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, subscriptions_pb2
+from engine_support import FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, family_rise, new_key, scheduled, student_autumn
+from helpers import add_subscription
 
 REFUSAL = common_pb2.RefusalCode
 
@@ -242,8 +243,7 @@ async def test_one_offer_of_a_group_per_listener(world):
     await confirm(world, q.quote_id, 101)
     # The pass ends in November and 101 goes back to Free (by hand: cancellations are not modelled yet).
     await world.owner.execute("update subscription set ended_on = '2026-11-26' where subscriber_id = 101 and ended_on is null")
-    await world.owner.execute("insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, "
-                              "started_on, billing_day) values (90001, 101, 'IT', 'EUR', 'free', false, 0, '2026-11-26', 26)")
+    await add_subscription(world.owner, 101, "IT", "free", 0, "2026-11-26", subscription=90001, billing_day=26)
     # For verified students on Free, which 101 is again: only the group keeps them out.
     winter = await scheduled(world, student_autumn(
         title="Student Winter Pass",
@@ -320,8 +320,7 @@ async def test_a_declined_payment_ends_the_paid_plan_at_the_end_of_the_day(world
 
 async def test_a_free_plan_that_started_today_cannot_end_today(world):
     await world.owner.execute("insert into subscriber (id, market, joined_on) values (402, 'FR', '2026-10-24')")
-    await world.owner.execute("insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, "
-                              "started_on, billing_day) values (90002, 402, 'FR', 'EUR', 'free', false, 0, '2026-10-24', 24)")
+    await add_subscription(world.owner, 402, "FR", "free", 0, "2026-10-24", subscription=90002, billing_day=24)
     q = await quote(world, plan="individual", market="FR", subscriber_id=402)
     with pytest.raises(FailedPrecondition):
         await confirm(world, q.quote_id, 402)
@@ -428,3 +427,17 @@ async def test_a_confirmation_outside_the_audience_names_the_market_as_it_is_wri
     assert refused.code == REFUSAL.REFUSAL_CODE_NOT_ELIGIBLE
     assert refused.reason == "The offer is for verified students in Italy who have never had a paid plan."
     assert refused.facts["subscriber"] == "104" and "#" not in refused.reason
+
+
+async def test_the_account_and_the_home_read_the_price_from_the_subscription_s_history(world):
+    # Family in Germany at 18,99 €, charged on the 10th; from 10 November its history says 20,99 €.
+    rise = await world.call("CreateChange", changes_pb2.CreateChangeRequest(list_price=family_rise()), LEAD)
+    family = await world.owner.fetchval("select id from subscription where subscriber_id = 203 and ended_on is null")
+    await world.owner.execute("insert into subscription_price (subscription_id, from_on, price_minor, change_id) "
+                              "values ($1, '2026-11-10', 2099, $2)", family, rise.change.id)
+    now = (await account(world, 203)).subscription
+    assert (now.price.amount_minor, now.next_billing_on, now.next_charge.amount_minor) == (1899, "2026-11-10", 2099)
+    world.clock.at = at(2026, 11, 15, 12, 0)
+    assert (await account(world, 203)).subscription.price.amount_minor == 2099
+    home = await world.call("GetOverview", overview_pb2.GetOverviewRequest(), FINANCE)
+    assert {r.market: r.revenue.amount_minor for r in home.monthly_revenue}["DE"] == 1764  # 20,99 € net of 19% VAT

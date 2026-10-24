@@ -18,6 +18,7 @@ from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, format_local, parse_local, to_local
 from commerce.domain.money import Money
 from commerce.domain.offers import OfferPrice
+from commerce.domain.migration import CHOICE_LABEL
 from commerce.domain.validation import on_sale, resolve_price
 from commerce.engine import contract, reference
 from commerce.engine.call import Call, Clock
@@ -111,13 +112,21 @@ class Catalog:
 
     async def list_markets(self, tx: Connection, call: Call, request: catalog_pb2.ListMarketsRequest) -> catalog_pb2.ListMarketsResponse:
         ref = await reference.load(tx, self.clock.now())
+        rules = await reference.policies(tx)
         markets = []
         for m in ref.markets.values():
             terms = m.terms(self.book)
-            markets.append(catalog_pb2.Market(
+            market = catalog_pb2.Market(
                 code=m.code, name=m.name, currency=m.currency, minor_units=m.minor_units, time_zone=m.zone, vat_bp=m.vat_bp,
                 artists_minimum=contract.money(Money(terms.minimum, m.currency)),
-                floor=contract.money(Money(terms.floor(), m.currency))))
+                floor=contract.money(Money(terms.floor(), m.currency)))
+            if m.code in rules:
+                p = rules[m.code]
+                market.price_change_policy.CopyFrom(catalog_pb2.PriceChangePolicy(
+                    market=p.market, legal_requirement=p.legal_requirement, legal_basis=p.legal_basis,
+                    legal_sources=list(p.legal_sources), window_days=p.window_days, after_window=p.after_window,
+                    commercial_choice=p.commercial_choice, alternatives=list(p.alternatives), label=CHOICE_LABEL))
+            markets.append(market)
         return catalog_pb2.ListMarketsResponse(markets=markets)
 
     async def list_plans(self, tx: Connection, call: Call, request: catalog_pb2.ListPlansRequest) -> catalog_pb2.ListPlansResponse:

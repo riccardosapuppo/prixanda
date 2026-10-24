@@ -60,8 +60,8 @@ from datetime import datetime, timedelta
 
 from commerce.domain import policy
 from commerce.domain.localtime import describe_local, format_instant, format_local, parse_instant, to_instant, to_local
-from commerce.domain.offers import ListPrice, Offer, from_json
-from commerce.engine import clashes, contract, outbox, records, reference
+from commerce.domain.offers import ListPrice, Offer, PrepaidPass, PriceMigration, from_json
+from commerce.engine import clashes, contract, migrations, outbox, prepaid, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import Connection, Database, utc_text
 from commerce.engine.errors import InvalidArgument, NotFound, Refused
@@ -290,21 +290,25 @@ class Launches:
         return happened
 
     async def _raise_alarms(self) -> list[Happened]:
-        """A scheduled change not live LATE_AFTER its start: one incident, until its launch goes through or stops."""
+        """A scheduled change not live LATE_AFTER its start: one incident, until its launch goes through or stops.
+        Each late launch is locked, and found late again, before its incident opens: in series with the launch's end
+        and its cancellation, which close its incidents, so that an alarm never stays open on a launch that stopped
+        meanwhile, where nothing would close it."""
         now = self.clock.now()
+        late = ("c.state = 'scheduled' and l.state in ('running', 'failed', 'refused') and l.starts_at <= $1::text::timestamptz "
+                "and not exists (select from incident i where i.launch_id = l.id and i.state = 'open')")
+        async with self.db.transaction(readonly=True) as tx:
+            found = [r["id"] for r in await tx.fetch(_LAUNCH + f"where {late} order by l.id", format_instant(now - LATE_AFTER))]
         happened = []
-        async with self.db.transaction() as tx:
-            rows = await tx.fetch(
-                _LAUNCH + "where c.state = 'scheduled' "
-                "and l.state in ('running', 'failed', 'refused') and l.starts_at <= $1::text::timestamptz "
-                "and not exists (select from incident i where i.launch_id = l.id and i.state = 'open') order by l.id",
-                format_instant(now - LATE_AFTER))
-            if not rows:
-                return []
-            ref = await reference.load(tx, now)
-            for row in rows:
+        for launch_id in found:
+            async with self.db.transaction() as tx:
+                if await _lock(tx, launch_id) is None:
+                    continue
+                row = await tx.fetchrow(_LAUNCH + f"where l.id = $2 and {late}", format_instant(now - LATE_AFTER), launch_id)
+                if row is None:
+                    continue  # it went through, stopped or was cancelled while this pass looked
                 launch = _launch(row)
-                market = ref.markets[launch.starts_market]
+                market = (await reference.load(tx, now)).markets[launch.starts_market]
                 minutes = int(LATE_AFTER.total_seconds() // 60)
                 summary = (f"{launch.title} (#{launch.change_id}) was to start in {market.name} on "
                            f"{describe_local(datetime.fromisoformat(launch.starts_local), market.zone)}, and is not live "
@@ -432,7 +436,9 @@ class Launches:
                 raise Refusal(clash.words(ref.markets[clash.market].name, content.group)
                               + " Nothing was published, and the change stays scheduled.", clash.facts())
             return None
-        assert isinstance(content, ListPrice)
+        if isinstance(content, PrepaidPass):
+            return None  # a pass stands beside every other: nothing is in its way
+        assert isinstance(content, (ListPrice, PriceMigration))
         market = ref.markets[content.market]
         local_now = to_local(now, market.zone)
         effective = content.starts if content.starts > local_now else _ceil_second(local_now)
@@ -471,7 +477,15 @@ class Launches:
         events: list[int] = []
         body: dict = {"change": launch.change_id, "version": launch.version, "from": "scheduled", "to": "active",
                       "launch": launch.id}
-        if isinstance(content, ListPrice):
+        if isinstance(content, PriceMigration):
+            # The existing subscribers first, while the price list still says what they pay after an offer.
+            market = ref.markets[content.market]
+            policy = (await reference.policies(tx))[market.code]
+            opened = await migrations.open_requests(tx, change_id=launch.change_id, content=content, market=market,
+                                                    policy=policy, now=now, request_id=run)
+            body.update({"asked": opened.asked, "requirement": policy.legal_requirement,
+                         "window_ends": format_local(opened.window_ends), "notices": format_local(content.notices)})
+        if isinstance(content, (ListPrice, PriceMigration)):
             market = ref.markets[content.market]
             previous = await tx.fetchrow(
                 "select id, change_id from list_price where plan_id = $1 and market = $2 and upper_inf(valid) for update",
@@ -543,20 +557,44 @@ class Launches:
             return {"live": f"the change is {state}: it went live, and a later decision took it off the site"}
         if state != "active":
             raise NotVerified(f"change #{launch.change_id} is {state} after its publication")
-        if launch.kind == "list_price":
+        if launch.kind == "prepaid":
+            # On sale where its period has begun and not ended, as the site lists it.
+            content, _, _ = await records.version_content(tx, launch.change_id, launch.version)
+            assert isinstance(content, PrepaidPass)
+            at = parse_instant(published["published at"])
+            on_sale = await prepaid.on_sale(tx, at)
+            listed = sorted(p.market for p in on_sale if p.change_id == launch.change_id)
+            ref = await reference.load(tx, at)
+            expected = sorted(p.market for p in content.prices
+                              if (period := content.period_in(p.market)) is not None and period.starts is not None
+                              and to_instant(period.starts, ref.markets[p.market].zone) <= at
+                              and (period.ends is None or to_instant(period.ends, ref.markets[p.market].zone) > at))
+            if listed != expected:
+                raise NotVerified(f"the site lists pass #{launch.change_id} in {', '.join(listed) or 'no market'}, "
+                                  f"not in {', '.join(expected) or 'no market'}")
+            return {"on sale": ",".join(listed) or "from the start of its periods"}
+        if launch.kind in ("list_price", "price_migration"):
             row = await tx.fetchrow(
                 "select amount_minor, to_char(lower(valid), 'YYYY-MM-DD\"T\"HH24:MI:SS') as starts from list_price "
                 "where change_id = $1", launch.change_id)
             if row is None:
                 raise NotVerified(f"the price list holds no price of change #{launch.change_id}")
-            return {"price list": f"{row['amount_minor']} from {row['starts']}"}
+            facts: dict[str, object] = {"price list": f"{row['amount_minor']} from {row['starts']}"}
+            if launch.kind == "price_migration":
+                facts["subscribers asked or told"] = await tx.fetchval(
+                    "select count(*) from price_change_request where change_id = $1", launch.change_id)
+            return facts
+        # What the site shows now is the latest snapshot: the offer belongs in every market whose period had not
+        # ended when that snapshot was built. A later publication that left out a market whose period ended since
+        # this launch published is right, and a launch resumed after it verifies as well.
         content, _, _ = await records.version_content(tx, launch.change_id, launch.version)
-        at = parse_instant(published["published at"])
-        ref = await reference.load(tx, at)
+        latest = await self.publisher.latest(tx)
+        built = parse_instant(await tx.fetchval(f"select {utc_text('created_at')} from catalog_snapshot where id = $1",
+                                                latest.snapshot_id))
+        ref = await reference.load(tx, built)
         expected = sorted(p.market for p in content.prices
                           if (period := content.period_in(p.market)) is not None
-                          and (period.ends is None or to_instant(period.ends, ref.markets[p.market].zone) > at))
-        latest = await self.publisher.latest(tx)
+                          and (period.ends is None or to_instant(period.ends, ref.markets[p.market].zone) > built))
         shown = sorted(r["market"].strip() for r in await tx.fetch(
             "select market from catalog_offer where snapshot_id = $1 and change_id = $2 and version = $3",
             latest.snapshot_id, launch.change_id, launch.version))

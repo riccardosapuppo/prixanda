@@ -2,21 +2,28 @@
 
 For the on-call engineer (business book §12): what to do when a launch is
 stuck, when the engine cannot be reached, and when the audit log's chain does
-not verify. Each entry gives the symptoms, how to check, what to do, and how
-to tell that it is resolved.
+not verify, how to upgrade across migration V14, and how to keep listening's
+monthly partitions ahead. Each entry gives the symptoms, how to check, what
+to do, and how to tell that it is resolved.
 
 ## What there is to look at
 
 - **The engine's log**: one JSON line per event on its standard error, with
   the request id when there is one. The jobs (launches, the end of offers,
-  the outbox, the pruning of idempotency keys) write one line per change of
-  state, never one per pass: a launch that waits, or that was refused, says
-  nothing more until something happens to it. The events that matter here:
+  the end of the price changes' windows, the expiry of prepaid codes, the
+  outbox, the pruning of idempotency keys) write one line per change of state, never one per
+  pass: a launch that waits, or that was refused, says nothing more until
+  something happens to it. The events that matter here:
   `launch_started`, `launch_step_done`, `launch_step_failed` and
   `launch_step_interrupted` (warning), `launch_refused` and `launch_failed`
   (warning), `launch_done`, `launch_cancelled`, `incident_opened` (warning),
   `incident_closed`, `jobs_pass_failed` (warning, once per cause) and
-  `jobs_working_again`, `outbox_delivery_failed` (warning), and, from the
+  `jobs_working_again`, `outbox_delivery_failed` (warning),
+  `price_change_settled` (once per request, at the end of its window, with
+  the state and the effect on the subscription), `prepaid_code_expired`
+  (once per code not activated by its last day, named by its number, never
+  by the code, which is a bearer secret), `offer_ended` (an offer, or a
+  prepaid pass, whose periods are over), and, from the
   server, `listening`, `stopping`, `stopped`, `cannot_listen`,
   `configuration` and `database_unreachable`. Every line of a launch carries
   its run, `launch-<id>`, which is also the request id of the audit events it
@@ -36,7 +43,8 @@ to tell that it is resolved.
   `x-actor-role: on_call`, `x-request-id`, and an `idempotency-key` on
   RetryLaunch and CancelLaunch).
 - **The database**, read only: the tables `launch`, `launch_step`,
-  `incident`, `outbox_message`, `site_notice` and `audit_event`. The queries
+  `incident`, `outbox_message`, `site_notice`, `price_change_request`,
+  `subscriber_notice`, `prepaid_code` and `audit_event`. The queries
   below are written for `psql` on the engine's database (`npm run db -- url`
   prints the development URL).
 
@@ -215,3 +223,76 @@ meanwhile is done, or has its incident to follow with entry 1.
 database in use is one whose chain verifies against the last head exported
 before the break (a backup, restored); and a new head has been exported
 from it.
+
+## 4. Upgrading across migration V14
+
+A subscription's price moved from a column of `subscription` to a history,
+`subscription_price`, in two times. V12 expanded: it added the history,
+copied every price into it, and kept the column, with a trigger copying
+into the history what the column receives, so that an engine of the version
+before V12, which writes and reads the column, kept working. V14 contracts:
+it drops the trigger and the column, and from then the database refuses a
+subscription written without its first price (RL010, checked when the
+transaction commits).
+
+**Symptoms** that V14 ran while an engine of an earlier version still runs:
+that engine's calls fail with `column "price_minor" does not exist`
+(SQLSTATE 42703), or its writes fail with RL010; an engine of this version
+on a database before V14 fails its writes of a subscription with SQLSTATE
+23502 (the column still wants a value).
+
+**Check**
+
+1. Which migrations the database has: `npm run db -- info` in development,
+   Flyway's `info` elsewhere.
+2. Which engine runs: its `listening` line, and the version it was built
+   from.
+
+**Act**: in this order, and never V14 under a running engine of an earlier
+version.
+
+1. Stop every engine (an orderly stop: `stopping`, then `stopped`, in its
+   log). The site and the console answer with errors until step 3.
+2. Apply the migrations: `npm run db -- migrate` in development, Flyway's
+   `migrate` elsewhere.
+3. Start the engine of this version. At its start it runs its jobs at once.
+
+If V14 ran with an earlier engine still running, stop that engine and start
+this version's: nothing is lost, since every price was in the history since
+V12, which the compat suite of `npm run check` verifies on the data of the
+version before.
+
+**Resolved when** the engine's health answers SERVING, an account and the
+home answer, and the invariants command reports
+`every_subscription_has_its_first_price` and
+`later_prices_follow_a_price_migration` with no violation:
+
+```
+python -m commerce.invariants --url <URL>
+```
+
+## 5. A month of listening has no partition
+
+Listening (`listening_day`) is partitioned by month (migration V16), with
+one partition per month from January 2025 to December 2027, and a default
+partition, `listening_day_other`, for any other day. A row in the default
+partition is valid, and every query reads it, but a fan campaign's audience
+reads it in every window, so the months should exist before they begin.
+
+**Symptoms**: the invariants command reports `listening_has_its_month`;
+`select min(day), max(day), count(*) from listening_day_other` returns rows.
+
+**Act**
+
+- Ahead of time, once a year: add the next year's months, one call each,
+  as the database's owner: `select listening_month('2028-01-01');` for
+  January 2028, and so on. A month whose days already sit in the default
+  partition cannot be added this way: PostgreSQL refuses it.
+- Rows already in the default partition stay correct where they are. To
+  move them into their month, a database administrator does it in a
+  maintenance window, with the engine stopped, keeping the weekly sums
+  (`listening_week`) as they are: the rows already count there, so the
+  trigger `listening_week_add` must not fire for the rows that move.
+
+**Resolved when** the invariants command reports `listening_has_its_month`
+and `listening_weeks_sum_their_days` with no violation.
