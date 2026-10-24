@@ -142,6 +142,74 @@ const SUITES: Suite[] = [
       return passed(counted, `${summary.counts.listening_days} listening rows`);
     },
   },
+  // The gateway (stage 3). Its tests start a fake engine on 127.0.0.1:4613
+  // and the gateway on 4621 and 4622, after asking the system that nobody
+  // listens there; they need no database.
+  {
+    name: "gw-types",
+    what: "tsc over the gateway (strict, erasable), then its core again with a browser's types and none of Node's",
+    needsDatabase: false,
+    async run() {
+      const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+      if (!existsSync(tsc)) return notRun("typescript is not installed: npm install");
+      const counted: string[] = [];
+      for (const [config, floor] of [["tsconfig.json", GATEWAY_FLOOR.files], ["tsconfig.core.json", GATEWAY_FLOOR.coreFiles]] as const) {
+        const ran = await run(process.execPath, [tsc, "-p", config, "--listFiles"], { cwd: gatewayDir });
+        const ours = ran.output.split(/\r?\n/).filter((line) => line.replaceAll("\\", "/").includes("/services/gateway/") && line.endsWith(".ts")
+          && !line.includes("node_modules")).length;
+        counted.push(`${ours} ${config === "tsconfig.json" ? "files" : "in the core"}`);
+        if (ran.code !== 0) return failed(counted.join(", "), ran.output.split(/\r?\n/).filter((line) => /error TS\d+/.test(line)).slice(0, 8).join("\n") || ran.output.slice(0, 2000));
+        if (ours < floor) return failed(counted.join(", "), `${config}: fewer than ${floor} files of the gateway were checked`);
+      }
+      return passed(counted.join(", "));
+    },
+  },
+  {
+    name: "gw-codegen",
+    what: "the gateway's generated types and embedded schemas equal a fresh generation from schema/*.graphql",
+    needsDatabase: false,
+    async run() {
+      const ran = await run(process.execPath, [join(repoRoot, "tools", "graphql.ts"), "--check"], { cwd: repoRoot });
+      const compared = Number(/matches the schemas \((\d+) files\)/.exec(ran.output)?.[1] ?? 0);
+      if (ran.code !== 0) return failed(`${compared} files`, ran.output.slice(-3000));
+      if (compared < GATEWAY_FLOOR.generated) return failed(`${compared} files`, `fewer than ${GATEWAY_FLOOR.generated} generated files compared`);
+      return passed(`${compared} files`);
+    },
+  },
+  {
+    name: "gw-schemas",
+    what: "the contract tests of the two GraphQL schemas: the site's exposes nothing internal",
+    needsDatabase: false,
+    async run() {
+      return nodeTests("gw-schemas", ["test/public-contract.test.ts", "test/internal-contract.test.ts"], GATEWAY_FLOOR.schemaTests);
+    },
+  },
+  {
+    name: "gw-tests",
+    what: "the gateway against a fake engine over gRPC: resolvers, roles, sessions, CSRF, idempotency, request ids, limits",
+    needsDatabase: false,
+    async run() {
+      const files = (await readdir(join(gatewayDir, "test"))).filter((name) => name.endsWith(".test.ts") && !name.includes("contract"))
+        .map((name) => `test/${name}`);
+      return nodeTests("gw-tests", files, GATEWAY_FLOOR.tests);
+    },
+  },
+  {
+    name: "dataloader",
+    what: "engine calls for the console's list of offers with their details, without the DataLoader and with it",
+    needsDatabase: false,
+    async run() {
+      const ran = await run(process.execPath, [join(gatewayDir, "scripts", "measure-dataloader.ts"), "--json"], { cwd: gatewayDir });
+      const line = ran.output.split(/\r?\n/).find((candidate) => candidate.startsWith("{"));
+      if (line === undefined) return failed("-", ran.output.slice(-3000));
+      const report = JSON.parse(line) as { offers: number; without: { calls: number }; with: { calls: number }; sameAnswer: boolean };
+      const counted = `${report.without.calls} calls without, ${report.with.calls} with (${report.offers} offers)`;
+      if (ran.code !== 0 || !report.sameAnswer) return failed(counted, report.sameAnswer ? ran.output.slice(-2000) : "the two answers differ");
+      if (report.offers < GATEWAY_FLOOR.dataloaderOffers) return failed(counted, `fewer than ${GATEWAY_FLOOR.dataloaderOffers} offers measured`);
+      if (report.without.calls !== report.offers + 1 || report.with.calls !== 2) return failed(counted, "expected N + 1 calls without batching and 2 with");
+      return passed(counted);
+    },
+  },
 ];
 
 // pytest's JUnit report: the totals of its test suites.
@@ -156,6 +224,32 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
   }
   if (Object.values(totals).some(Number.isNaN)) throw new Error("the JUnit report misses a count");
   return totals;
+}
+
+// The gateway's floors: what its suites must at least have checked.
+const gatewayDir = join(repoRoot, "services", "gateway");
+const GATEWAY_FLOOR = { files: 42, coreFiles: 19, generated: 3, schemaTests: 17, tests: 126, dataloaderOffers: 25 };
+
+/**
+ * Node's test runner over some of the gateway's test files, one file at a
+ * time (they share the ports 4613, 4621 and 4622), counting the test cases
+ * of its JUnit report: a file that failed to load is a failure there too.
+ */
+async function nodeTests(suite: string, files: string[], floor: number): Promise<Omit<Result, "suite" | "seconds">> {
+  if (files.length === 0) return failed("0", "no test file found");
+  const report = join(reports, `${suite}.xml`);
+  const ran = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=junit", `--test-reporter-destination=${report}`,
+    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true });
+  if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
+  const xml = await readFile(report, "utf8");
+  const tests = [...xml.matchAll(/<testcase\b/g)].length;
+  const failures = [...xml.matchAll(/<failure\b/g)].length;
+  const skipped = [...xml.matchAll(/<skipped\b/g)].length;
+  const counted = `${tests} tests, ${failures} failed, ${skipped} skipped`;
+  if (ran.code !== 0 || failures > 0) return failed(counted, `node --test exited ${ran.code}`);
+  if (skipped > 0) return failed(counted, "a skipped test checked nothing");
+  if (tests < floor) return failed(counted, `fewer than ${floor} tests`);
+  return passed(counted);
 }
 
 const args = process.argv.slice(2);
