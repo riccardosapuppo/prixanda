@@ -92,15 +92,64 @@ export function published(launch: Pick<LaunchSummary, "state" | "snapshotAfter">
   return launch.state === "DONE" || launch.snapshotAfter !== null;
 }
 
-export type LiveNow = { readonly catalog: string | null; readonly published: boolean; readonly words: string };
+/**
+ * What the launch itself did, as it happened: the catalog its publish step put
+ * live and when, or, until then, the catalog of before that stayed live. It
+ * is history: a change suspended or ended afterwards does not rewrite it.
+ */
+export type Publication = { readonly published: boolean; readonly catalog: string | null; readonly at: string | null; readonly words: string };
 
-/** What the site shows while and after the launch runs: the catalog of before until the publish step is done. */
-export function liveNow(launch: Pick<LaunchDetail, "state" | "snapshotBefore" | "snapshotAfter" | "steps">): LiveNow {
-  if (published(launch)) return { catalog: launch.snapshotAfter, published: true, words: "The change is live on the site, in one piece." };
-  if (launch.state === "CANCELLED") {
-    return { catalog: launch.snapshotBefore, published: false, words: "Nothing of the change reached the site: the launch was given up before it published." };
+export function publication(launch: Pick<LaunchDetail, "state" | "snapshotBefore" | "snapshotAfter" | "steps">): Publication {
+  const step = launch.steps.find((entry) => entry.name === "publish");
+  if (published(launch)) {
+    return {
+      published: true, catalog: launch.snapshotAfter, at: step?.finishedAt ?? null,
+      words: `It published catalog #${launch.snapshotAfter ?? "?"}, with the change in it, in one piece${step && step.attempts > 1 ? `, on its publish step's attempt ${step.attempts} of ${MAX_FAILURES}` : ""}.`,
+    };
   }
-  return { catalog: launch.snapshotBefore, published: false, words: "No part of the change is on the site: the catalog of before stays live until the new one is published." };
+  if (launch.state === "RUNNING") {
+    return { published: false, catalog: launch.snapshotBefore, at: null, words: `Nothing yet: catalog #${launch.snapshotBefore ?? "?"} stays live until the publish step is done.` };
+  }
+  return {
+    published: false, catalog: launch.snapshotBefore, at: null,
+    words: launch.state === "CANCELLED" ? "Nothing: it was given up before it published, and the catalog of before stayed live." : `Nothing: catalog #${launch.snapshotBefore ?? "?"} stayed live, and no part of the change reached the site.`,
+  };
+}
+
+/** The change's state now, in a sentence about the site. */
+const ON_THE_SITE: Readonly<Record<string, string>> = {
+  ACTIVE: "is live on the site",
+  SUSPENDED: "is suspended: it is not on the site",
+  ENDED: "has ended: it is not on the site any more",
+  CANCELLED: "is cancelled: it is not on the site",
+  SCHEDULED: "is scheduled, not on the site yet",
+  APPROVED: "is approved, not on the site yet",
+};
+
+/**
+ * What is true now, which a finished launch does not follow: the change's
+ * state today (read with the launch) and the catalog live today (the newest
+ * one the log says was published). differs, when today is not what the
+ * launch left: the change it published is not live any more, or a later
+ * catalog is the live one.
+ */
+export type Now = { readonly catalog: string | null; readonly words: string; readonly differs: string | null };
+
+export function now(launch: Pick<LaunchDetail, "title" | "version" | "state" | "snapshotBefore" | "snapshotAfter" | "steps" | "change">, liveCatalog: string | null): Now {
+  const words = `${launch.title} v${launch.version} ${ON_THE_SITE[launch.change.state] ?? "is not on the site"}.`;
+  const left = publication(launch);
+  if (!left.published) return { catalog: liveCatalog, words, differs: null };
+  if (launch.change.state !== "ACTIVE") {
+    const word = ON_THE_SITE[launch.change.state]?.split(":")[0]?.replace(/^is |^has /, "") ?? launch.change.state.toLowerCase();
+    return {
+      catalog: liveCatalog, words,
+      differs: `Not what this launch left: it published catalog #${left.catalog ?? "?"} with the change live; since then the change was ${word}${liveCatalog && liveCatalog !== left.catalog ? `, and catalog #${liveCatalog} is the live one` : ""}.`,
+    };
+  }
+  if (liveCatalog !== null && liveCatalog !== left.catalog) {
+    return { catalog: liveCatalog, words, differs: `Catalog #${liveCatalog} is the live one now, published after this launch's #${left.catalog ?? "?"}; the change is still in it.` };
+  }
+  return { catalog: liveCatalog, words, differs: null };
 }
 
 /**

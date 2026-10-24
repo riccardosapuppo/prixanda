@@ -2,7 +2,9 @@
 // The gateway client for React: queries through TanStack Query, keyed by the
 // operation and its variables, and actions (mutations) that carry one
 // idempotency key per action, kept until the action has an answer.
-import { keepPreviousData, type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type InfiniteData, keepPreviousData, type UseInfiniteQueryResult, type UseQueryResult, useInfiniteQuery, useMutation, useQuery, useQueryClient,
+} from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useRef } from "react";
 import { type Operation, queryKeyOf } from "../../graphql/operation.ts";
 import { ActionKey, runAction } from "../action-key.ts";
@@ -42,6 +44,28 @@ export function useGatewayQuery<TData, TVariables>(
     ...(options.refetchInterval !== undefined ? { refetchInterval: typeof options.refetchInterval === "function" ? (query: { state: { data: TData | undefined } }) => (options.refetchInterval as (data: TData | undefined) => number | false)(query.state.data) : options.refetchInterval } : {}),
     // The previous page stays on screen while the next one loads (TanStack's own helper; its type is generic over any data).
     ...(options.keepPrevious ? { placeholderData: keepPreviousData as never } : {}),
+  });
+}
+
+/**
+ * A list read a page at a time with the engine's keyset cursors: the first
+ * page, then each next one on demand (fetchNextPage), kept together under the
+ * operation's name so that what invalidates the operation invalidates its
+ * pages too. hasNextPage says whether the engine has more.
+ */
+export function useGatewayPages<TData, TVariables>(
+  operation: Operation<TData, TVariables>,
+  variablesFor: (after: string | null) => TVariables,
+  nextOf: (page: TData) => string | null,
+  options: { readonly enabled?: boolean } = {},
+): UseInfiniteQueryResult<InfiniteData<TData, string | null>, Error> {
+  const gateway = useGateway();
+  return useInfiniteQuery<TData, Error, InfiniteData<TData, string | null>, readonly unknown[], string | null>({
+    queryKey: [operation.name, "pages", variablesFor(null)],
+    queryFn: ({ pageParam, signal }) => gateway.run(operation, variablesFor(pageParam), { signal }),
+    initialPageParam: null,
+    getNextPageParam: (last) => nextOf(last) ?? undefined,
+    enabled: options.enabled ?? true,
   });
 }
 
