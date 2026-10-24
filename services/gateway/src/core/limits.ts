@@ -11,7 +11,8 @@
 // counted: the public schema turns it off in production.
 import {
   type ASTVisitor, type FieldNode, getNamedType, getNullableType, GraphQLError, type GraphQLField, type GraphQLNamedType,
-  isInterfaceType, isListType, isObjectType, Kind, type SelectionSetNode, type ValidationContext, type ValidationRule,
+  type GraphQLSchema, isInterfaceType, isListType, isObjectType, isUnionType, Kind, type SelectionSetNode, type ValidationContext,
+  type ValidationRule,
 } from "graphql";
 
 export type Limits = {
@@ -23,28 +24,41 @@ export type Limits = {
   readonly maxPage: number;
 };
 
-export const INTERNAL_LIMITS: Limits = { maxDepth: 10, maxCost: 25_000, assumedListSize: 10, maxPage: 100 };
-export const PUBLIC_LIMITS: Limits = { maxDepth: 5, maxCost: 1_500, assumedListSize: 10, maxPage: 100 };
+// The depths are the schemas' own deepest paths (deepestPath(), checked by a
+// test). The costs leave room for the console's largest page of changes with
+// their details (about 22,400) and for the site's whole catalog of a market
+// (about 330), and none for the same fields asked again and again through
+// aliases: on the site each alias of a list is one more call to the engine.
+export const INTERNAL_LIMITS: Limits = { maxDepth: 8, maxCost: 25_000, assumedListSize: 10, maxPage: 100 };
+export const PUBLIC_LIMITS: Limits = { maxDepth: 3, maxCost: 600, assumedListSize: 10, maxPage: 100 };
 
 type Measure = { depth: number; cost: number };
 
-function listSize(node: FieldNode, field: GraphQLField<unknown, unknown>, limits: Limits): number {
-  if (!isListType(getNullableType(field.type))) return 1;
+/**
+ * The page a field asks for: its `first` argument as written, the field's
+ * default when it is left out, the largest page when it is a variable.
+ */
+function pageOf(node: FieldNode, field: GraphQLField<unknown, unknown>, limits: Limits): number | undefined {
   const first = field.args.find((argument) => argument.name === "first");
-  if (first === undefined) return limits.assumedListSize;
+  if (first === undefined) return undefined;
   const given = node.arguments?.find((argument) => argument.name.value === "first")?.value;
   if (given === undefined) return typeof first.defaultValue === "number" ? first.defaultValue : limits.maxPage;
   if (given.kind === Kind.INT) return Math.min(Number(given.value), limits.maxPage);
   return limits.maxPage;
 }
 
-/** The depth and cost of a selection, following fragments once each. */
+/**
+ * The depth and cost of a selection, following fragments once each. A paged
+ * field (one with `first`) returns a page whose list of nodes is as long as
+ * the page: `page` carries that size down to the lists directly inside it.
+ */
 export function measure(
   context: Pick<ValidationContext, "getFragment" | "getSchema">,
   selectionSet: SelectionSetNode,
   parent: GraphQLNamedType | undefined,
   limits: Limits,
   visiting: ReadonlySet<string> = new Set(),
+  page?: number,
 ): Measure {
   let depth = 0;
   let cost = 0;
@@ -54,17 +68,20 @@ export function measure(
       const field = parent && (isObjectType(parent) || isInterfaceType(parent)) ? parent.getFields()[selection.name.value] : undefined;
       // An unknown field is another rule's to report.
       if (field === undefined) continue;
+      const paged = pageOf(selection, field, limits);
+      const isList = isListType(getNullableType(field.type));
+      const size = isList ? (paged ?? page ?? limits.assumedListSize) : 1;
       if (selection.selectionSet) {
-        const inner = measure(context, selection.selectionSet, getNamedType(field.type), limits, visiting);
+        const inner = measure(context, selection.selectionSet, getNamedType(field.type), limits, visiting, isList ? undefined : paged);
         depth = Math.max(depth, 1 + inner.depth);
-        cost += 1 + listSize(selection, field, limits) * inner.cost;
+        cost += 1 + size * inner.cost;
       } else {
         depth = Math.max(depth, 1);
         cost += 1;
       }
     } else if (selection.kind === Kind.INLINE_FRAGMENT) {
       const type = selection.typeCondition ? context.getSchema().getType(selection.typeCondition.name.value) : parent;
-      const inner = measure(context, selection.selectionSet, type ?? undefined, limits, visiting);
+      const inner = measure(context, selection.selectionSet, type ?? undefined, limits, visiting, page);
       depth = Math.max(depth, inner.depth);
       cost += inner.cost;
     } else {
@@ -73,7 +90,7 @@ export function measure(
       // A fragment that spreads itself is NoFragmentCyclesRule's to report.
       if (!fragment || visiting.has(name)) continue;
       const type = context.getSchema().getType(fragment.typeCondition.name.value);
-      const inner = measure(context, fragment.selectionSet, type ?? undefined, limits, new Set([...visiting, name]));
+      const inner = measure(context, fragment.selectionSet, type ?? undefined, limits, new Set([...visiting, name]), page);
       depth = Math.max(depth, inner.depth);
       cost += inner.cost;
     }
@@ -128,4 +145,24 @@ function rootFields(context: ValidationContext, selectionSet: SelectionSetNode, 
 
 export function limitRules(limits: Limits): ValidationRule[] {
   return [depthAndCostRule(limits), oneMutationRule];
+}
+
+/**
+ * The deepest selection a schema allows, in fields, or Infinity when its types
+ * point back at each other. Both schemas are acyclic today, so this bounds
+ * every query they accept; the depth limit is set at it, and stops the runaway
+ * queries a cycle added later would allow.
+ */
+export function deepestPath(schema: GraphQLSchema): number {
+  const deepest = (type: GraphQLNamedType, seen: ReadonlySet<string>): number => {
+    if (isUnionType(type)) return Math.max(0, ...type.getTypes().map((member) => deepest(member, seen)));
+    if (!isObjectType(type)) return 0;
+    if (seen.has(type.name)) return Number.POSITIVE_INFINITY;
+    const next = new Set([...seen, type.name]);
+    let best = 0;
+    for (const field of Object.values(type.getFields())) best = Math.max(best, 1 + deepest(getNamedType(field.type), next));
+    return best;
+  };
+  const roots = [schema.getQueryType(), schema.getMutationType()].filter((root) => root !== null && root !== undefined);
+  return Math.max(0, ...roots.map((root) => deepest(root, new Set())));
 }
