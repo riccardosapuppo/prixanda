@@ -1,0 +1,53 @@
+# Prepaid passes (§9, §14.4): months of a plan paid once, sold as a
+# single-use code to keep or to give. The site names the pass and never its
+# price, which the engine takes from the pass as it is on sale in the
+# listener's market. A code comes back PENDING with its payment; the account
+# is read again until the simulated provider settles it.
+
+query SitePrepaidPasses($market: MarketCode!) {
+  prepaidPasses(market: $market) {
+    id
+    market
+    title
+    plan
+    months
+    price
+    codeValidMonths
+    text
+    terms
+  }
+}
+
+mutation SiteBuyPrepaidPass($passId: ID!) {
+  buyPrepaidPass(passId: $passId) {
+    __typename
+    ... on PrepaidPurchase {
+      prepaidCode {
+        ...SitePrepaidCode
+      }
+    }
+    ... on Refusal {
+      code
+      reason
+    }
+  }
+}
+
+mutation SiteActivatePrepaidPass($code: String!) {
+  activatePrepaidPass(code: $code) {
+    __typename
+    ... on Subscription {
+      plan
+      market
+      paid
+      startedOn
+      endsOn
+      prepaidCode
+      prepaidPrice
+    }
+    ... on Refusal {
+      code
+      reason
+    }
+  }
+}

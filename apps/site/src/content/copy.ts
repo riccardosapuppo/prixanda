@@ -25,7 +25,10 @@ export const copy = {
   },
   /** Next to the step where a visitor could take the demonstration for a purchase, and only there. */
   disclaimer: DISCLAIMER,
-  nav: { label: service, plans: "Plans", releases: "New releases", sessions: "Listening sessions", account: "Account", menu: "Menu", skip: "Skip to the content" },
+  nav: {
+    label: service, plans: "Plans", releases: "New releases", sessions: "Listening sessions", gift: "Gift a pass", account: "Account", menu: "Menu",
+    skip: "Skip to the content",
+  },
   home: {
     title: { before: `${service} streams records from `, strong: "small labels", after: " in Italy, France, Germany and the UK." },
     sessionTitle: (label: string) => `${label} session`,
@@ -154,6 +157,97 @@ export const copy = {
     played: "Played",
     missing: { title: "Which session?", body: "This address names no listening session.", action: "All listening sessions" },
   },
+  /**
+   * The prepaid pass on the home (§9): its title, words and terms are the
+   * pass's own, as the console published them; the price and the months are
+   * the engine's. A demonstration: the payment is simulated.
+   */
+  gift: {
+    buy: "Get a demo gift code",
+    once: "paid once, VAT included",
+    soldIn: (title: string, market: string, price: string) => `${title}: sold in ${market} only, at ${price}.`,
+    showMarket: (market: string) => `Show prices for ${market}`,
+    neverRenews: "The code never renews",
+    figure: (months: number) => `${months} ${months === 1 ? "month" : "months"}, paid once`,
+    elsewhere: (market: string, here: string) => `In ${market}: this pass is sold in ${here} only.`,
+    otherMarket: {
+      title: "This pass is sold in another market",
+      body: (theirs: string, here: string) => `This listener is in ${theirs}, and this pass is sold in ${here}. A listener buys at the prices of their own market.`,
+    },
+    confirm: {
+      title: "Confirm your demo purchase",
+      summary: (title: string, market: string) => `${title}, ${market}`,
+      price: (price: string) => `${price} once, VAT included`,
+      gives: (months: number, plan: string, valid: number) =>
+        `${months} ${months === 1 ? "month" : "months"} of ${plan} from the day the code is activated, never charged and never renewed. The code can be activated for ${valid} ${valid === 1 ? "month" : "months"}.`,
+      note: "Nothing is charged and no contract is made: the payment step is simulated. The price is the engine's, as the pass is on sale in this market.",
+      action: "Confirm the demo purchase",
+      buying: "Buying",
+    },
+    pendingTitle: "Your code is on its way",
+    waiting: "Waiting for the payment provider. It is simulated, and answers within seconds.",
+    slow: "The payment provider hasn't answered yet. Check again in a moment: the code is in the account as soon as it answers.",
+    failed: "The payment provider declined the payment: this code will never work.",
+    checkAgain: "Check again",
+    receipt: {
+      title: "Demo receipt: no money moved.",
+      code: "Your code",
+      validUntil: (day: string) => `Activate it by ${day}. It works once.`,
+      give: "Give it, or activate it yourself in the account.",
+      copy: "Copy the code",
+      copied: "Copied",
+      account: "See the account",
+      again: "Back to the gift pass",
+    },
+    refused: "This pass can't be bought now",
+  },
+  /** A price change of the running subscription (§8): every date in these sentences is the engine's. */
+  priceChange: {
+    title: (plan: string) => `Your ${plan} plan price is changing`,
+    law: "The law",
+    choice: `${service}'s choice`,
+    choiceTag: "Not a legal requirement",
+    answering: "Sending your answer",
+    refused: "This answer can't be given now",
+    consent: {
+      now: (oldPrice: string, from: string, plan: string, market: string, newPrice: string) =>
+        `You pay ${oldPrice} a month. From ${from}, new ${plan} subscribers in ${market} pay ${newPrice}.`,
+      ask: (newPrice: string) => `We'd like you to pay ${newPrice} too, and we need your yes before we can charge it.`,
+      ifYes: (newPrice: string, day: string) => `If you say yes: you pay ${newPrice} from your billing date on ${day}.`,
+      ifNo: (deadline: string, plan: string, day: string) =>
+        `If you say no, or don't answer by ${deadline}: your ${plan} plan ends on ${day}, when the month you've paid for runs out, and the account moves to Free.`,
+      ifNoOther: (deadline: string) => `If you say no, or don't answer by ${deadline}: ${service} applies its choice for this market, below.`,
+      yes: (newPrice: string) => `Yes, move me to ${newPrice}`,
+      no: (plan: string, day: string) => `No, end my ${plan} plan on ${day}`,
+      noPlain: "No, I don't accept",
+      silence: (deadline: string) => `If we don't hear from you by ${deadline}, we take it as a no.`,
+      lanes: {
+        today: "Today",
+        yes: "If you say yes",
+        no: (deadline: string) => `If you say no, or don't answer by ${deadline}`,
+        free: "Free",
+      },
+    },
+    notice: {
+      now: (oldPrice: string, newPrice: string, day: string) => `You pay ${oldPrice} a month. From your billing date on ${day}, you pay ${newPrice}.`,
+      newSubscribers: (plan: string, market: string, from: string) => `New ${plan} subscribers in ${market} pay it from ${from}.`,
+      leave: (day: string) => `You can leave before the new price: your plan then ends on ${day}, and the account moves to Free.`,
+      leaveAction: (day: string) => `Leave on ${day}`,
+      closes: (deadline: string) => `You can choose to leave until ${deadline}.`,
+    },
+    outcome: {
+      accepted: "Your answer: yes",
+      acceptedWhat: (newPrice: string, day: string) => `You pay ${newPrice} a month from your billing date on ${day}.`,
+      declined: "Your answer: no",
+      declinedWhat: (plan: string, day: string) => `Your ${plan} plan ends on ${day}, when the month you've paid for runs out, and the account moves to Free.`,
+      lapsed: "No answer by the deadline: that counts as no",
+      left: "You chose to leave",
+      leftWhat: (plan: string, day: string) => `Your ${plan} plan ends on ${day}, before the new price is charged, and the account moves to Free.`,
+      newPrice: "The new price applies",
+      newPriceWhat: (newPrice: string, day: string) => `You pay ${newPrice} a month from ${day}.`,
+      choiceApplies: `${service}'s choice for this market applies, as written below.`,
+    },
+  },
   /** DEMONSTRATION MODE: the entrance picks one of the demo's invented listeners. Not a sign-in. */
   entrance: {
     title: "Enter as a demo listener",
@@ -221,6 +315,37 @@ export const copy = {
     checkExpired: (lastDay: string) => `Expired: it was valid until ${lastDay}`,
     free: "On Free: the whole catalogue, six skips an hour, standard quality.",
     seePlans: "See the plans",
+    ends: "Paid plan ends",
+    endsOn: (day: string) => `${day}, then Free`,
+    endsWithoutYes: (day: string) => `${day}, unless you say yes`,
+    prepaid: (price: string) => `Prepaid: ${price}, paid once`,
+    prepaidNever: "Never charged, never renewed",
+    codes: {
+      title: "Your prepaid codes",
+      lede: "Each code works once. Give it, or activate it yourself below.",
+      bought: (day: string, price: string) => `Bought on ${day}, ${price}`,
+      activateBy: (day: string) => `Activate by ${day}`,
+      state: {
+        PENDING: "Payment pending",
+        READY: "Ready to give or activate",
+        ACTIVATED: "Activated",
+        EXPIRED: "Expired",
+        FAILED: "Payment declined",
+      } as Readonly<Record<string, string>>,
+      activatedOn: (day: string) => `Activated on ${day}`,
+      expiredOn: (day: string) => `Not activated by ${day}`,
+    },
+    activate: {
+      title: "Activate a code",
+      lede: "A prepaid code gives its months of a plan from today: never charged, never renewed, then Free.",
+      label: "Code",
+      hint: "Three groups of four letters and digits.",
+      shape: "A code is three groups of four letters and digits, as on the receipt: check it and try again.",
+      action: "Activate",
+      activating: "Activating",
+      refused: "This code can't be activated",
+      done: (plan: string, day: string) => `Activated: ${plan} until ${day}, then Free.`,
+    },
     payment: {
       title: "First month's payment",
       pending: "Waiting for the payment provider. It is simulated, and answers within seconds.",

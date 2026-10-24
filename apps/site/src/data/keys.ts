@@ -6,6 +6,7 @@ export const keys = {
   markets: ["markets"] as const,
   plans: (market: SiteMarket) => ["plans", market] as const,
   offers: (market: SiteMarket) => ["offers", market] as const,
+  prepaidPasses: (market: SiteMarket) => ["prepaid-passes", market] as const,
   /** The demo listener of this browser's session, with their account. */
   me: ["me"] as const,
   demoListeners: ["demo-listeners"] as const,
