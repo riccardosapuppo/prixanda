@@ -8,9 +8,12 @@ tests' process."""
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 from datetime import UTC, datetime
+
+import asyncpg
 
 import pytest
 
@@ -19,6 +22,7 @@ from commerce.engine.launches import STEPS
 from commerce.server.app import Jobs
 from commerce.server.logs import JsonLog
 from commerce.v1 import changes_pb2, common_pb2, launches_pb2, overview_pb2
+from conftest import ADMIN_URL, on_database
 from engine_support import (
     AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, family_rise, past_validation_by_hand, scheduled, student_autumn,
 )
@@ -247,6 +251,33 @@ async def test_the_alarm_waits_five_minutes_after_the_start(world):
     assert [h.detail["kind"] for h in opened] == ["late"]
     world.clock.advance(minutes=5)
     assert [h for h in await world.engine.run_launches() if h.event == "incident_opened"] == []  # one is open already
+
+
+async def test_an_alarm_is_never_opened_on_a_launch_that_stopped_meanwhile(world):
+    """The alarm reads the late launches, then opens their incidents: a launch cancelled in between must not get an
+    incident that nobody would close. Here the cancellation holds the launch while the alarm runs."""
+    change = await refused_list_price(world)  # refused at its check: stopped, and late from five minutes on
+    await world.owner.execute("update incident set state = 'resolved', closed_at = opened_at + interval '1 minute', "
+                              "closed_by = 'on-call-1', resolution = 'Looked at.' where state = 'open'")
+    launch = await world.owner.fetchval("select id from launch where change_id = $1", change.id)
+    world.clock.at = at(2026, 12, 1, 0, 0)  # an hour after the start in Berlin
+    cancelling = world.owner.transaction()
+    await cancelling.start()
+    await world.owner.execute("select id from launch where id = $1 for update", launch)
+    alarm = asyncio.create_task(world.engine.launches._raise_alarms())
+    waiting = await asyncpg.connect(on_database(ADMIN_URL, world.name))
+    try:
+        for _ in range(200):  # until the alarm waits for the launch the cancellation holds
+            if await waiting.fetchval("select count(*) from pg_locks where not granted") or alarm.done():
+                break
+            await asyncio.sleep(0.05)
+    finally:
+        await waiting.close()
+    await world.owner.execute("update launch set state = 'cancelled', finished_at = now(), "
+                              "resolution = 'cancelled by on-call-1: the price list needs a fix first.' where id = $1", launch)
+    await cancelling.commit()
+    assert await alarm == []
+    assert await world.owner.fetchval("select count(*) from incident where launch_id = $1 and state = 'open'", launch) == 0
 
 
 async def test_the_on_call_engineer_cancels_a_launch_that_has_not_published(world):

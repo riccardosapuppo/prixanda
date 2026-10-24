@@ -290,21 +290,25 @@ class Launches:
         return happened
 
     async def _raise_alarms(self) -> list[Happened]:
-        """A scheduled change not live LATE_AFTER its start: one incident, until its launch goes through or stops."""
+        """A scheduled change not live LATE_AFTER its start: one incident, until its launch goes through or stops.
+        Each late launch is locked, and found late again, before its incident opens: in series with the launch's end
+        and its cancellation, which close its incidents, so that an alarm never stays open on a launch that stopped
+        meanwhile, where nothing would close it."""
         now = self.clock.now()
+        late = ("c.state = 'scheduled' and l.state in ('running', 'failed', 'refused') and l.starts_at <= $1::text::timestamptz "
+                "and not exists (select from incident i where i.launch_id = l.id and i.state = 'open')")
+        async with self.db.transaction(readonly=True) as tx:
+            found = [r["id"] for r in await tx.fetch(_LAUNCH + f"where {late} order by l.id", format_instant(now - LATE_AFTER))]
         happened = []
-        async with self.db.transaction() as tx:
-            rows = await tx.fetch(
-                _LAUNCH + "where c.state = 'scheduled' "
-                "and l.state in ('running', 'failed', 'refused') and l.starts_at <= $1::text::timestamptz "
-                "and not exists (select from incident i where i.launch_id = l.id and i.state = 'open') order by l.id",
-                format_instant(now - LATE_AFTER))
-            if not rows:
-                return []
-            ref = await reference.load(tx, now)
-            for row in rows:
+        for launch_id in found:
+            async with self.db.transaction() as tx:
+                if await _lock(tx, launch_id) is None:
+                    continue
+                row = await tx.fetchrow(_LAUNCH + f"where l.id = $2 and {late}", format_instant(now - LATE_AFTER), launch_id)
+                if row is None:
+                    continue  # it went through, stopped or was cancelled while this pass looked
                 launch = _launch(row)
-                market = ref.markets[launch.starts_market]
+                market = (await reference.load(tx, now)).markets[launch.starts_market]
                 minutes = int(LATE_AFTER.total_seconds() // 60)
                 summary = (f"{launch.title} (#{launch.change_id}) was to start in {market.name} on "
                            f"{describe_local(datetime.fromisoformat(launch.starts_local), market.zone)}, and is not live "
