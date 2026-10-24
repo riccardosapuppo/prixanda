@@ -504,6 +504,20 @@ Italian pass, net €24.58, is recognized as €8.19, €8.19 and €8.20. Unuse
 codes stay unearned until they expire. This is the only accounting Box
 Office does (§15).
 
+§9.3 **Selling and activating a code.** The commercial lead writes a pass
+(its plan, months, price and period of sale in each market, its page, and
+how many months a code can wait to be activated: 12 in the demo), and
+finance signs it, as a price (§7.3, condition 1). A listener buys a code;
+the payment goes through the simulated provider (§15), and the code works
+once it succeeded. Whoever holds the code, in the pass's market and with no
+paid plan running, activates it: the plan from that day for its months,
+never charged and never renewed, then the Free plan. A code works once; one
+not activated by its last day expires. A pass gives a plan anyone can have,
+so there is no Student pass: a gift cannot carry a student verification.
+On the console's home, a running pass counts the monthly part of its net
+amount that it earns that month; a price migration never asks or tells a
+pass's holder (§8), and counts the passes it leaves untouched (§8.7).
+
 ## 10. Student verification
 
 §10.1 A simulated verification provider confirms that a person is a

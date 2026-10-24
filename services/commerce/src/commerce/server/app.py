@@ -89,6 +89,9 @@ class Jobs:
                 elif outcome.action == "failed" and self.ending.get(outcome.change_id) != outcome.error:
                     self.ending[outcome.change_id] = outcome.error or ""
                     log("warning", "offer_end_failed", change=outcome.change_id, error=outcome.error)
+            for expired in await engine.expire_prepaid_codes():
+                log("info", "prepaid_code_expired", prepaid=expired.code_id, market=expired.market,
+                    valid_until=expired.valid_until)
             for settled in await engine.settle_migrations():
                 log("info", "price_change_settled", **{**settled.dates, "price_change": settled.price_change,
                                                        "change": settled.change, "subscription": settled.subscription,

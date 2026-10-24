@@ -3,14 +3,17 @@
 Five things, each leading to an action: what waits for approval, what
 launches in the next seven days, today's incidents, paying subscribers by
 plan and market, and this month's revenue without VAT. Revenue and the
-artists' top-ups go only to finance and the commercial lead (§12); for the
+artists' top-ups go only to finance and the commercial lead (§12); the value
+of prepaid passes not yet earned goes only to finance (§9.2, §12.2); for the
 other roles those fields stay empty.
 
 "This month's revenue" is the monthly revenue of the subscriptions current at
 the instant: what each subscription costs on its market's day, by the rules
 of its charges that the account shows too (charging.py: after an offer's
 months, the list price), net of VAT (§5.1), summed per market, and in euros
-at the declared rate (§3.6). It is not accounting (§15).
+at the declared rate (§3.6). A prepaid pass's subscription is never charged:
+it counts the monthly part of its net amount that it earns in the month of
+the day (§9.2). It is not accounting (§15).
 
 Today's incidents are those of the launches (launches.py): the ones open at
 the instant, and those opened or closed on its day in UTC, each in the state
@@ -23,11 +26,11 @@ import json
 from datetime import UTC, date, datetime, time, timedelta
 
 from commerce.domain import billing, policy
-from commerce.domain.economics import Book
+from commerce.domain.economics import Book, recognize_monthly
 from commerce.domain.localtime import format_instant, format_local, to_instant
 from commerce.domain.money import Money
 from commerce.domain.offers import from_json
-from commerce.engine import charging, contract, records, reference
+from commerce.engine import charging, contract, prepaid, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import Connection, utc_text
 from commerce.v1 import common_pb2, overview_pb2
@@ -99,13 +102,13 @@ class Overview:
             "case when s.offer_months is null then null else s.billing_day end as billing_day, "
             "case when s.offer_months is null then null else p.from_on::text end as price_from, "
             f"case when s.offer_months is null then null else ({charging.KEPT.format(subscription='s.id')}) end as kept, "
-            "count(*)::bigint as n "
+            "s.prepaid_code is not null as prepaid, count(*)::bigint as n "
             "from subscription s "
             "join (select key as market, value::date as day from jsonb_each_text($1::text::jsonb)) d on d.market = s.market "
             "join lateral (select h.price_minor, h.from_on from subscription_price h where h.subscription_id = s.id "
             "  and h.from_on <= d.day order by h.from_on desc limit 1) p on true "
             "where s.started_on <= d.day and (s.ended_on is null or s.ended_on > d.day) "
-            "group by 1, 2, 3, 4, 5, 6, 7, 8, 9 order by 1, 2",
+            "group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 order by 1, 2",
             json.dumps({code: day.isoformat() for code, day in days.items()}))
         after_offer: dict[tuple[str, str, date], Money] = {}
         counts: dict[tuple[str, str, bool], int] = {}
@@ -115,7 +118,7 @@ class Overview:
             code = row["market"].strip()
             key = (code, row["plan_id"], row["paid"])
             counts[key] = counts.get(key, 0) + row["n"]
-            if row["paid"]:
+            if row["paid"] and not row["prepaid"]:
                 market = ref.markets[code]
                 price = row["price_minor"]
                 if row["offer_months"]:
@@ -133,6 +136,20 @@ class Overview:
                 net = terms.net(price)
                 revenue[code] = revenue.get(code, 0) + row["n"] * net
                 top_ups[code] = top_ups.get(code, 0) + row["n"] * terms.top_up(net)
+        # Prepaid passes running on the day: the part of each one's net amount it earns in that month (§9.2).
+        for row in await tx.fetch(
+                "select s.market, p.net_minor, p.months, p.activated_on::text as activated_on from subscription s "
+                "join prepaid_code p on p.code = s.prepaid_code "
+                "join (select key as market, value::date as day from jsonb_each_text($1::text::jsonb)) d on d.market = s.market "
+                "where s.started_on <= d.day and (s.ended_on is null or s.ended_on > d.day)",
+                json.dumps({code: day.isoformat() for code, day in days.items()})):
+            code = row["market"].strip()
+            activated = date.fromisoformat(row["activated_on"])
+            month = billing.charges_by(activated, billing.billing_day_for(activated), days[code]) - 1
+            part = recognize_monthly(row["net_minor"], row["months"])[min(month, row["months"] - 1)]
+            terms = ref.markets[code].terms(self.book)
+            revenue[code] = revenue.get(code, 0) + part
+            top_ups[code] = top_ups.get(code, 0) + terms.top_up(part)
         for (code, plan, paid), n in sorted(counts.items()):
             target = response.paying_subscribers if paid else response.free_listeners
             target.append(overview_pb2.SubscriberCount(market=code, plan=plan, count=n))
@@ -150,6 +167,18 @@ class Overview:
                     market=code, revenue=contract.money(amount), revenue_eur=contract.money(in_euros)))
             response.monthly_revenue_eur.CopyFrom(contract.money(total))
             response.monthly_top_ups.CopyFrom(contract.money(top_up_total))
+        if call.role in policy.PREPAID_VALUE_READERS:
+            rate = self.book.exchange_rate
+            unearned_total = Money.zero(rate.base)
+            for code, value in sorted((await prepaid.value_by_market(tx, days)).items()):
+                market = ref.markets[code]
+                amount = Money(value.unearned, market.currency)
+                in_euros = rate.to_base(amount)
+                unearned_total += in_euros
+                response.prepaid.append(overview_pb2.PrepaidValue(
+                    market=code, sold=value.sold, activated=value.activated, expired=value.expired,
+                    unearned=contract.money(amount), unearned_eur=contract.money(in_euros)))
+            response.prepaid_unearned_eur.CopyFrom(contract.money(unearned_total))
         return response
 
     async def list_people(self, tx: Connection, call: Call, request: overview_pb2.ListPeopleRequest) -> overview_pb2.ListPeopleResponse:

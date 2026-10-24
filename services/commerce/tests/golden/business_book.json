@@ -239,6 +239,14 @@
       "expect": {"net": 2458, "monthly": [819, 819, 820], "console": ["€8.19", "€8.19", "€8.20"]}
     },
     {
+      "id": "prepaid-unearned-maquette",
+      "section": "§9.2, §14.4",
+      "kind": "prepaid_value",
+      "note": "The maquette's finance figure (maquette/contenuti/content.json, prepaid): 1,240 Italian codes paid for, 860 of them activated and each in its first month; unused codes stay unearned until they expire.",
+      "input": {"currency": "EUR", "vat_bp": 2200, "price": 2999, "months": 3, "sold": 1240, "activated": 860, "activated_on": "2026-10-20", "day": "2026-10-24"},
+      "expect": {"net": 2458, "sold": 1240, "activated": 860, "unearned": 2343580, "console": "€23,435.80"}
+    },
+    {
       "id": "pounds-reported-in-euros",
       "section": "§3.6",
       "kind": "exchange",

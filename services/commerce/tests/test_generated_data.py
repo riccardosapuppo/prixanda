@@ -93,7 +93,7 @@ async def test_generating_twice_into_one_database_is_refused(generated):
 
 async def test_every_invariant_holds_on_the_generated_data(copy):
     report = await check(copy)
-    assert report["checked"] == 13
+    assert report["checked"] == 15
     assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
 
 
@@ -143,6 +143,22 @@ async def test_a_subscription_without_its_first_price_is_found(copy):
     await copy.execute("alter table subscription_price disable trigger subscription_price_written_once")
     await copy.execute("delete from subscription_price where subscription_id = (select min(id) from subscription where paid)")
     assert await broken(copy) == ["every_subscription_has_its_first_price"]
+
+
+async def test_a_code_sold_without_its_payment_or_activated_into_nothing_is_found(copy):
+    change = await new_change(copy, kind="prepaid", author="commercial-lead-1",
+                              content={"title": "Three-month gift pass", "market": "IT"})
+    buyer = await copy.fetchval("select id from subscriber where market = 'IT' order by id limit 1")
+    await copy.execute(
+        "insert into prepaid_code (code, change_id, version, market, currency, plan_id, months, price_minor, net_minor, "
+        "buyer_id, sold_at, valid_until, state, request_id) values ('K7QM-3XTP-9WAD', $1, 1, 'IT', 'EUR', 'individual', 3, "
+        "2999, 2458, $2, '2026-10-20 08:00+00', '2027-10-19', 'ready', 'site-buy-00000001')", change, buyer)
+    assert await broken(copy) == ["prepaid_codes_follow_their_payment"]
+    await copy.execute("alter table prepaid_code disable trigger prepaid_code_guard")
+    other = await copy.fetchval("select id from subscription where paid order by id limit 1")
+    await copy.execute("update prepaid_code set state = 'activated', activated_by = $1, activated_on = '2026-10-21', "
+                       "subscription_id = $2", buyer, other)
+    assert await broken(copy) == ["prepaid_codes_follow_their_payment", "activated_codes_run_their_pass"]
 
 
 async def test_a_later_price_after_the_end_or_without_its_request_is_found(copy):

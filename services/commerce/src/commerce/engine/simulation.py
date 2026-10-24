@@ -16,7 +16,7 @@ from commerce.domain.localtime import describe_local, format_instant, format_loc
 from commerce.domain.money import Money, format_money
 from commerce.domain.offers import Offer, PriceMigration
 from commerce.domain.validation import resolve_price
-from commerce.engine import contract, eligibility, records, reference
+from commerce.engine import contract, eligibility, prepaid, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.catalog import list_price_at, market_code
 from commerce.engine.changes import require_role
@@ -191,7 +191,7 @@ async def simulate_migration(tx: Connection, call: Call, request: simulation_pb2
     typed_by = f"typed by {policy.ROLE_NAMES[call.role]} at {format_instant(now)}"
     existing = typed.get("existing")
     if existing is None:
-        existing = await eligibility.current_subscribers(tx, market.code, change.plan, market.today(now))
+        existing = await eligibility.current_subscribers(tx, market.code, change.plan, market.today(now), by_the_month=True)
     acceptance = typed.get("acceptance", book.price_increase_acceptance_bp)
     result = migration.simulate_migration(market.terms(book), old.amount, change.amount.amount, existing, acceptance, rules)
     window_ends = rules.window_ends(change.notices)
@@ -223,7 +223,7 @@ async def simulate_migration(tx: Connection, call: Call, request: simulation_pb2
         monthly_contribution_change=m(result.contribution_change), revenue_at_risk_monthly=m(result.revenue_at_risk),
         break_even_acceptance_revenue_bp=-1 if result.break_even_revenue_bp is None else result.break_even_revenue_bp,
         break_even_acceptance_contribution_bp=-1 if result.break_even_contribution_bp is None else result.break_even_contribution_bp,
-        prepaid_passes_untouched=0,
+        prepaid_passes_untouched=await prepaid.untouched(tx, market.code, change.plan, market.today(now)),
         assumptions=[
             simulation_pb2.Assumption(name="existing", value=existing,
                                       source=typed_by if "existing" in typed else f"counted in the data at {format_instant(now)}"),

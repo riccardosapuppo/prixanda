@@ -15,10 +15,12 @@ from engine_support import AUDITOR, FINANCE, MARKETING, PUBLIC, new_key, request
 # No person of the team: the site's catalog and quotes, the list of people, and
 # the subscriber's calls, whose subscriber the gateway takes from the site's session.
 PUBLIC_METHODS = {"ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote",
-                  "ListDemoListeners", "VerifyStudent", "ConfirmQuote", "GetAccount", "AnswerPriceChange"}
+                  "ListDemoListeners", "VerifyStudent", "ConfirmQuote", "GetAccount", "AnswerPriceChange",
+                  "ListPrepaidPasses", "BuyPrepaidPass", "ActivatePrepaidPass"}
 WRITING_METHODS = {"CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange",
                    "ScheduleChange", "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent",
-                   "ConfirmQuote", "RetryLaunch", "CancelLaunch", "AnswerPriceChange"}
+                   "ConfirmQuote", "RetryLaunch", "CancelLaunch", "AnswerPriceChange", "BuyPrepaidPass",
+                   "ActivatePrepaidPass"}
 
 
 def test_the_public_methods_are_the_ones_agreed_with_the_gateway():

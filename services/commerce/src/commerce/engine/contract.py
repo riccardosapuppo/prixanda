@@ -12,7 +12,7 @@ from datetime import datetime
 from commerce.domain.localtime import MalformedTime, format_local, parse_instant, parse_local
 from commerce.domain.money import Money
 from commerce.domain.offers import (
-    Audience, Content, ListeningRule, ListPrice, Offer, OfferPage, OfferPeriod, OfferPrice, PriceMigration,
+    Audience, Content, ListeningRule, ListPrice, Offer, OfferPage, OfferPeriod, OfferPrice, PrepaidPass, PriceMigration,
 )
 from commerce.engine.errors import InvalidArgument, Refused
 from commerce.v1 import changes_pb2, common_pb2
@@ -100,30 +100,50 @@ def instant_from_proto(text: str, where: str) -> datetime | None:
         raise InvalidArgument(f"{where}: {error}") from error
 
 
-def offer_from_proto(message: changes_pb2.OfferContent) -> Offer:
-    a = message.audience
-    listening = None
-    if a.HasField("listening"):
-        listening = ListeningRule(a.listening.artist_id, a.listening.min_seconds, a.listening.within_days)
+def _prices_from_proto(messages) -> tuple[OfferPrice, ...]:
     prices = []
-    for price in message.prices:
+    for price in messages:
         which = price.WhichOneof("price")
         prices.append(OfferPrice(
             price.market,
             fixed=money_from_proto(price.fixed, f"the price in {price.market}") if which == "fixed" else None,
             percent_off_bp=price.percent_off_bp if which == "percent_off_bp" else None))
+    return tuple(prices)
+
+
+def _periods_from_proto(messages) -> tuple[OfferPeriod, ...]:
+    return tuple(OfferPeriod(p.market, local_from_proto(p.starts_local, f"the start in {p.market}"),
+                             local_from_proto(p.ends_local, f"the end in {p.market}")) for p in messages)
+
+
+def _pages_from_proto(messages) -> tuple[OfferPage, ...]:
+    return tuple(OfferPage(p.market, p.title, p.text, p.terms, p.treatment) for p in messages)
+
+
+def offer_from_proto(message: changes_pb2.OfferContent) -> Offer:
+    a = message.audience
+    listening = None
+    if a.HasField("listening"):
+        listening = ListeningRule(a.listening.artist_id, a.listening.min_seconds, a.listening.within_days)
+    prices = _prices_from_proto(message.prices)
     return Offer(
         title=message.title,
         plan=message.plan or None,
         audience=Audience(_enum_name(SEGMENT, "SEGMENT_", a.segment), a.current_plan or None, a.needs_student_check, listening),
-        prices=tuple(prices),
+        prices=prices,
         months_at_offer_price=message.months_at_offer_price,
-        periods=tuple(OfferPeriod(p.market, local_from_proto(p.starts_local, f"the start in {p.market}"),
-                                  local_from_proto(p.ends_local, f"the end in {p.market}")) for p in message.periods),
+        periods=_periods_from_proto(message.periods),
         group=message.non_combinability_group or None,
         redemption_cap=message.redemption_cap,
-        pages=tuple(OfferPage(p.market, p.title, p.text, p.terms, p.treatment) for p in message.pages),
+        pages=_pages_from_proto(message.pages),
     )
+
+
+def prepaid_from_proto(message: changes_pb2.PrepaidPassContent) -> PrepaidPass:
+    return PrepaidPass(
+        title=message.title, plan=message.plan or None, months=message.months, prices=_prices_from_proto(message.prices),
+        periods=_periods_from_proto(message.periods), code_valid_months=message.code_valid_months,
+        pages=_pages_from_proto(message.pages))
 
 
 def list_price_from_proto(message: changes_pb2.ListPriceContent) -> ListPrice:
@@ -156,7 +176,9 @@ def content_from_message(holder) -> Content:
         return list_price_from_proto(holder.list_price)
     if which == "price_migration":
         return price_migration_from_proto(holder.price_migration)
-    raise InvalidArgument("the request carries no content: an offer, a list price or a price migration")
+    if which == "prepaid":
+        return prepaid_from_proto(holder.prepaid)
+    raise InvalidArgument("the request carries no content: an offer, a list price, a price migration or a prepaid pass")
 
 
 def content_from_request(request) -> Content:
@@ -167,7 +189,32 @@ def _local_text(value: datetime | None) -> str:
     return "" if value is None else format_local(value)
 
 
+def _prices_to_proto(prices: tuple[OfferPrice, ...]) -> list[changes_pb2.OfferPrice]:
+    out = []
+    for p in prices:
+        if p.fixed is not None:
+            out.append(changes_pb2.OfferPrice(market=p.market, fixed=money(p.fixed)))
+        else:
+            out.append(changes_pb2.OfferPrice(market=p.market, percent_off_bp=p.percent_off_bp or 0))
+    return out
+
+
+def _periods_to_proto(periods: tuple[OfferPeriod, ...]) -> list[changes_pb2.OfferPeriod]:
+    return [changes_pb2.OfferPeriod(market=p.market, starts_local=_local_text(p.starts), ends_local=_local_text(p.ends))
+            for p in periods]
+
+
+def _pages_to_proto(pages: tuple[OfferPage, ...]) -> list[changes_pb2.OfferPage]:
+    return [changes_pb2.OfferPage(market=p.market, title=p.title, text=p.text, terms=p.terms, treatment=p.treatment)
+            for p in pages]
+
+
 def content_to_proto(content: Content) -> tuple[str, object]:
+    if isinstance(content, PrepaidPass):
+        return "prepaid", changes_pb2.PrepaidPassContent(
+            title=content.title, plan=content.plan or "", months=content.months, prices=_prices_to_proto(content.prices),
+            periods=_periods_to_proto(content.periods), code_valid_months=content.code_valid_months,
+            pages=_pages_to_proto(content.pages))
     if isinstance(content, PriceMigration):
         message = changes_pb2.PriceMigrationContent(
             title=content.title, plan=content.plan or "", market=content.market or "",
@@ -188,18 +235,9 @@ def content_to_proto(content: Content) -> tuple[str, object]:
     if a.listening is not None:
         audience.listening.CopyFrom(changes_pb2.ListeningRule(
             artist_id=a.listening.artist_id, min_seconds=a.listening.min_seconds, within_days=a.listening.within_days))
-    prices = []
-    for p in content.prices:
-        if p.fixed is not None:
-            prices.append(changes_pb2.OfferPrice(market=p.market, fixed=money(p.fixed)))
-        else:
-            prices.append(changes_pb2.OfferPrice(market=p.market, percent_off_bp=p.percent_off_bp or 0))
     return "offer", changes_pb2.OfferContent(
-        title=content.title, plan=content.plan or "", audience=audience, prices=prices,
-        months_at_offer_price=content.months_at_offer_price,
-        periods=[changes_pb2.OfferPeriod(market=p.market, starts_local=_local_text(p.starts), ends_local=_local_text(p.ends))
-                 for p in content.periods],
+        title=content.title, plan=content.plan or "", audience=audience, prices=_prices_to_proto(content.prices),
+        months_at_offer_price=content.months_at_offer_price, periods=_periods_to_proto(content.periods),
         non_combinability_group=content.group or "", redemption_cap=content.redemption_cap,
-        pages=[changes_pb2.OfferPage(market=p.market, title=p.title, text=p.text, terms=p.terms, treatment=p.treatment)
-               for p in content.pages],
+        pages=_pages_to_proto(content.pages),
     )

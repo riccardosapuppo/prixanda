@@ -123,8 +123,20 @@ def family_migration(**changes) -> changes_pb2.PriceMigrationContent:
     return apply(content, changes)
 
 
+def gift_pass(**changes) -> changes_pb2.PrepaidPassContent:
+    """§14.4: three months of Individual paid in advance, €29.99 in Italy, on sale from 1 November 2026."""
+    content = changes_pb2.PrepaidPassContent(
+        title="Three-month gift pass", plan="individual", months=3,
+        prices=[changes_pb2.OfferPrice(market="IT", fixed=eur(2_999))],
+        periods=[changes_pb2.OfferPeriod(market="IT", starts_local="2026-11-01T00:00")], code_valid_months=12,
+        pages=[changes_pb2.OfferPage(market="IT", title="Three months of Individual",
+                                     text="Three months of Individual, paid once, to keep or to give.",
+                                     terms="Single use. Activate it within 12 months. It never renews.")])
+    return apply(content, changes)
+
+
 FIELDS = {changes_pb2.OfferContent: "offer", changes_pb2.ListPriceContent: "list_price",
-          changes_pb2.PriceMigrationContent: "price_migration"}
+          changes_pb2.PriceMigrationContent: "price_migration", changes_pb2.PrepaidPassContent: "prepaid"}
 
 
 async def create(world: World, content, who=MARKETING) -> changes_pb2.Change:

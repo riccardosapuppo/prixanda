@@ -44,15 +44,17 @@ async def full_price(tx: Connection, market: reference.Market, plan_id: str, ful
 
 async def write_subscription(tx: Connection, market: reference.Market, *, subscriber_id: int, plan_id: str, paid: bool,
                              price: Money, started_on: date, billing_day: int, quote_id: str | None = None,
-                             offer_change_id: int | None = None, offer_months: int | None = None) -> int:
+                             offer_change_id: int | None = None, offer_months: int | None = None,
+                             prepaid_code: str | None = None, ended_on: date | None = None) -> int:
     """A subscription and the price it starts at, the first row of its history: the database checks, when the
-    transaction commits, that no subscription is without it (migration V14)."""
+    transaction commits, that no subscription is without it (migration V14). A prepaid pass's costs nothing by the
+    month (V15)."""
     subscription_id = await tx.fetchval(
-        "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, started_on, billing_day, quote_id, "
-        "offer_change_id, offer_months) values (nextval('subscription_id_seq'), $1, $2, $3, $4, $5, $6::text::date, $7, $8, "
-        "$9, $10) returning id",
-        subscriber_id, market.code, market.currency, plan_id, paid, started_on.isoformat(), billing_day, quote_id,
-        offer_change_id, offer_months)
+        "insert into subscription (id, subscriber_id, market, currency, plan_id, paid, started_on, ended_on, billing_day, "
+        "quote_id, offer_change_id, offer_months, prepaid_code) values (nextval('subscription_id_seq'), $1, $2, $3, $4, $5, "
+        "$6::text::date, $7::text::date, $8, $9, $10, $11, $12) returning id",
+        subscriber_id, market.code, market.currency, plan_id, paid, started_on.isoformat(),
+        ended_on.isoformat() if ended_on else None, billing_day, quote_id, offer_change_id, offer_months, prepaid_code)
     await tx.execute("insert into subscription_price (subscription_id, from_on, price_minor) values ($1, $2::text::date, $3)",
                      subscription_id, started_on.isoformat(), price.amount)
     return subscription_id

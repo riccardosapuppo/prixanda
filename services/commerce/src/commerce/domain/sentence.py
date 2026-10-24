@@ -128,6 +128,17 @@ def migration_sentence(*, market_name: str, plan_name: str, current: Money | Non
     return f"{market_name}, {plan_name}: from {old} to {price} for new subscribers{when}; {existing}; overlaps: {clash}."
 
 
+def prepaid_sentence(*, title: str, plan_name: str, months: int, code_valid_months: int, markets: list[str]) -> str:
+    """"Three-month gift pass: Individual for 3 months, paid in advance and never renewed; Italy: €29.99 (€10.49 a
+    month at the list price), on sale from 1 October 2026, 00:00 (Europe/Rome); a code waits up to 12 months to be
+    activated." A market not priced yet is left out; with none, it says so."""
+    sold = "; ".join(markets) if markets else "no market priced yet"
+    lasting = f"{months} month{'' if months == 1 else 's'}" if months > 0 else "months not set"
+    waits = (f"a code waits up to {code_valid_months} month{'' if code_valid_months == 1 else 's'} to be activated"
+             if code_valid_months > 0 else "how long a code waits is not set")
+    return f"{title}: {plan_name} for {lasting}, paid in advance and never renewed; {sold}; {waits}."
+
+
 def list_price_sentence(*, market_name: str, plan_name: str, current: Money | None, new: Money | None,
                         starts: str | None, subscribers: int, overlaps: list[str]) -> str:
     """"Germany, Family: from €18.99 to €20.99 for new subscribers from 1 December 2026, 00:00 (Europe/Berlin);

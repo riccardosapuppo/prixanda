@@ -23,7 +23,9 @@ from commerce.domain import policy
 from commerce.domain.economics import Book
 from commerce.domain.localtime import AmbiguousLocalTime, format_instant, format_local, to_instant, to_local
 from commerce.domain.money import Money
-from commerce.domain.offers import Content, ListPrice, Offer, PriceMigration, from_json, local_times, shape_problems, to_json
+from commerce.domain.offers import (
+    Content, ListPrice, Offer, PrepaidPass, PriceMigration, from_json, local_times, shape_problems, to_json,
+)
 from commerce.domain.validation import (
     BLOCKING, PENDING_OR_LIVE, Context, MarketFacts, Neighbour, report_to_json, validate,
 )
@@ -221,7 +223,7 @@ class Changes:
             market = ref.market(code)
             local_now = to_local(now, market.zone)
             starts = None
-            if isinstance(content, Offer):
+            if isinstance(content, (Offer, PrepaidPass)):
                 period = content.period_in(code)
                 starts = period.starts if period is not None else None
             else:
@@ -236,11 +238,15 @@ class Changes:
             today = market.today(now)
             if isinstance(content, Offer):
                 people = await eligibility.count(tx, audience, code, today) if audience.segment is not None else 0
+            elif isinstance(content, PrepaidPass):
+                people = 0  # a pass is sold to anyone, and given: nobody is counted
             else:
-                people = await eligibility.current_subscribers(tx, code, plan_id, today) if plan_id else 0
+                people = await eligibility.current_subscribers(
+                    tx, code, plan_id, today, by_the_month=isinstance(content, PriceMigration)) if plan_id else 0
             facts[code] = MarketFacts(code, market.name, market.currency, market.zone, market.vat_bp, list_price, people)
         # A list price and a price migration both set the list price: each is the other's neighbour.
-        kinds = ["offer"] if isinstance(content, Offer) else ["list_price", "price_migration"]
+        kinds = (["offer"] if isinstance(content, Offer) else ["prepaid"] if isinstance(content, PrepaidPass)
+                 else ["list_price", "price_migration"])
         rows = await tx.fetch(
             "select c.id, c.title, c.state, v.content::text as content from change c "
             "join change_version v on v.change_id = c.id and v.version = c.current_version "

@@ -15,6 +15,7 @@ from commerce.domain.economics import (
 )
 from commerce.domain.migration import Charges, Policy, leaving_day, new_price_from, simulate_migration
 from commerce.domain.money import Money, format_money
+from commerce.domain.prepaid import Sold, value
 from commerce.domain.offers import Audience, ListeningRule, Offer, OfferPage, OfferPeriod, OfferPrice
 from commerce.domain.validation import Context, MarketFacts, PlanFacts, validate
 
@@ -136,6 +137,14 @@ def run(case: dict) -> dict:
         return {"window_ends": ends.isoformat(timespec="minutes"),
                 "new_price_from": new_price_from(policy, charges, starts=starts, window_ends=ends.date(), yes_on=yes_on).isoformat(),
                 "leaves_on": leaves.isoformat() if leaves else None}
+    if kind == "prepaid_value":
+        net = BOOK.terms(given["currency"], given["vat_bp"]).net(given["price"])
+        activated_on = date.fromisoformat(given["activated_on"])
+        codes = ([Sold(net, given["months"], "activated", activated_on)] * given["activated"]
+                 + [Sold(net, given["months"], "ready")] * (given["sold"] - given["activated"]))
+        v = value(codes, date.fromisoformat(given["day"]))
+        return {"net": net, "sold": v.sold, "activated": v.activated, "unearned": v.unearned,
+                "console": format_money(Money(v.unearned, given["currency"]))}
     if kind == "prepaid":
         net = BOOK.terms(given["currency"], given["vat_bp"]).net(given["price"])
         monthly = recognize_monthly(net, given["months"])

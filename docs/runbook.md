@@ -9,8 +9,8 @@ symptoms, how to check, what to do, and how to tell that it is resolved.
 
 - **The engine's log**: one JSON line per event on its standard error, with
   the request id when there is one. The jobs (launches, the end of offers,
-  the end of the price changes' windows, the outbox, the pruning of
-  idempotency keys) write one line per change of state, never one per
+  the end of the price changes' windows, the expiry of prepaid codes, the
+  outbox, the pruning of idempotency keys) write one line per change of state, never one per
   pass: a launch that waits, or that was refused, says nothing more until
   something happens to it. The events that matter here:
   `launch_started`, `launch_step_done`, `launch_step_failed` and
@@ -19,7 +19,10 @@ symptoms, how to check, what to do, and how to tell that it is resolved.
   `incident_closed`, `jobs_pass_failed` (warning, once per cause) and
   `jobs_working_again`, `outbox_delivery_failed` (warning),
   `price_change_settled` (once per request, at the end of its window, with
-  the state and the effect on the subscription), and, from the
+  the state and the effect on the subscription), `prepaid_code_expired`
+  (once per code not activated by its last day, named by its number, never
+  by the code, which is a bearer secret), `offer_ended` (an offer, or a
+  prepaid pass, whose periods are over), and, from the
   server, `listening`, `stopping`, `stopped`, `cannot_listen`,
   `configuration` and `database_unreachable`. Every line of a launch carries
   its run, `launch-<id>`, which is also the request id of the audit events it
@@ -40,7 +43,7 @@ symptoms, how to check, what to do, and how to tell that it is resolved.
   RetryLaunch and CancelLaunch).
 - **The database**, read only: the tables `launch`, `launch_step`,
   `incident`, `outbox_message`, `site_notice`, `price_change_request`,
-  `subscriber_notice` and `audit_event`. The queries
+  `subscriber_notice`, `prepaid_code` and `audit_event`. The queries
   below are written for `psql` on the engine's database (`npm run db -- url`
   prints the development URL).
 

@@ -76,7 +76,8 @@ class Opened:
 
 async def open_requests(tx: Connection, *, change_id: int, content: PriceMigration, market: reference.Market,
                         policy: Policy, now: datetime, request_id: str) -> Opened:
-    """A request for each subscription of the plan in the market paid on the day, and its message to the listener.
+    """A request for each subscription of the plan in the market paid on the day, and its message to the listener. A
+    prepaid pass is not asked: it was paid for, and a later price does not touch it (§9.1).
     Called before the new list price enters the price list, so that what a subscription pays without the change, after
     its offer's months too, is read as it stands."""
     assert content.plan and content.amount is not None
@@ -86,8 +87,8 @@ async def open_requests(tx: Connection, *, change_id: int, content: PriceMigrati
     rows = await tx.fetch(
         "select s.id, s.subscriber_id, s.started_on::text as started_on, s.billing_day, s.offer_months, "
         "(select max(p.from_on)::text from subscription_price p where p.subscription_id = s.id) as last_from "
-        "from subscription s where s.market = $1 and s.plan_id = $2 and s.paid and s.started_on <= $3::text::date "
-        "and (s.ended_on is null or s.ended_on > $3::text::date) order by s.id",
+        "from subscription s where s.market = $1 and s.plan_id = $2 and s.paid and s.prepaid_code is null "
+        "and s.started_on <= $3::text::date and (s.ended_on is null or s.ended_on > $3::text::date) order by s.id",
         market.code, content.plan, today.isoformat())
     asked = 0
     for row in rows:

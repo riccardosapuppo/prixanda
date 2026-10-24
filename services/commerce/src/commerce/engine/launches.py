@@ -60,8 +60,8 @@ from datetime import datetime, timedelta
 
 from commerce.domain import policy
 from commerce.domain.localtime import describe_local, format_instant, format_local, parse_instant, to_instant, to_local
-from commerce.domain.offers import ListPrice, Offer, PriceMigration, from_json
-from commerce.engine import clashes, contract, migrations, outbox, records, reference
+from commerce.domain.offers import ListPrice, Offer, PrepaidPass, PriceMigration, from_json
+from commerce.engine import clashes, contract, migrations, outbox, prepaid, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import Connection, Database, utc_text
 from commerce.engine.errors import InvalidArgument, NotFound, Refused
@@ -432,6 +432,8 @@ class Launches:
                 raise Refusal(clash.words(ref.markets[clash.market].name, content.group)
                               + " Nothing was published, and the change stays scheduled.", clash.facts())
             return None
+        if isinstance(content, PrepaidPass):
+            return None  # a pass stands beside every other: nothing is in its way
         assert isinstance(content, (ListPrice, PriceMigration))
         market = ref.markets[content.market]
         local_now = to_local(now, market.zone)
@@ -551,6 +553,22 @@ class Launches:
             return {"live": f"the change is {state}: it went live, and a later decision took it off the site"}
         if state != "active":
             raise NotVerified(f"change #{launch.change_id} is {state} after its publication")
+        if launch.kind == "prepaid":
+            # On sale where its period has begun and not ended, as the site lists it.
+            content, _, _ = await records.version_content(tx, launch.change_id, launch.version)
+            assert isinstance(content, PrepaidPass)
+            at = parse_instant(published["published at"])
+            on_sale = await prepaid.on_sale(tx, at)
+            listed = sorted(p.market for p in on_sale if p.change_id == launch.change_id)
+            ref = await reference.load(tx, at)
+            expected = sorted(p.market for p in content.prices
+                              if (period := content.period_in(p.market)) is not None and period.starts is not None
+                              and to_instant(period.starts, ref.markets[p.market].zone) <= at
+                              and (period.ends is None or to_instant(period.ends, ref.markets[p.market].zone) > at))
+            if listed != expected:
+                raise NotVerified(f"the site lists pass #{launch.change_id} in {', '.join(listed) or 'no market'}, "
+                                  f"not in {', '.join(expected) or 'no market'}")
+            return {"on sale": ",".join(listed) or "from the start of its periods"}
         if launch.kind in ("list_price", "price_migration"):
             row = await tx.fetchrow(
                 "select amount_minor, to_char(lower(valid), 'YYYY-MM-DD\"T\"HH24:MI:SS') as starts from list_price "

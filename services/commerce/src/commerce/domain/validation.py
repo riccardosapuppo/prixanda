@@ -39,8 +39,10 @@ from commerce.domain.economics import (
 from commerce.domain.localtime import AmbiguousLocalTime, describe_local, format_local, to_instant
 from commerce.domain.money import BASIS_POINTS, Money, format_money, round_half_up
 from commerce.domain.migration import Policy
-from commerce.domain.offers import Audience, Content, ListPrice, Offer, OfferPeriod, OfferPrice, PriceMigration
-from commerce.domain.sentence import OfferClause, audience_short, list_price_sentence, migration_sentence, offer_clause
+from commerce.domain.offers import Audience, Content, ListPrice, Offer, OfferPeriod, OfferPrice, PrepaidPass, PriceMigration
+from commerce.domain.sentence import (
+    OfferClause, audience_short, list_price_sentence, migration_sentence, offer_clause, prepaid_sentence,
+)
 
 BLOCKING, NEEDS_SIGNATURE, INFO = "blocking", "needs_signature", "info"
 # A neighbour in one of these states can clash: it is on its way to the site, or there.
@@ -545,11 +547,83 @@ def validate_price_migration(change: PriceMigration, ctx: Context) -> Report:
                   per_market)
 
 
+def validate_prepaid(content: PrepaidPass, ctx: Context) -> Report:
+    """A pass puts a price on sale (§9.1): finance signs it, as for a list price (§7.3, condition 1). In each
+    market it is sold in: its price, its period of sale and its page. A price under what its months would cost at
+    the market's floor is a standing exception finance signs, as an offer's would be (§5.5). A pass gives a plan
+    anyone can have: a gift cannot carry a student verification."""
+    found = _Findings()
+    book = ctx.book
+    plan = ctx.plans.get(content.plan) if content.plan else None
+    if plan is None:
+        found.add("price", BLOCKING, "", "Choose the plan the pass gives.")
+    elif plan.needs_student_check:
+        found.add("audience", BLOCKING, "", f"{plan.name} needs a student verification, which a gift code cannot carry.")
+    if content.months < 1:
+        found.add("dates", BLOCKING, "", "Say how many months the pass gives.")
+    if content.code_valid_months < 1:
+        found.add("dates", BLOCKING, "", "Say how many months a code can wait to be activated.")
+    if not content.prices:
+        found.add("price", BLOCKING, "", "Set the price in at least one market.")
+    sold = set(content.markets())
+    for entry in (*content.periods, *content.pages):
+        if entry.market not in sold:
+            check = "dates" if isinstance(entry, OfferPeriod) else "page_text"
+            found.add(check, BLOCKING, entry.market, f"{ctx.markets[entry.market].name} has no price: remove it, or price it.")
+    below_floor: list[str] = []
+    per_market: dict[str, dict[str, object]] = {}
+    clauses: list[str] = []
+    months = max(content.months, 1)
+    for code in content.markets():
+        market = ctx.markets[code]
+        entry = content.price_in(code)
+        assert entry is not None and entry.fixed is not None  # shape_problems refuses a pass priced otherwise
+        price = entry.fixed
+        terms = book.terms(market.currency, market.vat_bp)
+        floor = Money(terms.floor(), market.currency)
+        if price.amount < floor.amount * months:
+            monthly_net = terms.net(price.amount) // months
+            top_up = terms.top_up(monthly_net)
+            below_floor.append(f"{market.name}: {format_money(price)} for {months} months against a floor of "
+                               f"{format_money(floor)} a month")
+            found.add("floor", NEEDS_SIGNATURE, code,
+                      f"{market.name}: {format_money(price)} for {months} months is below the floor of {format_money(floor)} "
+                      f"a month; the artists' minimum would cost {format_money(Money(top_up, market.currency))} a month "
+                      f"per pass.", price=price.amount, floor=floor.amount, months=months, top_up=top_up)
+        period = content.period_in(code)
+        if period is None:
+            found.add("dates", BLOCKING, code, f"{market.name}: set when the pass is on sale.")
+        else:
+            _check_times(found, market, period, ctx.now)
+        page = content.page_in(code)
+        missing = [] if page is None else [name for name in ("title", "text", "terms") if not getattr(page, name).strip()]
+        if page is None or missing:
+            what = "a page" if page is None else "its page " + " and ".join(missing)
+            found.add("page_text", BLOCKING, code, f"{market.name} needs {what}.")
+        per_market[code] = {"price": price.amount, "months": content.months, "floor": floor.amount, "currency": market.currency,
+                            "list_price": None if market.list_price is None else market.list_price.amount}
+        clause = f"{market.name}: {format_money(price)}"
+        if market.list_price is not None:
+            clause += f" ({format_money(market.list_price)} a month at the list price)"
+        if period is not None and period.starts is not None:
+            clause += f", on sale from {describe_local(period.starts, market.zone)}"
+        clauses.append(clause)
+    sentence = prepaid_sentence(title=content.title, plan_name=plan.name if plan else "no plan", months=content.months,
+                                code_valid_months=content.code_valid_months, markets=clauses)
+    conditions = finance_conditions(book, sets_list_price=True, below_floor=below_floor, discount_and_top_up=None,
+                                    contribution=None, horizon_months=book.horizon_months)
+    signatures = signatures_needed(conditions)
+    _signature_finding(found, signatures)
+    return Report(not found.blocking(), tuple(found.items), tuple(conditions), tuple(signatures), 0, sentence, per_market)
+
+
 def validate(content: Content, ctx: Context) -> Report:
     if isinstance(content, Offer):
         return validate_offer(content, ctx)
     if isinstance(content, PriceMigration):
         return validate_price_migration(content, ctx)
+    if isinstance(content, PrepaidPass):
+        return validate_prepaid(content, ctx)
     return validate_list_price(content, ctx)
 
 

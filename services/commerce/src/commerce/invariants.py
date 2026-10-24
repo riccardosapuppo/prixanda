@@ -170,6 +170,32 @@ INVARIANTS = [
                           and a.approver <> a.author)
         """,
     ),
+    Invariant(
+        "prepaid_codes_follow_their_payment",
+        "§9: a code is ready, activated or expired only once its payment succeeded, with its receipt; failed only "
+        "once it was declined; pending while it is",
+        """
+        select c.id as prepaid, c.state, p.state as payment, r.id as receipt from prepaid_code c
+        left join payment p on p.prepaid_code = c.code
+        left join receipt r on r.prepaid_code = c.code
+        where p.id is null
+           or (c.state in ('ready', 'activated', 'expired') and (p.state <> 'succeeded' or r.id is null))
+           or (c.state = 'failed' and p.state <> 'failed')
+           or (c.state = 'pending' and p.state <> 'pending')
+        """,
+    ),
+    Invariant(
+        "activated_codes_run_their_pass",
+        "§9.1: an activated code is the subscription it was activated into: the pass's plan, in its market, from the "
+        "day of activation, for its holder, with an end",
+        """
+        select c.id as prepaid, s.id as subscription from prepaid_code c
+        left join subscription s on s.id = c.subscription_id
+        where c.state = 'activated'
+          and (s.id is null or s.prepaid_code is distinct from c.code or s.plan_id <> c.plan_id or s.market <> c.market
+               or s.started_on <> c.activated_on or s.subscriber_id <> c.activated_by or s.ended_on is null)
+        """,
+    ),
 ]
 
 CHAIN = Invariant("audit_chain_verifies", "§11.3: every event of the audit log follows the one before it", "")

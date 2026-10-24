@@ -12,9 +12,10 @@ had begun is rolled back to a savepoint first, while the refusal itself, and
 a failed validation's report, are kept.
 
 The engine's own jobs run outside any call, on the server's timer: the
-launches (launches.py), the end of offers whose periods are over, the end of
-price migrations' windows (migrations.py), the outbox's deliveries, and the
-pruning of idempotency keys. A write that
+launches (launches.py), the end of offers and passes whose periods are over,
+the end of price migrations' windows (migrations.py), the expiry of prepaid
+codes not used (prepaid.py), the outbox's deliveries, and the pruning of
+idempotency keys. A write that
 leaves work for them (a confirmed quote's charge, a launch retried) wakes the
 timer, so that the work starts at once rather than at the next tick.
 """
@@ -27,7 +28,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from commerce.domain.economics import Book
-from commerce.engine import contract, idempotency
+from commerce.engine import contract, idempotency, prepaid
 from commerce.engine.audit_log import AuditLog
 from commerce.engine.call import Call, Clock
 from commerce.engine.catalog import Catalog
@@ -74,6 +75,7 @@ METHODS: dict[str, Method] = {m.full_name: m for m in [
     _m("CatalogService", "ListPlans", catalog_pb2, public=True),
     _m("CatalogService", "GetPriceList", catalog_pb2, public=True),
     _m("CatalogService", "ListOffers", catalog_pb2, public=True),
+    _m("CatalogService", "ListPrepaidPasses", catalog_pb2, public=True),
     _m("QuoteService", "GetQuote", quotes_pb2, public=True, writes=True),
     _m("ChangeService", "CreateChange", changes_pb2, writes=True),
     _m("ChangeService", "SaveVersion", changes_pb2, writes=True),
@@ -99,6 +101,8 @@ METHODS: dict[str, Method] = {m.full_name: m for m in [
     _m("SubscriberService", "ConfirmQuote", subscriptions_pb2, public=True, writes=True),
     _m("SubscriberService", "GetAccount", subscriptions_pb2, public=True),
     _m("SubscriberService", "AnswerPriceChange", subscriptions_pb2, public=True, writes=True),
+    _m("SubscriberService", "BuyPrepaidPass", subscriptions_pb2, public=True, writes=True),
+    _m("SubscriberService", "ActivatePrepaidPass", subscriptions_pb2, public=True, writes=True),
     _m("LaunchService", "ListLaunches", launches_pb2),
     _m("LaunchService", "GetLaunch", launches_pb2),
     _m("LaunchService", "RetryLaunch", launches_pb2, writes=True),
@@ -122,6 +126,8 @@ class Engine:
         self.relay = Relay(db, clock, [SiteInbox(db, clock), Charges(db, self.payments, self.provider_events),
                                        SubscriberInbox(db, clock, REQUEST), SubscriberInbox(db, clock, OUTCOME)])
         self.migrations = Migrations(db, clock)
+        self.prepaid_catalog = prepaid.Catalog(clock)
+        self.prepaid_expiry = prepaid.Expiry(db, clock)
         # The probe is the fault-injection tests' only: see launches.py.
         self.launches = Launches(db, clock, self.publisher, self.relay, probe=probe)
         self.catalog = Catalog(clock, self.book, self.publisher)
@@ -136,6 +142,7 @@ class Engine:
         self.handlers: dict[str, Handler] = {
             "ListMarkets": self.catalog.list_markets, "ListPlans": self.catalog.list_plans,
             "GetPriceList": self.catalog.get_price_list, "ListOffers": self.catalog.list_offers,
+            "ListPrepaidPasses": self.prepaid_catalog.list_passes,
             "GetQuote": self.quotes.get_quote,
             "CreateChange": self.changes.create, "SaveVersion": self.changes.save_version, "GetChange": self.changes.get,
             "BatchGetChanges": self.changes.batch_get, "ListChanges": self.changes.list,
@@ -149,6 +156,7 @@ class Engine:
             "ListDemoListeners": self.subscribers.list_demo_listeners,
             "VerifyStudent": self.subscribers.verify_student, "ConfirmQuote": self.subscribers.confirm_quote,
             "GetAccount": self.subscribers.get_account, "AnswerPriceChange": self.migrations.answer,
+            "BuyPrepaidPass": self.subscribers.buy_prepaid_pass, "ActivatePrepaidPass": self.subscribers.activate_prepaid_pass,
             "ListLaunches": self.launches.list_launches, "GetLaunch": self.launches.get_launch,
             "RetryLaunch": self.launches.retry_launch, "CancelLaunch": self.launches.cancel_launch,
         }
@@ -249,6 +257,13 @@ class Engine:
         """A pass of the price migrations: acts on every window that ended, once each."""
         try:
             return await self.migrations.settle_due()
+        except DatabaseUnavailable as error:
+            raise Unavailable(str(error)) from error
+
+    async def expire_prepaid_codes(self) -> list[prepaid.Expired]:
+        """A pass of the prepaid codes: those not activated by their last day expire, once each."""
+        try:
+            return await self.prepaid_expiry.expire_due()
         except DatabaseUnavailable as error:
             raise Unavailable(str(error)) from error
 

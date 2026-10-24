@@ -74,10 +74,12 @@ async def includes(tx: Connection, audience: Audience, market: str, day: date, s
         f"select exists (select 1 {_FROM.format(today='$1::text::date')} where {where} and b.id = ${len(args)})", *args)
 
 
-async def current_subscribers(tx: Connection, market: str, plan: str, day: date) -> int:
-    """People on a plan in a market on a day."""
+async def current_subscribers(tx: Connection, market: str, plan: str, day: date, *, by_the_month: bool = False) -> int:
+    """People on a plan in a market on a day; by_the_month leaves out the prepaid passes, which a price migration
+    does not ask or tell (§9.1)."""
+    passes = " and s.prepaid_code is null" if by_the_month else ""
     return await tx.fetchval(
-        f"select count(*) {_FROM.format(today='$1::text::date')} where b.market = $2 and s.plan_id = $3",
+        f"select count(*) {_FROM.format(today='$1::text::date')} where b.market = $2 and s.plan_id = $3{passes}",
         day.isoformat(), market, plan)
 
 

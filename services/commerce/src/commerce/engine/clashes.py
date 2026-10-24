@@ -25,7 +25,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from commerce.domain.offers import Content, ListPrice, Offer, PriceMigration, from_json
+from commerce.domain.offers import Content, ListPrice, Offer, PrepaidPass, PriceMigration, from_json
 from commerce.domain.validation import clash_words, clashes, needs_count
 from commerce.engine import eligibility
 from commerce.engine.database import Connection
@@ -35,8 +35,12 @@ NEIGHBOURHOOD_LOCK = 4_600_031
 
 
 def neighbourhood(content: Content) -> str | None:
+    """What a change is checked against, which two checks of changes alike take one at a time. A prepaid pass
+    stands beside every other change: nothing to lock."""
     if isinstance(content, Offer):
         return f"offer-group:{content.group}" if content.group else None
+    if isinstance(content, PrepaidPass):
+        return None
     return f"list-price:{content.plan}:{content.market}" if content.plan and content.market else None
 
 

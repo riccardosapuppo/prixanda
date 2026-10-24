@@ -1,4 +1,4 @@
-"""The subscriber's side (business book §4.3, §4.5, §6.1, §10, §14.1, §14.5).
+"""The subscriber's side (business book §4.3, §4.5, §6.1, §9, §10, §14.1, §14.4, §14.5).
 
 The gateway names the subscriber from the site's session; these calls carry
 no person of the team, and in the audit log their author is the subscriber,
@@ -18,6 +18,11 @@ The first month is charged after the confirmation commits: the confirmation
 writes the payment, pending, and an outbox message in its transaction, and
 the outbox asks the payment provider afterwards (payments.py). The account
 shows the payment settled, and its receipt, once the provider's events say so.
+A prepaid pass is bought the same way, its code taking the subscription's
+place, and activated later, by its buyer or whoever was given the code: its
+months of the plan, never charged and never renewed, then the free plan
+(prepaid.py). An activation takes the same locks as a confirmation: the
+listener, then the code, then the listener's current subscription.
 
 Limits, written down: a listener moves from the free plan to a paid one; a
 change between paid plans, a cancellation and the monthly roll-over to the
@@ -38,7 +43,8 @@ from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, to_local
 from commerce.domain.money import Money
 from commerce.domain.validation import on_sale, resolve_price
-from commerce.engine import charging, contract, eligibility, migrations, payments, records, reference
+from commerce.domain import prepaid as prepaid_rules
+from commerce.engine import charging, contract, eligibility, migrations, payments, prepaid, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.catalog import LIVE_OFFER, Catalog, list_price_at, live_offer
 from commerce.engine.database import Connection, utc_text
@@ -63,7 +69,7 @@ def _date(text: str) -> date:
 
 CURRENT = (
     "select id, plan_id, paid, currency, started_on::text as started_on, billing_day, quote_id, "
-    "offer_change_id, offer_months, ended_on::text as ended_on from subscription where subscriber_id = $1 "
+    "offer_change_id, offer_months, ended_on::text as ended_on, prepaid_code from subscription where subscriber_id = $1 "
     "and started_on <= $2::text::date "
     "and (ended_on is null or ended_on > $2::text::date)")
 
@@ -101,6 +107,13 @@ class Subscribers:
             price=contract.money(Money.zero(market.currency)), started_on=row["started_on"],
             offer_id=row["offer_change_id"] or 0)
         if not row["paid"]:
+            return message
+        if row["prepaid_code"] is not None:  # paid in advance (§9): nothing to charge, and an end
+            sold = await tx.fetchrow("select price_minor, currency from prepaid_code where code = $1", row["prepaid_code"])
+            message.prepaid_code = row["prepaid_code"]
+            message.prepaid_price.CopyFrom(contract.money(Money(sold["price_minor"], sold["currency"].strip())))
+            message.billing_day = row["billing_day"]
+            message.ends_on = row["ended_on"] or ""
             return message
         months = row["offer_months"] or 0
         terms = {"subscription_id": row["id"], "plan_id": row["plan_id"], "started_on": _date(row["started_on"]),
@@ -297,4 +310,106 @@ class Subscribers:
         if payment is not None:
             account.payment.CopyFrom(payment)
         account.price_changes.extend(await migrations.of_subscription(tx, row["id"], market, now))
+        account.prepaid_codes.extend(await prepaid.bought_by(tx, request.subscriber_id))
         return subscriptions_pb2.GetAccountResponse(account=account)
+
+    # -- prepaid passes (§9) ---------------------------------------------------------
+
+    async def buy_prepaid_pass(self, tx: Connection, call: Call,
+                               request: subscriptions_pb2.BuyPrepaidPassRequest) -> subscriptions_pb2.BuyPrepaidPassResponse:
+        subscriber = request.subscriber_id
+        home = await self._market_of(tx, subscriber)
+        if request.pass_id <= 0:
+            raise InvalidArgument("pass_id names a pass ListPrepaidPasses gave")
+        kind = await tx.fetchval("select kind from change where id = $1 for update", request.pass_id)
+        if kind != "prepaid":
+            raise NotFound(f"no prepaid pass #{request.pass_id}")
+        now = self.clock.now()
+        ref = await reference.load(tx, now)
+        market = ref.market(home)
+        on_sale = next((p for p in await prepaid.on_sale(tx, now) if p.change_id == request.pass_id and p.market == home), None)
+        if on_sale is None:
+            title = await tx.fetchval("select title from change where id = $1", request.pass_id)
+            raise Refused("NOT_ELIGIBLE", f"{title} is not on sale in {market.name}.",
+                          {"pass_id": request.pass_id, "market": home})
+        price = on_sale.price
+        net = market.terms(self.book).net(price.amount)
+        valid_until = prepaid_rules.valid_until(market.today(now), on_sale.code_valid_months)
+        code_id = None
+        for _ in range(5):  # a code drawn twice is drawn again
+            code = prepaid.new_code()
+            code_id = await tx.fetchval(
+                "insert into prepaid_code (code, change_id, version, market, currency, plan_id, months, price_minor, net_minor, "
+                "buyer_id, sold_at, valid_until, request_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, "
+                "$11::text::timestamptz, $12::text::date, $13) on conflict (code) do nothing returning id",
+                code, on_sale.change_id, on_sale.version, home, market.currency, on_sale.plan, on_sale.months, price.amount,
+                net, subscriber, format_instant(now), valid_until.isoformat(), call.request_id)
+            if code_id is not None:
+                break
+        if code_id is None:
+            raise AssertionError("five codes drawn were all taken")
+        payment_id = payments.new_payment_id()
+        await payments.request_prepaid(
+            tx, payment_id=payment_id, code=code, subscriber_id=subscriber, price=price,
+            description=f"{on_sale.title}, {market.name}: {on_sale.months} months of {ref.plans[on_sale.plan].name}, prepaid",
+            provider=self.payments.name, now=now, request_id=call.request_id)
+        await self._event(tx, call, subscriber, "prepaid.sold", prepaid.subject(code_id), {
+            "prepaid": code_id, "pass": on_sale.change_id, "version": on_sale.version, "market": home, "plan": on_sale.plan,
+            "months": on_sale.months, "price": price.amount, "net": net, "valid_until": valid_until.isoformat(),
+            "payment": payment_id, "payment_state": "pending", "provider": self.payments.name}, now)
+        return subscriptions_pb2.BuyPrepaidPassResponse(code=await prepaid.code_message(tx, await prepaid.code_row(tx, code)))
+
+    async def activate_prepaid_pass(self, tx: Connection, call: Call, request: subscriptions_pb2.ActivatePrepaidPassRequest
+                                    ) -> subscriptions_pb2.ActivatePrepaidPassResponse:
+        subscriber = request.subscriber_id
+        home = await self._market_of(tx, subscriber)
+        code = prepaid_rules.normal_code(request.code)
+        if not prepaid_rules.CODE.match(code):
+            raise InvalidArgument("a code is three groups of four letters and digits, like K7QM-3XTP-9WAD")
+        await tx.execute("select pg_advisory_xact_lock($1, hashtext($2))", LISTENER_LOCK, str(subscriber))
+        sold = await prepaid.code_row(tx, code, lock=True)
+        if sold is None:
+            raise NotFound("no such code")
+        arrived = self.clock.now()
+        arrived_in = (await reference.load(tx, arrived)).market(home)
+        current = await tx.fetchrow(CURRENT + " for update", subscriber, arrived_in.today(arrived).isoformat())
+        now = self.clock.now()
+        ref = await reference.load(tx, now)
+        market = ref.market(home)
+        today = market.today(now)
+        if sold["state"] == "activated":
+            if sold["activated_by"] == subscriber and current is not None and current["prepaid_code"] == code:
+                return subscriptions_pb2.ActivatePrepaidPassResponse(
+                    subscription=await self._subscription(tx, market, current, today))
+            raise Refused("WRONG_STATE", "This code was used already: a code works once.", {"state": "activated"})
+        if sold["state"] != "ready" or today > _date(sold["valid_until"]):
+            why = {"pending": "Its payment is not settled yet: try again in a moment.",
+                   "failed": "Its payment was declined: this code never works.",
+                   }.get(sold["state"], f"It could be activated until {sold['valid_until']}.")
+            raise Refused("WRONG_STATE", why, {"state": sold["state"] if sold["state"] != "ready" else "expired"})
+        if sold["market"].strip() != home:
+            raise Refused("NOT_ELIGIBLE", f"This code is for {ref.markets[sold['market'].strip()].name}, and this listener is "
+                                          f"in {market.name}.", {"subscriber": subscriber, "market": home})
+        if current is None:
+            raise FailedPrecondition(f"subscriber #{subscriber} is on no plan on {today.isoformat()}")
+        if current["paid"]:
+            raise Refused("ALREADY_SUBSCRIBED", f"A {ref.plans[current['plan_id']].name} subscription is already running "
+                                                "for this listener: activate the code when it ends.", {"plan": current["plan_id"]})
+        if _date(current["started_on"]) >= today:
+            raise FailedPrecondition("the free plan started today and cannot end today: activate the code tomorrow")
+        ends = prepaid_rules.pass_ends(today, sold["months"])
+        await tx.execute("update subscription set ended_on = $2::text::date where id = $1", current["id"], today.isoformat())
+        subscription_id = await charging.write_subscription(
+            tx, market, subscriber_id=subscriber, plan_id=sold["plan_id"], paid=True, price=Money.zero(market.currency),
+            started_on=today, ended_on=ends, billing_day=billing.billing_day_for(today), prepaid_code=code)
+        free = await charging.write_subscription(
+            tx, market, subscriber_id=subscriber, plan_id="free", paid=False, price=Money.zero(market.currency),
+            started_on=ends, billing_day=billing.billing_day_for(ends))
+        await tx.execute("update prepaid_code set state = 'activated', activated_by = $2, activated_on = $3::text::date, "
+                         "subscription_id = $4 where code = $1", code, subscriber, today.isoformat(), subscription_id)
+        await self._event(tx, call, subscriber, "prepaid.activated", prepaid.subject(sold["id"]), {
+            "prepaid": sold["id"], "pass": sold["change_id"], "from": "ready", "to": "activated",
+            "subscription": subscription_id, "plan": sold["plan_id"], "months": sold["months"], "starts": today.isoformat(),
+            "ends": ends.isoformat(), "free_subscription": free, "previous_plan": current["plan_id"]}, now)
+        row = await tx.fetchrow(CURRENT, subscriber, today.isoformat())
+        return subscriptions_pb2.ActivatePrepaidPassResponse(subscription=await self._subscription(tx, market, row, today))
