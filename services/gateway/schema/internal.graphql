@@ -1,0 +1,661 @@
+"""
+The console's API: the internal schema of the gateway (business book §6, §7,
+§11, §12).
+
+Sessions are a DEMONSTRATION MODE, not authentication: signIn picks one of the
+demo's people, as the engine lists them, and the gateway keeps who they are in
+a signed, HttpOnly session cookie. The browser never sends a role. Every
+operation is authorized on the server from the session, following the book's
+§12, and the engine checks the same identity again.
+
+Mutations that change something in the engine need an Idempotency-Key header,
+and one request carries one mutation. A business refusal (signing your own
+version, saving over a newer version) is an answer, typed as a Refusal in the
+mutation's result; errors carry extensions.code: UNAUTHENTICATED, FORBIDDEN,
+NOT_FOUND, BAD_USER_INPUT or ENGINE_UNAVAILABLE.
+"""
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+"""
+An amount of money in the currency's minor unit (cents, pence), never a float
+(§3.4). Written as an object whose amount is a string of digits, so that no
+client rounds it: {"amountMinor": "579", "currency": "EUR"}.
+"""
+scalar Money
+
+"""
+A wall-clock time in a market's time zone, ISO 8601 without an offset:
+2026-10-26T09:00 or 2026-10-26T09:00:00 (§3.7). Whether the market's clocks
+skip or repeat that time is the engine's to say.
+"""
+scalar LocalDateTime
+
+"An instant, ISO 8601 in UTC: 2026-10-24T07:00:00Z."
+scalar DateTime
+
+"A market's code, ISO 3166-1 alpha-2 in capitals: IT, FR, DE, GB."
+scalar MarketCode
+
+"A plan's code: lower-case letters, digits and dashes, starting with a letter."
+scalar PlanCode
+
+"A SHA-256 digest as 64 lower-case hexadecimal digits."
+scalar Sha256
+
+type Query {
+  "The demo's people, for the sign-in screen (§12.1). Needs no session."
+  people: [Person!]!
+  "Who is signed in, or null. Needs no session."
+  session: Session
+  "The console's home: what waits, what launches, what broke, who pays, what comes in."
+  overview(at: DateTime): Overview!
+  markets: [Market!]!
+  "The plans of a market at an instant (now when absent), with their prices and where the money goes."
+  plans(market: MarketCode!, at: DateTime): [Plan!]!
+  "The price list (§4); every market and plan when the filters are absent."
+  priceList(market: MarketCode, plan: PlanCode): [PriceListEntry!]!
+  change(id: ID!): Change
+  "Changes, newest first, a page at a time (first: 1 to 100)."
+  changes(filter: ChangeFilter, first: Int! = 20, after: String): ChangePage!
+  "The simulation of an offer in one market against not running it (§6.6)."
+  simulateOffer(changeId: ID!, version: Int!, market: MarketCode!, overrides: [AssumptionInput!]): SimulationOutcome!
+  "The audit log, newest first (§11). The auditor's (§12)."
+  auditEvents(filter: AuditFilter, first: Int! = 50, after: String): AuditPage!
+  "Recomputes the log's chain; with an exported head, also checks that the chain still leads to it (§11.3)."
+  verifyAuditChain(anchor: ChainHeadInput): ChainVerification!
+}
+
+type Mutation {
+  "DEMONSTRATION MODE: become one of the demo's people. Not authentication."
+  signIn(personId: ID!): Session!
+  "Ends the session; false when there was none."
+  signOut: Boolean!
+  createOffer(offer: OfferInput!): ChangeResult!
+  createListPrice(listPrice: ListPriceInput!): ChangeResult!
+  "A new version from the one the author started from; refused as STALE_VERSION when someone saved a newer one (§6.3)."
+  saveOfferVersion(changeId: ID!, baseVersion: Int!, offer: OfferInput!): ChangeResult!
+  saveListPriceVersion(changeId: ID!, baseVersion: Int!, listPrice: ListPriceInput!): ChangeResult!
+  validateChange(changeId: ID!, version: Int!): ChangeResult!
+  "authorReason is required when the simulated contribution is negative (§7.3, condition 4)."
+  submitChange(changeId: ID!, version: Int!, authorReason: String): ChangeResult!
+  "Signs the version and fingerprint the approver saw (§7.2)."
+  approveChange(changeId: ID!, version: Int!, fingerprint: Sha256!): ChangeResult!
+  rejectChange(changeId: ID!, version: Int!, reason: String!): ChangeResult!
+  scheduleChange(changeId: ID!): ChangeResult!
+  cancelChange(changeId: ID!, reason: String!): ChangeResult!
+  "The on-call engineer stops an active change (§12)."
+  suspendChange(changeId: ID!, reason: String!): ChangeResult!
+  "The head of the log's chain, to keep outside the database (§11.3)."
+  exportAuditHead: ExportHeadResult!
+}
+
+enum Role {
+  MARKETING
+  COMMERCIAL_LEAD
+  FINANCE
+  CATALOG_MANAGER
+  ON_CALL
+  AUDITOR
+}
+
+"Who wrote an audit event: a role of the book, or the engine's own jobs."
+enum ActorRole {
+  MARKETING
+  COMMERCIAL_LEAD
+  FINANCE
+  CATALOG_MANAGER
+  ON_CALL
+  AUDITOR
+  SYSTEM
+}
+
+"A person of the demo, named by role, never by a person's name (§12.1)."
+type Person {
+  id: ID!
+  label: String!
+  roles: [Role!]!
+}
+
+"There is no real authentication: every session is a demonstration."
+enum SessionMode {
+  DEMONSTRATION
+}
+
+type Session {
+  mode: SessionMode!
+  person: Person!
+  "The roles the session acts in, as the engine lists them for the person."
+  roles: [Role!]!
+  "Send it back in the X-CSRF-Token header with every mutation."
+  csrfToken: String!
+  expiresAt: DateTime!
+}
+
+type Market {
+  code: MarketCode!
+  name: String!
+  currency: String!
+  minorUnits: Int!
+  timeZone: String!
+  "The standard VAT rate in force, in basis points: 2200 is 22% (§3.1)."
+  vatBasisPoints: Int!
+  "What every paying subscription pays into the artists' pool at least, every month (§5.3)."
+  artistsMinimum: Money!
+  "The lowest price whose pool covers the minimum without a top-up (§5.4)."
+  floor: Money!
+}
+
+enum AudioQuality {
+  STANDARD
+  LOSSLESS
+}
+
+type Entitlements {
+  "Null means unlimited."
+  skipsPerHour: Int
+  audio: AudioQuality!
+  offline: Boolean!
+  seats: Int!
+  needsStudentCheck: Boolean!
+}
+
+"Where a price goes, per subscription per month (§3.5, §5)."
+type PriceBreakdown {
+  price: Money!
+  vat: Money!
+  net: Money!
+  "The pool share of the net amount, never less than the minimum."
+  artists: Money!
+  "The part of artists that the company adds from its margin to reach the minimum."
+  topUp: Money!
+  paymentCosts: Money!
+  companyKeeps: Money!
+}
+
+type Plan {
+  code: PlanCode!
+  name: String!
+  paid: Boolean!
+  entitlements: Entitlements!
+  "Null for the free plan."
+  listPrice: Money
+  breakdown: PriceBreakdown
+}
+
+type PriceListEntry {
+  id: ID!
+  plan: PlanCode!
+  market: MarketCode!
+  amount: Money!
+  validFrom: LocalDateTime!
+  "Null: open-ended."
+  validUntil: LocalDateTime
+  "The approved change that created it; null for the price list loaded at the start of the data."
+  change: Change
+  "Below the market's floor: a standing exception approved by finance (§5.5)."
+  belowFloor: Boolean!
+  "What the minimum costs the company per subscription per month at this price."
+  topUp: Money!
+}
+
+enum ChangeKind {
+  OFFER
+  LIST_PRICE
+  ENTITLEMENT
+  PRICE_MIGRATION
+  PREPAID
+}
+
+enum ChangeState {
+  DRAFT
+  VALIDATED
+  IN_APPROVAL
+  APPROVED
+  SCHEDULED
+  ACTIVE
+  ENDED
+  SUSPENDED
+  CANCELLED
+}
+
+input ChangeFilter {
+  states: [ChangeState!]
+  kind: ChangeKind
+  market: MarketCode
+}
+
+type ChangePage {
+  nodes: [ChangeSummary!]!
+  "The cursor of the next page; null on the last one."
+  next: String
+}
+
+"A row of the list of changes."
+type ChangeSummary {
+  id: ID!
+  kind: ChangeKind!
+  title: String!
+  state: ChangeState!
+  currentVersion: Int!
+  createdBy: Person!
+  markets: [MarketCode!]!
+  requiredSignatures: [RequiredSignature!]!
+  updatedAt: DateTime!
+  "The whole change, loaded in one batch with the other rows of the page."
+  details: Change!
+}
+
+type Change {
+  id: ID!
+  kind: ChangeKind!
+  title: String!
+  state: ChangeState!
+  "Why it was rejected, suspended or cancelled."
+  stateReason: String
+  currentVersion: Int!
+  createdBy: Person!
+  createdAt: DateTime!
+  versions: [ChangeVersion!]!
+  "The version that validation and approvals refer to."
+  current: ChangeVersion!
+  approvals: [Approval!]!
+  validation: ValidationReport
+  requiredSignatures: [RequiredSignature!]!
+  "The difference in business words, before anyone approves (§6.5)."
+  sentence: String
+  "Why the campaign is worth running despite a negative contribution (§7.3, condition 4)."
+  authorReason: String
+}
+
+type ChangeVersion {
+  version: Int!
+  author: Person!
+  createdAt: DateTime!
+  "SHA-256 of the content as the database stored it: what an approval names (§7.2)."
+  fingerprint: Sha256!
+  content: ChangeContent!
+}
+
+union ChangeContent = OfferContent | ListPriceContent
+
+enum Segment {
+  "People who have never paid."
+  NEVER_PAID
+  "People on the free plan now."
+  FREE_LISTENERS
+  "Paying subscribers of currentPlan now."
+  SUBSCRIBERS_OF_PLAN
+  "Anyone: a gift bought for someone else."
+  ANYONE
+}
+
+"Free listeners who played an artist for more than a set time lately (§14.2)."
+type ListeningRule {
+  artistId: Int!
+  minSeconds: Int!
+  withinDays: Int!
+}
+
+type Audience {
+  segment: Segment!
+  currentPlan: PlanCode
+  needsStudentCheck: Boolean!
+  listening: ListeningRule
+}
+
+"The price of an offer in one market: a fixed amount, or a percentage off the list price in force (§6.1)."
+type OfferPrice {
+  market: MarketCode!
+  fixed: Money
+  percentOffBasisPoints: Int
+}
+
+"When the offer can be taken in one market, in local time; no end: open."
+type OfferPeriod {
+  market: MarketCode!
+  startsLocal: LocalDateTime!
+  endsLocal: LocalDateTime
+}
+
+"The page of the offer in one market (§6.1)."
+type OfferPage {
+  market: MarketCode!
+  title: String!
+  text: String!
+  terms: String!
+  treatment: String!
+}
+
+type OfferContent {
+  title: String!
+  plan: PlanCode!
+  audience: Audience!
+  prices: [OfferPrice!]!
+  monthsAtOfferPrice: Int!
+  periods: [OfferPeriod!]!
+  "Offers in the same group never stack (§6.1, §10.3)."
+  nonCombinabilityGroup: String!
+  "Null: no cap."
+  redemptionCap: Int
+  pages: [OfferPage!]!
+}
+
+"A new list price for one plan and market, from a local time (§4.2)."
+type ListPriceContent {
+  title: String!
+  plan: PlanCode!
+  market: MarketCode!
+  amount: Money!
+  startsLocal: LocalDateTime!
+}
+
+input ListeningRuleInput {
+  artistId: Int!
+  minSeconds: Int!
+  withinDays: Int!
+}
+
+input AudienceInput {
+  segment: Segment!
+  currentPlan: PlanCode
+  needsStudentCheck: Boolean! = false
+  listening: ListeningRuleInput
+}
+
+"Exactly one of fixed and percentOffBasisPoints."
+input OfferPriceInput {
+  market: MarketCode!
+  fixed: Money
+  percentOffBasisPoints: Int
+}
+
+input OfferPeriodInput {
+  market: MarketCode!
+  startsLocal: LocalDateTime!
+  endsLocal: LocalDateTime
+}
+
+input OfferPageInput {
+  market: MarketCode!
+  title: String!
+  text: String!
+  terms: String!
+  treatment: String! = "standard"
+}
+
+input OfferInput {
+  title: String!
+  plan: PlanCode!
+  audience: AudienceInput!
+  prices: [OfferPriceInput!]!
+  monthsAtOfferPrice: Int!
+  periods: [OfferPeriodInput!]!
+  nonCombinabilityGroup: String!
+  "Null: no cap."
+  redemptionCap: Int
+  pages: [OfferPageInput!]!
+}
+
+input ListPriceInput {
+  title: String!
+  plan: PlanCode!
+  market: MarketCode!
+  amount: Money!
+  startsLocal: LocalDateTime!
+}
+
+type Approval {
+  version: Int!
+  approver: Person!
+  role: Role!
+  decidedAt: DateTime!
+  fingerprint: Sha256!
+}
+
+"A signature the current version needs, and why (§7.3, conditions 1 to 5)."
+type RequiredSignature {
+  role: Role!
+  conditions: [Int!]!
+  why: String!
+  signed: Boolean!
+}
+
+enum Severity {
+  "The version cannot be submitted."
+  BLOCKING
+  "It can, and someone will have to sign for it."
+  NEEDS_SIGNATURE
+  INFO
+}
+
+"A name and a value that a sentence for people was made of."
+type Fact {
+  name: String!
+  value: String!
+}
+
+type ValidationFinding {
+  "floor, overlap, conflict, dates, time_zone, audience, page_text or signatures."
+  check: String!
+  severity: Severity!
+  "Null when the finding is not about one market."
+  market: MarketCode
+  message: String!
+  facts: [Fact!]!
+}
+
+type ValidationReport {
+  version: Int!
+  valid: Boolean!
+  findings: [ValidationFinding!]!
+  "How many people the audience reaches now, counted in the data, never typed (§6.5)."
+  eligible: Int!
+}
+
+enum RefusalCode {
+  "The author of a version cannot approve it (§7.4)."
+  OWN_VERSION
+  "The actor's role may not do this (§12)."
+  ROLE_NOT_ALLOWED
+  "Someone saved a newer version (§6.3): the refusal's change field carries it."
+  STALE_VERSION
+  "The change is not in a state that allows this (§7.1)."
+  WRONG_STATE
+  "Another price for the same plan and market covers part of the period (§4.1)."
+  OVERLAP
+  "Validation found a blocking problem."
+  INVALID
+  "This person, or this role, has already signed this version."
+  ALREADY_SIGNED
+  "The approval names a version or fingerprint that is not the current one (§7.2)."
+  FINGERPRINT_MISMATCH
+  "A reason is required and none was given."
+  REASON_REQUIRED
+  "A clock change skips or repeats that local time in the market."
+  AMBIGUOUS_LOCAL_TIME
+  "The quote expired, or names an offer that is no longer in force (§4.5)."
+  QUOTE_EXPIRED
+  "The person is not in the offer's audience."
+  NOT_ELIGIBLE
+}
+
+"The rules said no: an answer, not an error."
+type Refusal {
+  code: RefusalCode!
+  "One sentence for people."
+  reason: String!
+  "The numbers and names the sentence is made of."
+  facts: [Fact!]!
+  "The change as it is now, when the refusal is about one: with STALE_VERSION, the newer version."
+  change: Change
+}
+
+union ChangeResult = Change | Refusal
+
+type Overview {
+  waitingForApproval: [ChangeSummary!]!
+  launchesNext7Days: [Launch!]!
+  incidentsToday: [Incident!]!
+  payingSubscribers: [SubscriberCount!]!
+  freeListeners: [SubscriberCount!]!
+  "Revenue without VAT this month, per market. Finance and the commercial lead only (§12)."
+  monthlyRevenue: [MarketRevenue!]
+  "The same in euros at the declared rate (§3.6). Finance and the commercial lead only."
+  monthlyRevenueEur: Money
+  "What the company adds this month to reach the artists' minimum (§5.5). Finance and the commercial lead only."
+  monthlyTopUps: Money
+  "1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026)."
+  exchangeRateNote: String!
+}
+
+type MarketTime {
+  market: MarketCode!
+  local: LocalDateTime!
+  utc: DateTime!
+}
+
+type Launch {
+  change: Change!
+  title: String!
+  starts: MarketTime!
+  state: ChangeState!
+  "Not approved yet: it will not start until the missing signatures arrive."
+  atRisk: Boolean!
+  risk: String
+}
+
+enum IncidentState {
+  RECOVERED
+  OPEN
+}
+
+type Incident {
+  change: Change!
+  title: String!
+  run: String!
+  state: IncidentState!
+  summary: String!
+}
+
+type SubscriberCount {
+  market: MarketCode!
+  plan: PlanCode!
+  count: Int!
+}
+
+type MarketRevenue {
+  market: MarketCode!
+  "In the market's currency, without VAT."
+  revenue: Money!
+  "In euros at the declared rate (§3.6)."
+  revenueEur: Money!
+}
+
+enum AssumptionName {
+  ELIGIBLE
+  TAKE_UP
+  INCREMENTAL
+  RETENTION
+  HORIZON_MONTHS
+}
+
+"Shares in basis points (1200 is 12%); counts and months as they are."
+input AssumptionInput {
+  name: AssumptionName!
+  value: Int!
+}
+
+type Assumption {
+  name: AssumptionName!
+  value: Int!
+  "A default of the business book, or who typed the value and when."
+  source: String!
+}
+
+"Net of VAT (§5.1)."
+type Totals {
+  revenue: Money!
+  artists: Money!
+  paymentCosts: Money!
+  contribution: Money!
+}
+
+"A condition under which finance must sign (§7.3), met or not, with the numbers."
+type FinanceCondition {
+  number: Int!
+  rule: String!
+  met: Boolean!
+  detail: String!
+}
+
+type Simulation {
+  eligible: Int!
+  takers: Int!
+  stayers: Int!
+  cannibalized: Int!
+  withOffer: Totals!
+  withoutOffer: Totals!
+  difference: Totals!
+  "Revenue given up on people who would have paid the list price anyway."
+  discountCost: Money!
+  "What the artists' minimum costs the company during the offer months."
+  topUpCost: Money!
+  financeConditions: [FinanceCondition!]!
+  "The lowest retention, in basis points, at which the contribution is not negative; null when none is."
+  breakEvenRetentionBasisPoints: Int
+  assumptions: [Assumption!]!
+  horizonMonths: Int!
+}
+
+union SimulationOutcome = Simulation | Refusal
+
+input AuditFilter {
+  actor: ID
+  action: String
+  subject: String
+}
+
+type AuditEvent {
+  seq: ID!
+  at: DateTime!
+  actor: ID!
+  actorRole: ActorRole!
+  action: String!
+  subject: String!
+  "The request that caused it, from the site or the console through the gateway (§11.1)."
+  requestId: String!
+  reason: String
+  "The event's body, as the database's jsonb writes it."
+  body: String!
+  previousHash: Sha256!
+  hash: Sha256!
+}
+
+type AuditPage {
+  nodes: [AuditEvent!]!
+  next: String
+}
+
+input ChainHeadInput {
+  seq: ID!
+  hash: Sha256!
+}
+
+type ChainHead {
+  seq: ID!
+  hash: Sha256!
+}
+
+type ChainVerification {
+  ok: Boolean!
+  events: Int!
+  head: ChainHead
+  "The first event that does not follow; null when the chain holds."
+  brokenAt: ID
+  why: String
+}
+
+union ExportHeadResult = ChainHead | Refusal
