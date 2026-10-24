@@ -9,7 +9,7 @@ import { useId, useState } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, Chip, Empty, ErrorPanel, Loading, StateChip } from "../../components/ui.tsx";
 import { ChangesDocument, LaunchesDocument, LaunchRunsDocument, type LaunchState, MarketsDocument } from "../../graphql/generated.ts";
-import { launchHref, launchLook, type LaunchSummary, STEP_NAME } from "../../lib/launch.ts";
+import { launchHref, launchLook, type LaunchSummary, launchWords, STEP_NAME } from "../../lib/launch.ts";
 import { type MarketInfo, marketName, marketZone } from "../../lib/markets.ts";
 import { whoDoes } from "../../lib/permissions.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
@@ -63,7 +63,7 @@ function RunsTable({ rows, markets, labelledBy }: { readonly rows: readonly Laun
                   {row.state === "DONE" && row.finishedAt ? `All five steps, done ${formatInstantIn(row.finishedAt, zone, { seconds: true })}`
                     : row.currentStep ? `${STEP_NAME[row.currentStep] ?? row.currentStep}${row.retryAt ? `, tried again at ${formatInstantIn(row.retryAt, zone, { seconds: true })}` : ""}`
                       : row.startedAt ? "" : `Due ${formatInstantIn(row.dueAt, zone)}`}
-                  {row.cause && row.state !== "DONE" ? <span className="block text-sm text-ink-2">{row.cause}</span> : null}
+                  {row.cause && row.state !== "DONE" ? <span className="block text-sm text-ink-2 [overflow-wrap:anywhere]">{launchWords(row.cause, zone)}</span> : null}
                 </td>
                 <td>{row.attempts}</td>
               </tr>
