@@ -70,6 +70,10 @@ export async function stopIfRunning(dataDir: string): Promise<boolean> {
   return true;
 }
 
+// On Windows a data directory can stay busy for a moment after the server
+// stops (EBUSY): removing it tries again instead of failing the run.
+const RETRY = { maxRetries: 10, retryDelay: 200 };
+
 // The port a running cluster listens on: the fourth line of postmaster.pid.
 async function runningPort(dataDir: string): Promise<number | null> {
   try {
@@ -105,7 +109,7 @@ export async function startCluster(options: { dataDir: string; port: number; eph
   let owner: Credentials;
   let app: Credentials;
   if (options.ephemeral || !existsSync(join(dataDir, "PG_VERSION"))) {
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(dataDir, { recursive: true, force: true, ...RETRY });
     // initdb creates the data directory itself. Given one that exists, it must
     // change its permissions, which on Windows it cannot do under the
     // restricted token it runs with when the user is an administrator (as on
@@ -169,7 +173,7 @@ export async function startCluster(options: { dataDir: string; port: number; eph
     async stop() {
       await runOrThrow(bin.pg_ctl, ["stop", "-D", dataDir, "-m", "fast", "-w", "-t", "60"]);
       if (options.ephemeral) {
-        await rm(dataDir, { recursive: true, force: true });
+        await rm(dataDir, { recursive: true, force: true, ...RETRY });
         await rm(credentialsFile, { force: true });
       }
     },
