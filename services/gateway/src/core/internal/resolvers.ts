@@ -2,14 +2,13 @@
 // the engine's messages (models.ts). Who may call each root field is decided
 // before these run (policy.ts); the actor of each engine call comes from the
 // session, never from an argument.
-import { create } from "@bufbuild/protobuf";
+import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import {
-  ChangeKindSchema, ChangeStateSchema, type ListPriceContent, type OfferContent, SegmentSchema, SeveritySchema,
+  ChangeKindSchema, ChangeStateSchema, type ListPriceContent, type ListPriceContentSchema, type OfferContent, type OfferContentSchema,
+  SegmentSchema, SeveritySchema,
 } from "contracts/commerce/v1/changes";
 import { RefusalCodeSchema, RoleSchema } from "contracts/commerce/v1/common";
 import { PersonSchema } from "contracts/commerce/v1/overview";
-import type { MessageInitShape } from "@bufbuild/protobuf";
-import type { OfferContentSchema, ListPriceContentSchema } from "contracts/commerce/v1/changes";
 import type { InternalContext } from "../context.ts";
 import {
   bytes, count, enumName, enumNumber, facts, graphqlRole, hex, idOrNull, money, optionalMoney, orNull, roleName,
@@ -116,7 +115,7 @@ function answer(outcome: Outcome, about: string | null, context: InternalContext
     context.loaders.change.clear(outcome.value.id).prime(outcome.value.id, outcome.value);
     return outcome.value;
   }
-  if (outcome.case === "refusal") return { $typeName: "gateway.Refusal", refusal:outcome.value, changeId: about };
+  if (outcome.case === "refusal") return { $typeName: "gateway.Refusal", refusal: outcome.value, changeId: about };
   throw contractBroken("a mutation answered with neither a change nor a refusal");
 }
 
@@ -181,7 +180,7 @@ export const internalResolvers: Resolvers = {
         overrides: (overrides ?? []).map((override) => ({ name: override.name.toLowerCase(), value: BigInt(override.value) })),
       });
       if (answer.outcome.case === "result") return answer.outcome.value;
-      if (answer.outcome.case === "refusal") return { $typeName: "gateway.Refusal", refusal:answer.outcome.value, changeId: about };
+      if (answer.outcome.case === "refusal") return { $typeName: "gateway.Refusal", refusal: answer.outcome.value, changeId: about };
       throw contractBroken("SimulateOffer answered with neither a result nor a refusal");
     },
     auditEvents: async (_root, { filter, first, after }, context) => {
@@ -285,7 +284,7 @@ export const internalResolvers: Resolvers = {
     exportAuditHead: async (_root, _args, context) => {
       const exported = await context.engine(actorFor(context, METHOD_ROLES.ExportHead)).audit.exportHead({});
       if (exported.outcome.case === "head") return exported.outcome.value;
-      if (exported.outcome.case === "refusal") return { $typeName: "gateway.Refusal", refusal:exported.outcome.value, changeId: null };
+      if (exported.outcome.case === "refusal") return { $typeName: "gateway.Refusal", refusal: exported.outcome.value, changeId: null };
       throw contractBroken("ExportHead answered with neither a head nor a refusal");
     },
   },

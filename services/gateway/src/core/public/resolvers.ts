@@ -11,7 +11,13 @@ import { positiveId } from "../ids.ts";
 import type { PublicQuoteRefusalModel } from "../models.ts";
 import { DateTimeScalar, LocalDateTimeScalar, MarketCodeScalar, MoneyScalar, PlanCodeScalar } from "../scalars.ts";
 
-const AUDIO: Readonly<Record<string, AudioQuality>> = { standard: "STANDARD", lossless: "LOSSLESS" };
+const AUDIO = new Map<string, AudioQuality>([["standard", "STANDARD"], ["lossless", "LOSSLESS"]]);
+
+/** The refusals written for a visitor, and what the site calls them. */
+const FOR_VISITORS = new Map<RefusalCode, QuoteRefusalCode>([
+  [RefusalCode.QUOTE_EXPIRED, "OFFER_ENDED"],
+  [RefusalCode.NOT_ELIGIBLE, "NOT_ELIGIBLE"],
+]);
 
 /**
  * What the site may say about a refused quote. The engine's sentence is kept
@@ -19,11 +25,7 @@ const AUDIO: Readonly<Record<string, AudioQuality>> = { standard: "STANDARD", lo
  * same fixed sentence, so nothing internal travels in its words.
  */
 function quoteRefusal(code: RefusalCode, reason: string): PublicQuoteRefusalModel {
-  const public_: Partial<Record<RefusalCode, QuoteRefusalCode>> = {
-    [RefusalCode.QUOTE_EXPIRED]: "OFFER_ENDED",
-    [RefusalCode.NOT_ELIGIBLE]: "NOT_ELIGIBLE",
-  };
-  const mapped = public_[code];
+  const mapped = FOR_VISITORS.get(code);
   return mapped
     ? { $typeName: "gateway.QuoteRefusal", code: mapped, reason }
     : { $typeName: "gateway.QuoteRefusal", code: "NOT_AVAILABLE", reason: "This plan cannot be quoted here right now." };
@@ -66,7 +68,7 @@ export const publicResolvers: Resolvers = {
   },
   Entitlements: {
     skipsPerHour: (entitlements) => (entitlements.skipsPerHour === 0 ? null : entitlements.skipsPerHour),
-    audio: (entitlements) => AUDIO[entitlements.audio] ?? breach(`audio quality ${JSON.stringify(entitlements.audio)}`),
+    audio: (entitlements) => AUDIO.get(entitlements.audio) ?? breach(`audio quality ${JSON.stringify(entitlements.audio)}`),
     offline: (entitlements) => entitlements.offline,
     seats: (entitlements) => entitlements.seats,
     needsStudentCheck: (entitlements) => entitlements.needsStudentCheck,

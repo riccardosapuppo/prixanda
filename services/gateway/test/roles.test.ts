@@ -9,11 +9,10 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { AuditService } from "contracts/commerce/v1/audit";
 import { CatalogService } from "contracts/commerce/v1/catalog";
-import { ChangeService } from "contracts/commerce/v1/changes";
+import { ChangeService, ChangeState } from "contracts/commerce/v1/changes";
 import { OverviewService, PeopleService } from "contracts/commerce/v1/overview";
 import { QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
-import { ChangeState } from "contracts/commerce/v1/changes";
 import { anyKind, FIELD_ROLES, isByKind, METHOD_ROLES, PUBLIC_METHODS, ROLES } from "../src/core/roles.ts";
 import { type Harness, startHarness } from "./support/harness.ts";
 
