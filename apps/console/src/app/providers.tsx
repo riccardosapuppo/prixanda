@@ -7,6 +7,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { csrfToken } from "../lib/csrf.ts";
 import { createGatewayClient, GatewayError, httpTransport } from "../lib/gateway.ts";
 import { newRequestId } from "../lib/ids.ts";
+import { readRetryDelay, retryRead } from "../lib/retry.ts";
 import { ClockProvider, systemClock } from "../lib/react/clock.tsx";
 import { GatewayProvider } from "../lib/react/gateway.tsx";
 import { SessionProvider } from "../lib/react/session.tsx";
@@ -21,8 +22,10 @@ function makeQueryClient(): QueryClient {
       queries: {
         staleTime: 10_000,
         refetchOnWindowFocus: false,
-        // A request that got no answer is tried twice more; a refusal or a 429 is not.
-        retry: (failures, error) => error instanceof GatewayError && error.transient && error.code !== "RATE_LIMITED" && failures < 2,
+        // A read that got no answer is tried twice more, and one turned away
+        // for too many requests after the wait the gateway names; a refusal is not (lib/retry.ts).
+        retry: retryRead,
+        retryDelay: readRetryDelay,
       },
     },
     queryCache: new QueryCache({
