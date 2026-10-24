@@ -1,7 +1,7 @@
 // The engine and the gateway together, on the Student Autumn Pass of the
 // business book's §14.1, from a draft to the subscription of a student on the
 // site; then, on the same engine a week later, the Family price in Germany of
-// §14.3.
+// §14.3 and a prepaid pass of §14.4.
 //
 // Run by tools/check.ts (suite integration), which hands it a database cloned
 // from the migrated template and filled with the small generated data (seed
@@ -61,7 +61,15 @@ const MIGRATION = {
 };
 /** 09:00 in Berlin on 2 November is 08:00 UTC. */
 const PAST_THE_NOTICES = "2026-11-02T08:00:05Z";
+/** §9.1, §14.4: three months of Individual in Italy, €29.99, on sale from 3 November at 09:00 in Rome. */
+const PASS = {
+  title: "Three-month gift pass", plan: "individual", months: 3, prices: [{ market: "IT", amount: { amountMinor: "2999", currency: "EUR" } }],
+  periods: [{ market: "IT", startsLocal: "2026-11-03T09:00" }], codeValidMonths: 12,
+  pages: [{ market: "IT", title: "Three-month gift pass", text: "Three months of Individual, paid once: a code to keep, or to give.", terms: "A single-use code. It never renews." }],
+};
+const PAST_THE_SALE = "2026-11-03T08:00:05Z";
 const STEP = "price net artists paymentCosts contribution";
+const PREPAID_VALUE = "{ overview { prepaid { market sold activated expired unearned unearnedEur } prepaidUnearnedEur } }";
 const PAYMENT = "state amount provider requestedAt settledAt receipt { amount provider providerReference demonstration note }";
 const EUR = (amountMinor: string) => ({ amountMinor, currency: "EUR" });
 
@@ -204,6 +212,11 @@ const state = {
   /** §14.3: the migration's change, and the subscribers its start asked for consent (step k). */
   migrationId: "",
   migration: null as null | { asked: number; waiting: number; answered: string },
+  /** §14.4: the pass's change, its code, and finance's value not yet earned in Italy before and after its activation (steps l, m). */
+  passId: "",
+  code: "",
+  buyerId: "",
+  prepaid: null as null | { unearnedBefore: string; unearnedAfter: string; activated: boolean },
 };
 
 function client(endpoint: "internal" | "public"): Client {
@@ -219,7 +232,7 @@ function requestId(step: string): string {
   return id;
 }
 
-describe("the Student Autumn Pass (§14.1), then the Family price in Germany (§14.3), through the engine and the gateway", () => {
+describe("the Student Autumn Pass (§14.1), then the Family price in Germany (§14.3) and a prepaid pass (§14.4), through the engine and the gateway", () => {
   before(async () => {
     assert.ok(DATABASE_URL.startsWith("postgresql://"), "INTEGRATION_DATABASE_URL names the database tools/check.ts prepared");
     await assertPortsFree([PORTS.engineCheck, PORTS.gatewayCheckInternal, PORTS.gatewayCheckPublic]);
@@ -671,5 +684,107 @@ describe("the Student Autumn Pass (§14.1), then the Family price in Germany (§
     const event = (logged.body.data.auditEvents.nodes as Array<{ actor: string; actorRole: string; requestId: string }>).find((candidate) => candidate.requestId === state.requestIds["consent"]);
     assert.deepEqual({ actor: event?.actor, role: event?.actorRole }, { actor: `subscriber-${family.id}`, role: "SUBSCRIBER" }, logged.text);
     state.migration = { asked: migration.asked, waiting: migration.waiting, answered: "yes" };
+  });
+
+  test("l. a prepaid pass: the commercial lead writes it, finance approves it, its launch puts it on sale; the verified student buys one, and once paid its code is ready", async () => {
+    assert.ok(engine);
+    const created = await people.lead.graphql(`mutation ($p: PrepaidPassInput!) { createPrepaidPass(pass: $p) { ${CHANGE} ... on Change { kind } } }`, {
+      variables: { p: PASS }, headers: { "x-request-id": requestId("pass-create") },
+    });
+    const change = created.body.data.createPrepaidPass;
+    assert.equal(change.__typename, "Change", created.text);
+    assert.equal(change.kind, "PREPAID");
+    state.passId = change.id;
+    const validated = await people.lead.graphql(`mutation ($id: ID!) { validateChange(changeId: $id, version: 1) { ${CHANGE} } }`, { variables: { id: state.passId } });
+    assert.equal(validated.body.data?.validateChange?.state, "VALIDATED", validated.text);
+    assert.deepEqual(validated.body.data.validateChange.requiredSignatures.map((signature: { role: string; conditions: number[] }) => [signature.role, signature.conditions]),
+      [["FINANCE", [1]]], "a pass is a price: finance signs it for condition 1");
+    const submitted = await people.lead.graphql(`mutation ($id: ID!) { submitChange(changeId: $id, version: 1) { ${CHANGE} } }`, { variables: { id: state.passId } });
+    assert.equal(submitted.body.data?.submitChange?.state, "IN_APPROVAL", submitted.text);
+    const approved = await people.finance.graphql(`mutation ($id: ID!, $fp: Sha256!) { approveChange(changeId: $id, version: 1, fingerprint: $fp) { ${CHANGE} } }`, {
+      variables: { id: state.passId, fp: change.current.fingerprint },
+    });
+    assert.equal(approved.body.data?.approveChange?.state, "APPROVED", approved.text);
+    const scheduled = await people.lead.graphql(`mutation ($id: ID!) { scheduleChange(changeId: $id) { ${CHANGE} } }`, { variables: { id: state.passId } });
+    assert.equal(scheduled.body.data?.scheduleChange?.state, "SCHEDULED", scheduled.text);
+
+    // Past 09:00 in Rome on 3 November its launch puts it on sale, and the site lists it.
+    const site = client("public");
+    await engine.at(PAST_THE_SALE);
+    const onSale = await eventually(async () => (await site.graphql('{ prepaidPasses(market: "IT") { id title plan months price codeValidMonths terms } }')).body.data.prepaidPasses as Array<{ id: string }>,
+      (passes) => passes.some((pass) => pass.id === state.passId), "the pass on sale");
+    assert.deepEqual(onSale.find((pass) => pass.id === state.passId), {
+      id: state.passId, title: "Three-month gift pass", plan: "individual", months: 3, price: EUR("2999"), codeValidMonths: 12, terms: "A single-use code. It never renews.",
+    });
+
+    const buyer = client("public");
+    const entrance = (await buyer.graphql("{ demoListeners { id title } }")).body.data.demoListeners as Array<{ id: string; title: string }>;
+    const student = entrance.find((listener) => listener.title === "Student in Italy, verified");
+    assert.ok(student);
+    state.buyerId = student.id;
+    await buyer.signInAsListener(student.id);
+    const bought = await buyer.graphql(`mutation ($p: ID!) { buyPrepaidPass(passId: $p) { __typename
+      ... on PrepaidPurchase { prepaidCode { code passId state validUntil price boughtAt payment { state amount } } } ... on Refusal { code reason } } }`, {
+      variables: { p: state.passId }, headers: { "x-request-id": requestId("pass-buy") },
+    });
+    const purchase = bought.body.data.buyPrepaidPass;
+    assert.equal(purchase.__typename, "PrepaidPurchase", bought.text);
+    const code = purchase.prepaidCode;
+    assert.match(code.code, /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/);
+    // Sold on 3 November for 12 months: it can be activated until 2 November 2027.
+    assert.deepEqual({ passId: code.passId, state: code.state, validUntil: code.validUntil, price: code.price, payment: code.payment }, {
+      passId: state.passId, state: "PENDING", validUntil: "2027-11-02", price: EUR("2999"), payment: { state: "PENDING", amount: EUR("2999") },
+    });
+    state.code = code.code;
+    // The provider's event settles its payment through the engine's outbox, as for a subscription: the code is ready.
+    const codes = await eventually(async () => (await buyer.graphql("{ me { account { prepaidCodes { code state payment { state receipt { demonstration } } } } } }")).body.data.me.account.prepaidCodes as Array<{ code: string; state: string }>,
+      (list) => list[0]?.state !== "PENDING", "the code's payment");
+    assert.deepEqual(codes, [{ code: state.code, state: "READY", payment: { state: "SUCCEEDED", receipt: { demonstration: true } } }]);
+  });
+
+  test("m. finance reads the value not yet earned; given to the student not yet verified, the code is activated, and its first month is earned that day", async () => {
+    const before = await people.finance.graphql(PREPAID_VALUE);
+    assert.equal(before.body.errors, undefined, before.text);
+    const italyBefore = before.body.data.overview.prepaid.find((row: { market: string }) => row.market === "IT");
+    // The Italian pass, net €24.58, not activated yet: all of it unearned (§9.2).
+    assert.deepEqual(italyBefore, { market: "IT", sold: 1, activated: 0, expired: 0, unearned: EUR("2458"), unearnedEur: EUR("2458") }, before.text);
+    // The commercial lead reads revenue, not this: the engine leaves it out, and the gateway says so (§12.2).
+    const lead = await people.lead.graphql(PREPAID_VALUE);
+    assert.deepEqual(codes(lead), ["FORBIDDEN", "FORBIDDEN"], lead.text);
+
+    const friend = client("public");
+    const entrance = (await friend.graphql("{ demoListeners { id title } }")).body.data.demoListeners as Array<{ id: string; title: string }>;
+    const unverified = entrance.find((listener) => listener.title === "Student in Italy, not verified yet");
+    assert.ok(unverified);
+    await friend.signInAsListener(unverified.id);
+    const activate = `mutation ($c: String!) { activatePrepaidPass(code: $c) { __typename ... on Subscription { ${SUBSCRIPTION} endsOn prepaidCode prepaidPrice } ... on Refusal { code reason } } }`;
+    const activated = await friend.graphql(activate, { variables: { c: state.code }, headers: { "x-request-id": requestId("pass-activate") } });
+    const subscription = activated.body.data.activatePrepaidPass;
+    assert.equal(subscription.__typename, "Subscription", activated.text);
+    // Individual from 3 November for three months, never charged: then the free plan, from 3 February 2027.
+    assert.deepEqual(subscription, {
+      __typename: "Subscription", plan: "individual", market: "IT", paid: true, price: EUR("0"), startedOn: "2026-11-03", billingDay: null,
+      offerTitle: null, offerMonths: 0, offerMonthsLeft: 0, fullPriceFrom: null, fullPrice: null, nextBillingOn: null, nextCharge: null,
+      endsOn: "2027-02-03", prepaidCode: state.code, prepaidPrice: EUR("2999"),
+    });
+    // Typed again, as people type it: the same answer.
+    const again = await friend.graphql(activate, { variables: { c: state.code.toLowerCase().replaceAll("-", " ") } });
+    assert.deepEqual(again.body.data.activatePrepaidPass, subscription);
+
+    const after = await people.finance.graphql(PREPAID_VALUE);
+    const italyAfter = after.body.data.overview.prepaid.find((row: { market: string }) => row.market === "IT");
+    // €24.58 is earned as €8.19, €8.19 and €8.20 from the activation: €16.39 is left.
+    assert.deepEqual(italyAfter, { market: "IT", sold: 1, activated: 1, expired: 0, unearned: EUR("1639"), unearnedEur: EUR("1639") }, after.text);
+    assert.deepEqual(after.body.data.overview.prepaidUnearnedEur, EUR("1639"));
+    // The log: sold by the student who bought it, activated by the one it was given to, each with the site's request id.
+    const logged = async (action: string) => (await people.auditor.graphql("query ($a: String!) { auditEvents(filter: { action: $a }, first: 20) { nodes { actor subject requestId } } }", {
+      variables: { a: action },
+    })).body.data.auditEvents.nodes as Array<{ actor: string; subject: string; requestId: string }>;
+    const sold = (await logged("prepaid.sold")).find((event) => event.requestId === state.requestIds["pass-buy"]);
+    const used = (await logged("prepaid.activated")).find((event) => event.requestId === state.requestIds["pass-activate"]);
+    assert.ok(sold && used, "the purchase and the activation are in the log, with the site's request ids");
+    assert.deepEqual([sold.subject === used.subject, /^prepaid:\d+$/.test(sold.subject)], [true, true]);
+    assert.deepEqual([sold.actor, used.actor], [`subscriber-${state.buyerId}`, `subscriber-${unverified.id}`], "bought by one listener, activated by another");
+    state.prepaid = { unearnedBefore: italyBefore.unearned.amountMinor, unearnedAfter: italyAfter.unearned.amountMinor, activated: true };
   });
 });
