@@ -20,6 +20,7 @@ import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { flyway } from "./lib/flyway.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
+import { assertFree } from "./lib/ports.ts";
 import { type Cluster, createDatabase, startCluster } from "./lib/postgres.ts";
 import { run } from "./lib/run.ts";
 
@@ -36,7 +37,13 @@ const failed = (counted: string, detail: string): Omit<Result, "suite" | "second
 const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome: "not run", counted: "-", detail });
 
 // The floors: what each suite must at least have checked.
-const FLOOR = { typecheckedFiles: 9, contractFiles: 30, migrations: 5, pythonTests: 60, invariants: 9, generatedSubscribers: 5_000 };
+const FLOOR = { typecheckedFiles: 11, contractFiles: 30, migrations: 9, pythonTests: 435, invariants: 9, generatedSubscribers: 5_000 };
+// pytest's tests by area, read from the folder each test lives in: the
+// database's own rules (tests/), the rules as plain Python (domain), the
+// business book's numbers (golden), every service against PostgreSQL
+// (services), the calls over gRPC with a real server (e2e), and the
+// properties Hypothesis generates cases for (properties).
+const AREA_FLOOR: Record<string, number> = { database: 72, domain: 125, golden: 31, services: 170, e2e: 26, properties: 9 };
 
 const SUITES: Suite[] = [
   {
@@ -90,29 +97,43 @@ const SUITES: Suite[] = [
   },
   {
     name: "pytest",
-    what: "the database's rules (each refused case with its SQLSTATE), the generator and the invariants",
+    what: "the engine against PostgreSQL: the database's rules, the domain, the golden cases, every service and call with its refusals and errors, gRPC end to end, properties",
     needsDatabase: true,
     async run({ cluster }) {
       if (!cluster) return notRun("no database");
       if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
-      const report = join(reports, "pytest-rules.xml");
+      // The gRPC tests start the engine's server on this port, after the system says nobody listens on it.
+      await assertFree(PORTS.engineCheck, "the engine's gRPC tests");
+      const commerce = join(repoRoot, "services", "commerce");
+      const report = join(reports, "pytest-engine.xml");
       const ran = await run(venvPython, ["-m", "pytest", "-q", "-p", "no:cacheprovider", `--junitxml=${report}`, "tests"], {
-        cwd: join(repoRoot, "services", "commerce"),
+        cwd: commerce,
         env: {
           ...process.env,
           COMMERCE_TEST_ADMIN_URL: cluster.url("postgres", "owner"),
           COMMERCE_TEST_TEMPLATE: TEMPLATE,
           COMMERCE_TEST_APP_URL: cluster.url("{database}", "app").replace("%7Bdatabase%7D", "{database}"),
+          COMMERCE_TEST_ENGINE_PORT: String(PORTS.engineCheck),
         },
         echo: true,
       });
       if (ran.code === 4) return notRun("pytest could not start (code 4)");
       if (!existsSync(report)) return failed("0", `pytest wrote no report (exit ${ran.code})`);
-      const counts = junit(await readFile(report, "utf8"));
-      const counted = `${counts.tests} tests, ${counts.failures + counts.errors} failed, ${counts.skipped} skipped`;
+      const xml = await readFile(report, "utf8");
+      const counts = junit(xml);
+      const areas = junitAreas(xml);
+      const byArea = Object.keys(AREA_FLOOR).map((area) => `${area} ${areas[area] ?? 0}`).join(", ");
+      const counted = `${counts.tests} tests (${byArea}), ${counts.failures + counts.errors} failed, ${counts.skipped} skipped`;
       if (ran.code !== 0 || counts.failures + counts.errors > 0) return failed(counted, `pytest exited ${ran.code}`);
       if (counts.skipped > 0) return failed(counted, "a skipped test checked nothing");
       if (counts.tests < FLOOR.pythonTests) return failed(counted, `fewer than ${FLOOR.pythonTests} tests`);
+      const short = Object.entries(AREA_FLOOR).filter(([area, floor]) => (areas[area] ?? 0) < floor);
+      if (short.length) return failed(counted, short.map(([area, floor]) => `${area}: fewer than ${floor} tests`).join("; "));
+      const unknown = Object.keys(areas).filter((area) => !(area in AREA_FLOOR));
+      if (unknown.length) return failed(counted, `tests in an area with no floor: ${unknown.join(", ")}`);
+      // Rule 26: a test that writes undoes what it wrote, caches included.
+      const deposits = [".hypothesis", ".pytest_cache"].filter((name) => existsSync(join(commerce, name)));
+      if (deposits.length) return failed(counted, `the tests left ${deposits.join(" and ")} in services/commerce`);
       return passed(counted);
     },
   },
@@ -156,6 +177,19 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
   }
   if (Object.values(totals).some(Number.isNaN)) throw new Error("the JUnit report misses a count");
   return totals;
+}
+
+// The tests of each area: tests/services/test_quotes.py is reported with the
+// classname tests.services.test_quotes; a module directly in tests/ is the
+// database's own rules.
+function junitAreas(xml: string): Record<string, number> {
+  const areas: Record<string, number> = {};
+  for (const [, classname = ""] of xml.matchAll(/<testcase[^>]*classname="([^"]*)"/g)) {
+    const parts = classname.split(".");
+    const area = parts.length > 2 && parts[0] === "tests" ? (parts[1] ?? "database") : "database";
+    areas[area] = (areas[area] ?? 0) + 1;
+  }
+  return areas;
 }
 
 const args = process.argv.slice(2);
