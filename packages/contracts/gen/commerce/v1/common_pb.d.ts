@@ -318,8 +318,9 @@ export enum RefusalCode {
   CAP_REACHED = 15,
 
   /**
-   * The payment provider declined the charge. The simulated provider never
-   * does; a real one can, and the engine answers with this.
+   * The payment provider declined the charge. Not returned since the charge
+   * moved after the confirmation (subscriptions.proto): a decline now arrives
+   * as the provider's event, and the account shows the payment FAILED.
    *
    * @generated from enum value: REFUSAL_CODE_PAYMENT_DECLINED = 16;
    */

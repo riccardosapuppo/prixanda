@@ -1,0 +1,196 @@
+// Launches (business book §7.5, §14.6): the activation of a scheduled change,
+// run by the engine as a job of steps kept in PostgreSQL, and the incidents a
+// launch opens when it cannot go through on its own.
+//
+// A launch begins when its change is due, a minute before the change's first
+// local start, and runs these steps in order, each in a transaction of its
+// own:
+//   check    the change is still scheduled at the version that was approved,
+//            and nothing stands in its way: no offer of its group live for the
+//            same people (§6.4), no later price for the same plan and market
+//   prepare  the new catalog snapshot is written, not yet live
+//   publish  in one transaction: the change becomes active (a list price
+//            enters the price list), the snapshot goes live, and the audit
+//            events and the outbox's notice for the site are written. Until it
+//            commits the site reads the old catalog, after it the new one.
+//   notify   the outbox delivers the notice to the site, at least once; the
+//            site takes each notice once, however often it arrives
+//   verify   the live catalog, or the price list, shows the change as approved
+// A step that fails is tried again from where it stopped, after a growing
+// wait (retry_at says when). A step that is done is never done again, so a
+// launch publishes once, however often it resumes, a stop of the engine
+// included. After 5 failed attempts of one step the launch fails. A check that
+// finds a clash or a later price refuses the launch at once: trying again
+// would find the same.
+//
+// Incidents: a failed or refused launch opens one, and so does a scheduled
+// change that is not live 5 minutes after its start (the alarm). An incident
+// closes when its launch goes through or is cancelled.
+//
+// Every role reads launches; only on_call retries or cancels them (§12).
+// RetryLaunch and CancelLaunch carry an idempotency-key.
+syntax = "proto3";
+
+package commerce.v1;
+
+import "commerce/v1/changes.proto";
+import "commerce/v1/common.proto";
+
+service LaunchService {
+  // Newest first, by keyset on the launch's identifier.
+  rpc ListLaunches(ListLaunchesRequest) returns (ListLaunchesResponse);
+  // One launch, step by step, with its audit events and incidents.
+  rpc GetLaunch(GetLaunchRequest) returns (GetLaunchResponse);
+  // Runs a failed or refused launch again from the step that stopped it, or
+  // a waiting one now. Refused with REFUSAL_CODE_WRONG_STATE for a launch that
+  // is running a step, done or cancelled.
+  rpc RetryLaunch(RetryLaunchRequest) returns (RetryLaunchResponse);
+  // Gives up a launch that has not published: its change is cancelled with the
+  // reason, in the same transaction (§7.1). A launch that has published is
+  // refused with REFUSAL_CODE_WRONG_STATE: its change is live, and
+  // SuspendChange takes it off the site.
+  rpc CancelLaunch(CancelLaunchRequest) returns (CancelLaunchResponse);
+}
+
+enum LaunchState {
+  LAUNCH_STATE_UNSPECIFIED = 0;
+  // Steps remain: the engine works on them, or waits to try a failed one again.
+  LAUNCH_STATE_RUNNING = 1;
+  // Published, the site told, the live catalog checked.
+  LAUNCH_STATE_DONE = 2;
+  // A step failed 5 times. Nothing was published unless its publish step is done.
+  LAUNCH_STATE_FAILED = 3;
+  // The check found a clash or a later price: nothing was published, and the
+  // change stays scheduled.
+  LAUNCH_STATE_REFUSED = 4;
+  // Given up before it published: its change is cancelled.
+  LAUNCH_STATE_CANCELLED = 5;
+}
+
+enum LaunchStepState {
+  LAUNCH_STEP_STATE_UNSPECIFIED = 0;
+  LAUNCH_STEP_STATE_PENDING = 1;
+  // Started and not finished: running now, or stopped by a fault and to be resumed.
+  LAUNCH_STEP_STATE_RUNNING = 2;
+  LAUNCH_STEP_STATE_DONE = 3;
+  // Its last attempt failed.
+  LAUNCH_STEP_STATE_FAILED = 4;
+}
+
+message LaunchStep {
+  // check, prepare, publish, notify, verify.
+  string name = 1;
+  // What the step does, in a sentence.
+  string purpose = 2;
+  LaunchStepState state = 3;
+  // ISO 8601 with Z: when its last attempt started; empty before the first.
+  string started_at = 4;
+  // When it was done, or its last attempt failed; empty while it runs.
+  string finished_at = 5;
+  int32 attempts = 6;
+  // The last attempt's error; empty once the step is done.
+  string error = 7;
+  // What it found or did, for the console: "snapshot": "42", "offers": "3".
+  map<string, string> facts = 8;
+}
+
+message LaunchIncident {
+  int64 incident_id = 1 [jstype = JS_STRING];
+  // late, failed, refused.
+  string kind = 2;
+  // open; recovered: its launch went through and nobody had to act; resolved:
+  // a person retried or cancelled the launch.
+  string state = 3;
+  string summary = 4;
+  // ISO 8601 with Z; closed_at is empty while the incident is open.
+  string opened_at = 5;
+  string closed_at = 6;
+  // How it closed: "published at 2026-10-26T07:59:31Z", "cancelled by on-call-1: ...".
+  string resolution = 7;
+}
+
+message LaunchRun {
+  int64 launch_id = 1 [jstype = JS_STRING];
+  int64 change_id = 2 [jstype = JS_STRING];
+  string title = 3;
+  ChangeKind kind = 4;
+  // The version that was approved and scheduled.
+  int32 version = 5;
+  LaunchState state = 6;
+  // The change's first start: its market's local time, and the instant in UTC.
+  LocalTime starts = 7;
+  // ISO 8601 with Z: when it was due (a minute before the start), when the
+  // engine began it, and when it stopped (done, failed, refused, cancelled);
+  // finished_at is empty while it runs.
+  string due_at = 8;
+  string started_at = 9;
+  string finished_at = 10;
+  // The step it is on, or stopped at; empty when done.
+  string current_step = 11;
+  // Attempts of all its steps together.
+  int32 attempts = 12;
+  // Why it stopped, or waits: the last error, the clash; empty when all went well.
+  string cause = 13;
+  // ISO 8601 with Z: when the engine tries the failed step again; empty otherwise.
+  string retry_at = 14;
+  // The live catalog snapshot before the launch published, and after; 0 until known.
+  int64 snapshot_before = 15 [jstype = JS_STRING];
+  int64 snapshot_after = 16 [jstype = JS_STRING];
+  // How it ended, and what people did: "published at ...", "retried by on-call-1 at ...".
+  string resolution = 17;
+  // The identifier its audit events and log lines carry: "launch-12".
+  string run = 18;
+  // GetLaunch only; empty in ListLaunches.
+  repeated LaunchStep steps = 19;
+  // GetLaunch only: the audit events it wrote (§11), by sequence number: the
+  // change's activation, the catalog's publication, what people did to it.
+  repeated int64 audit_events = 20 [jstype = JS_STRING];
+  repeated LaunchIncident incidents = 21;
+}
+
+message ListLaunchesRequest {
+  // Only launches in this state; unspecified: all.
+  LaunchState state = 1;
+  // Only the launches of this change; 0: all.
+  int64 change_id = 2 [jstype = JS_STRING];
+  PageRequest page = 3;
+}
+
+message ListLaunchesResponse {
+  repeated LaunchRun launches = 1;
+  PageInfo page = 2;
+}
+
+message GetLaunchRequest {
+  int64 launch_id = 1 [jstype = JS_STRING];
+}
+
+message GetLaunchResponse {
+  LaunchRun launch = 1;
+}
+
+message RetryLaunchRequest {
+  int64 launch_id = 1 [jstype = JS_STRING];
+  // Optional: what was done so that it can go through now.
+  string reason = 2;
+}
+
+message RetryLaunchResponse {
+  oneof outcome {
+    LaunchRun launch = 1;
+    Refusal refusal = 2;
+  }
+}
+
+message CancelLaunchRequest {
+  int64 launch_id = 1 [jstype = JS_STRING];
+  // Required: the change is cancelled with this reason (§7.1).
+  string reason = 2;
+}
+
+message CancelLaunchResponse {
+  oneof outcome {
+    LaunchRun launch = 1;
+    Refusal refusal = 2;
+  }
+}

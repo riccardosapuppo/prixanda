@@ -80,6 +80,9 @@ export declare type Launch = Message<"commerce.v1.Launch"> & {
 export declare const LaunchSchema: GenMessage<Launch>;
 
 /**
+ * An incident of a launch (launches.proto): a launch that failed or was
+ * refused, or a scheduled change not live 5 minutes after its start.
+ *
  * @generated from message commerce.v1.Incident
  */
 export declare type Incident = Message<"commerce.v1.Incident"> & {
@@ -94,12 +97,15 @@ export declare type Incident = Message<"commerce.v1.Incident"> & {
   title: string;
 
   /**
+   * The launch's run identifier, as its audit events and log lines carry it: "launch-12".
+   *
    * @generated from field: string run = 3;
    */
   run: string;
 
   /**
-   * recovered, open.
+   * open; recovered: its launch went through and nobody had to act; resolved:
+   * a person retried or cancelled the launch.
    *
    * @generated from field: string state = 4;
    */
@@ -109,6 +115,37 @@ export declare type Incident = Message<"commerce.v1.Incident"> & {
    * @generated from field: string summary = 5;
    */
   summary: string;
+
+  /**
+   * @generated from field: int64 launch_id = 6 [jstype = JS_STRING];
+   */
+  launchId: string;
+
+  /**
+   * late, failed, refused.
+   *
+   * @generated from field: string kind = 7;
+   */
+  kind: string;
+
+  /**
+   * ISO 8601 with Z; closed_at is empty while the incident is open.
+   *
+   * @generated from field: string opened_at = 8;
+   */
+  openedAt: string;
+
+  /**
+   * @generated from field: string closed_at = 9;
+   */
+  closedAt: string;
+
+  /**
+   * How it closed: "published at ...", "cancelled by on-call-1: ...".
+   *
+   * @generated from field: string resolution = 10;
+   */
+  resolution: string;
 };
 
 /**
@@ -188,6 +225,9 @@ export declare type GetOverviewResponse = Message<"commerce.v1.GetOverviewRespon
   launchesNext7Days: Launch[];
 
   /**
+   * The incidents open at the instant, and those opened or closed on its day
+   * (UTC), newest first.
+   *
    * @generated from field: repeated commerce.v1.Incident incidents_today = 3;
    */
   incidentsToday: Incident[];
