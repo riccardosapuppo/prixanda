@@ -18,7 +18,7 @@ from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, format_local, parse_local, to_local
 from commerce.domain.money import Money
 from commerce.domain.offers import OfferPrice
-from commerce.domain.validation import resolve_price
+from commerce.domain.validation import on_sale, resolve_price
 from commerce.engine import contract, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import Connection, local_text, utc_text
@@ -187,7 +187,7 @@ class Catalog:
             if list_price is None:
                 continue
             price = resolve_price(offer.price_rule, list_price)
-            if price < list_price:
+            if on_sale(price, list_price):
                 found.append((offer, price, list_price))
         return found
 

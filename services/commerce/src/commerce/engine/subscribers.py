@@ -37,7 +37,7 @@ from commerce.domain import billing
 from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, to_local
 from commerce.domain.money import Money
-from commerce.domain.validation import resolve_price
+from commerce.domain.validation import on_sale, resolve_price
 from commerce.engine import contract, eligibility, payments, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.catalog import LIVE_OFFER, Catalog, list_price_at, live_offer
@@ -221,8 +221,9 @@ class Subscribers:
             offer = live_offer(row)
             # The list price in force at this instant of the market's day, as GetQuote and the catalog read it.
             list_price = await list_price_at(tx, offer.plan, market, to_local(now, market.zone))
-            if list_price is None or resolve_price(offer.price_rule, list_price) >= list_price:
-                raise Refused("QUOTE_EXPIRED", f"Offer #{offer_id} no longer costs less than the list price.", {"offer_id": offer_id})
+            if list_price is None or not on_sale(resolve_price(offer.price_rule, list_price), list_price):
+                raise Refused("QUOTE_EXPIRED", f"Offer #{offer_id} no longer costs less than the list price, or comes to "
+                                               "nothing: it is not on sale.", {"offer_id": offer_id})
         if home != market.code:
             raise Refused("NOT_ELIGIBLE", f"This listener is in {ref.markets[home].name}, and the quote is for {market.name}.",
                           {"market": home})

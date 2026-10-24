@@ -106,3 +106,9 @@ async def test_an_offer_longer_than_the_book_s_horizon_is_simulated_over_all_its
     horizon = next(a for a in result.assumptions if a.name == "horizon_months")
     assert (horizon.value, horizon.source) == (36, "default for an offer longer than the book's horizon: its months, "
                                                    "then the book's 12 months after them (§6.6)")
+
+
+async def test_an_offer_that_comes_to_nothing_has_nothing_to_simulate(world):
+    change = await create(world, student_autumn(prices=[changes_pb2.OfferPrice(market="IT", percent_off_bp=9_999)]))
+    response = await simulate(world, change.id, who=FINANCE)
+    assert response.refusal.code == REFUSAL.REFUSAL_CODE_INVALID and "€0.00" in response.refusal.reason
