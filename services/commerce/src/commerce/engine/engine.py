@@ -125,9 +125,19 @@ class Engine:
                 return await self._write(method, call, request, handler)
             async with self.db.transaction(readonly=True, isolation="repeatable_read") as tx:
                 await self._identify(tx, call)
-                return await handler(tx, call, request)
+                return await self._answer(method, handler, tx, call, request)
         except DatabaseUnavailable as error:
             raise Unavailable(str(error)) from error
+
+    @staticmethod
+    async def _answer(method: Method, handler: Handler, tx: Connection, call: Call, request: Any) -> Any:
+        """The handler's response, or its refusal carried in the response's outcome."""
+        try:
+            return await handler(tx, call, request)
+        except Refused as refused:
+            if "outcome" not in method.response.DESCRIPTOR.oneofs_by_name:
+                raise TypeError(f"{method.name} has no outcome to carry a refusal") from refused
+            return method.response(refusal=contract.refusal(refused))
 
     async def _identify(self, tx: Connection, call: Call) -> None:
         if call.actor is None:
@@ -147,11 +157,11 @@ class Engine:
                     replay = await idempotency.claim(tx, call, method.full_name, request, now)
                     if replay is not None:
                         return method.response.FromString(replay)
-                    try:
-                        async with tx.savepoint():
-                            response = await handler(tx, call, request)
-                    except Refused as refused:
-                        response = method.response(refusal=contract.refusal(refused))
+                    async def in_savepoint(tx: Connection, call: Call, request: Any) -> Any:
+                        async with tx.savepoint():  # a refusal rolls back what the call had begun
+                            return await handler(tx, call, request)
+
+                    response = await self._answer(method, in_savepoint, tx, call, request)
                     await idempotency.complete(tx, call, response, self.clock.now())
                     return response
             except DatabaseError as error:
