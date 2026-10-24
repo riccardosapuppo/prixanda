@@ -21,15 +21,30 @@ import { type Harness, startHarness } from "./support/harness.ts";
 
 const BOOK = join(import.meta.dirname, "..", "..", "..", "docs", "business.md");
 
-/** §12.1, as docs/business.md writes it on 24 October 2026. */
+/** §12.1, as docs/business.md writes it since 24 October 2026 (the commercial lead reads revenue: the coordinator's 80046cb). */
 const SECTION_12 = [
   "| Marketing | create and edit campaigns, run simulations, submit | approve |",
-  "| Commercial lead | own the price list and commercial rules, create price changes, approve campaigns within the thresholds | approve own versions; sign for finance |",
+  "| Commercial lead | own the price list and commercial rules, create price changes, approve campaigns within the thresholds, read revenue | approve own versions; sign for finance |",
   "| Finance | approve price changes and anything over a finance condition (§7.3); read revenue and unearned value | approve own versions |",
   "| Catalog manager | define plans and entitlements | approve own versions; change prices |",
   "| On-call engineer | suspend an active change and roll back a launch | create or approve anything |",
   "| Auditor | read and export the audit log | change anything |",
 ];
+
+/** §11.4 and §12.2, as docs/business.md writes them since the same commit, each paragraph on one line. */
+const SECTION_11_4 = "§11.4 Everyone on the team reads the log, so any decision can be traced from any seat; the auditor exports it, "
+  + "and the auditor and the on-call engineer verify the chain. Nobody can change it through Plancia.";
+const SECTION_12_2 = "§12.2 Every role reads the changes, the home and the audit log. Revenue is read by finance and the commercial lead, "
+  + "unearned pass value by finance (§9.2); the console tells the other roles who can read them, and the engine leaves those figures "
+  + "out of its answers to them.";
+
+/** The paragraph of the book that starts with a section's mark, its lines joined. */
+function paragraph(book: string, mark: string): string {
+  const start = book.indexOf(`\n${mark} `) + 1;
+  assert.ok(start > 0, `the book has no ${mark}`);
+  const end = book.indexOf("\n\n", start);
+  return book.slice(start, end === -1 ? undefined : end).split("\n").join(" ");
+}
 
 const ALL = ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"];
 
@@ -105,6 +120,25 @@ describe("the role matrix", () => {
   test("lets finance and the commercial lead, and nobody else, read revenue", () => {
     for (const [field, roles] of Object.entries(FIELD_ROLES)) assert.deepEqual(sorted(roles), ["commercial_lead", "finance"], field);
     assert.deepEqual(Object.keys(FIELD_ROLES).sort(), ["Overview.monthlyRevenue", "Overview.monthlyRevenueEur", "Overview.monthlyTopUps"]);
+  });
+
+  test("§11.4 and §12.2 quoted here are the book's, and the matrix does what they say", async () => {
+    const book = (await readFile(BOOK, "utf8")).replaceAll("\r\n", "\n");
+    assert.equal(paragraph(book, "§11.4"), SECTION_11_4);
+    assert.equal(paragraph(book, "§12.2"), SECTION_12_2);
+    // "Every role reads the changes, the home and the audit log."
+    for (const method of ["GetChange", "BatchGetChanges", "ListChanges", "GetOverview", "ListEvents"]) {
+      assert.deepEqual(sorted(anyKind(matrix[method] as never)), sorted(ALL), method);
+    }
+    // "The auditor exports it, and the auditor and the on-call engineer verify the chain."
+    assert.deepEqual(sorted(METHOD_ROLES.ExportHead), ["auditor"]);
+    assert.deepEqual(sorted(METHOD_ROLES.VerifyChain), ["auditor", "on_call"]);
+    // "Revenue is read by finance and the commercial lead": the fields the
+    // gateway narrows (FIELD_ROLES) are the revenue of the home, read by those
+    // two and nobody else. Unearned pass value has no field before stage 7.
+    const revenue = Object.keys(FIELD_ROLES).filter((field) => /revenue|topups/i.test(field));
+    assert.deepEqual(revenue.sort(), Object.keys(FIELD_ROLES).sort(), "every narrowed field is revenue");
+    for (const field of revenue) assert.deepEqual(sorted(FIELD_ROLES[field as keyof typeof FIELD_ROLES]), ["commercial_lead", "finance"], field);
   });
 
   test("asks for the home in a role that reads its narrower fields first, when the person holds one", () => {
