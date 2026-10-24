@@ -1,0 +1,11 @@
+{
+  // The design package: TypeScript that Node 24 runs as it is (its tests and
+  // its generator). tsc only checks; the React component (src/icon.tsx) is
+  // checked by the applications that render it.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2024"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"]
+}

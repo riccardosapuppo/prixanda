@@ -1,0 +1,129 @@
+# The demo listener's side (§10, §14.1, §14.5). DEMONSTRATION MODE: the
+# visitor picks one of the demo's invented listeners at the entrance; the
+# gateway keeps which one in an HttpOnly cookie of its own, and every call
+# acts for that listener. It is not a sign-in, and nothing here moves money:
+# the student verifier and the payment provider are simulated.
+
+fragment SiteAccount on Account {
+  market
+  subscription {
+    plan
+    market
+    paid
+    price
+    startedOn
+    billingDay
+    offerTitle
+    offerMonths
+    offerMonthsLeft
+    fullPriceFrom
+    fullPrice
+    nextBillingOn
+    nextCharge
+  }
+  payment {
+    ...SitePayment
+  }
+  studentVerification {
+    ...SiteVerification
+  }
+}
+
+fragment SitePayment on Payment {
+  state
+  amount
+  provider
+  requestedAt
+  settledAt
+  receipt {
+    id
+    amount
+    issuedAt
+    provider
+    providerReference
+    demonstration
+    note
+  }
+}
+
+fragment SiteVerification on StudentVerification {
+  verifiedOn
+  validUntil
+  provider
+  valid
+}
+
+fragment SiteMe on Me {
+  id
+  market
+  title
+  csrfToken
+  expiresAt
+  account {
+    ...SiteAccount
+  }
+}
+
+query SiteDemoListeners {
+  demoListeners {
+    id
+    market
+    title
+    label
+    plan
+    studentVerified
+  }
+}
+
+query SiteMe {
+  me {
+    ...SiteMe
+  }
+}
+
+mutation SiteSignIn($listenerId: ID!) {
+  signInAsListener(listenerId: $listenerId) {
+    ...SiteMe
+  }
+}
+
+mutation SiteSignOut {
+  signOutListener
+}
+
+mutation SiteVerifyStudent {
+  verifyStudent {
+    __typename
+    ... on StudentVerification {
+      ...SiteVerification
+    }
+    ... on Refusal {
+      code
+      reason
+    }
+  }
+}
+
+mutation SiteConfirmSubscription($quoteId: ID!) {
+  confirmSubscription(quoteId: $quoteId) {
+    __typename
+    ... on Confirmation {
+      subscription {
+        plan
+        market
+        price
+        offerTitle
+        offerMonths
+        fullPriceFrom
+        fullPrice
+      }
+      payment {
+        ...SitePayment
+      }
+    }
+    ... on Refusal {
+      code
+      reason
+    }
+  }
+}

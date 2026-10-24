@@ -20,6 +20,8 @@ test-results/
 # Next.js (stages 4 and 5)
 .next/
 out/
+next-env.d.ts
+*.tsbuildinfo
 
 # Editors and operating systems
 .vscode/

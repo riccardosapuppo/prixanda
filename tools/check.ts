@@ -18,6 +18,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { nestedSegmentFiles } from "../apps/site/scripts/segments.ts";
 import { flyway } from "./lib/flyway.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
 import { assertFree } from "./lib/ports.ts";
@@ -298,6 +299,131 @@ const SUITES: Suite[] = [
       }
     },
   },
+  // The site (stage 5): apps/site, a static Next.js build. Its types, its
+  // operations and its unit tests need nothing running; its build writes
+  // apps/site/out, for the API of the end-to-end test.
+  {
+    name: "site-types",
+    what: "tsc over the site: its pages and components as Next.js builds them, then what Node runs (scripts and tests)",
+    needsDatabase: false,
+    async run() {
+      const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+      if (!existsSync(tsc)) return notRun("typescript is not installed: npm install");
+      // next-env.d.ts and the route types are generated, not committed.
+      const typegen = await run(process.execPath, [join(siteDir, "scripts", "next.ts"), "typegen"], { cwd: siteDir });
+      if (typegen.code !== 0) return failed("-", typegen.output.slice(-3000));
+      const counted: string[] = [];
+      for (const [config, floor, label] of [["tsconfig.json", SITE_FLOOR.files, "in the pages"], ["tsconfig.node.json", SITE_FLOOR.nodeFiles, "run by Node"]] as const) {
+        const ran = await run(process.execPath, [tsc, "-p", config, "--listFiles"], { cwd: siteDir });
+        const ours = ran.output.split(/\r?\n/).filter((line) => {
+          const path = line.replaceAll("\\", "/");
+          return path.includes("/apps/site/") && /\.tsx?$/.test(path) && !path.includes("node_modules") && !path.includes("/.next/") && !path.endsWith("next-env.d.ts");
+        }).length;
+        counted.push(`${ours} ${label}`);
+        if (ran.code !== 0) return failed(counted.join(", "), ran.output.split(/\r?\n/).filter((line) => /error TS\d+/.test(line)).slice(0, 8).join("\n") || ran.output.slice(0, 2000));
+        if (ours < floor) return failed(counted.join(", "), `${config}: fewer than ${floor} files of the site were checked`);
+      }
+      return passed(counted.join(", "));
+    },
+  },
+  {
+    name: "site-codegen",
+    what: "the site's GraphQL operations validate against public.graphql, and their generated types equal a fresh generation",
+    needsDatabase: false,
+    async run() {
+      const ran = await run(process.execPath, [join(siteDir, "scripts", "graphql.ts"), "--check"], { cwd: siteDir });
+      const operations = Number(/match the schema \((\d+) operations\)/.exec(ran.output)?.[1] ?? 0);
+      if (ran.code !== 0) return failed(`${operations} operations`, ran.output.slice(-3000));
+      if (operations < SITE_FLOOR.operations) return failed(`${operations} operations`, `fewer than ${SITE_FLOOR.operations} operations`);
+      return passed(`${operations} operations`);
+    },
+  },
+  {
+    name: "site-unit",
+    what: "the site's data layer, dates, markets, drawings and build correction, without a browser",
+    needsDatabase: false,
+    async run() {
+      const files = (await readdir(join(siteDir, "test"))).filter((name) => name.endsWith(".test.ts")).map((name) => `test/${name}`);
+      return siteNodeTests("site-unit", files, SITE_FLOOR.unitTests);
+    },
+  },
+  {
+    name: "site-build",
+    what: "next build: the static export in apps/site/out, every page there, no prefetch file where the router would not find it",
+    needsDatabase: false,
+    async run() {
+      const env = { ...process.env, NEXT_PUBLIC_SITE_API: SITE_CHECK_API };
+      const ran = await run(process.execPath, [join(siteDir, "scripts", "next.ts"), "build"], { cwd: siteDir, env });
+      if (ran.code !== 0) return failed("-", ran.output.slice(-3000));
+      const out = join(siteDir, "out");
+      const pages = SITE_PAGES.filter((page) => existsSync(join(out, ...page.split("/"))));
+      const counted = `${pages.length} of ${SITE_PAGES.length} pages`;
+      if (pages.length !== SITE_PAGES.length) return failed(counted, `missing: ${SITE_PAGES.filter((page) => !pages.includes(page)).join(", ")}`);
+      const misplaced = await nestedSegmentFiles(out);
+      if (misplaced.length) return failed(counted, `prefetch files the router would not find: ${misplaced.join(", ")}`);
+      // The API is written into the build: the end-to-end test needs the one it serves.
+      const html = await readFile(join(out, "index.html"), "utf8");
+      const scripts = await readdir(join(out, "_next", "static", "chunks"));
+      const chunks = await Promise.all(scripts.filter((name) => name.endsWith(".js")).map((name) => readFile(join(out, "_next", "static", "chunks", name), "utf8")));
+      if (!chunks.some((chunk) => chunk.includes(SITE_CHECK_API))) return failed(counted, `the build does not call ${SITE_CHECK_API}`);
+      return passed(`${counted}, API ${SITE_CHECK_API}`, `${html.length} bytes of index.html`);
+    },
+  },
+  // The site's end-to-end test: the real engine on CHECK_ENGINE_PORT, the real
+  // gateway on the gateway's test ports, the site's build on CHECK_SITE_PORT,
+  // and a headless Chromium through the Student Autumn Pass, from its launch to
+  // a student's demo subscription. Needs the build of site-build.
+  {
+    name: "site-e2e",
+    what: "the whole system and a real browser: §14.1 launched, on the site within a measured time, a student subscribed at the right price, every step in the audit log, axe on every page",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      if (!(await chromiumInstalled())) return notRun("no Chromium for playwright 1.62.1: npx playwright install chromium (it downloads the browser)");
+      const database = "commerce_site_e2e";
+      await createDatabase(cluster, database, TEMPLATE);
+      try {
+        const commerce = join(repoRoot, "services", "commerce");
+        const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), "--size", "small", "--seed", "7"], {
+          cwd: commerce, env: { ...process.env, PYTHONPATH: join(commerce, "src") },
+        });
+        if (generated.code !== 0) return failed("-", generated.output.slice(-3000));
+        const summaryFile = join(reports, "site-e2e.json");
+        await rm(summaryFile, { force: true });
+        const report = join(reports, "site-e2e.xml");
+        const ran = await run(process.execPath, ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`,
+          "--test-reporter=spec", "--test-reporter-destination=stdout", join("e2e", "student-autumn.e2e.ts")], {
+          cwd: siteDir,
+          echo: true,
+          env: { ...process.env, SITE_E2E_DATABASE_URL: cluster.url(database, "app"), SITE_E2E_SUMMARY: summaryFile },
+        });
+        if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
+        const xml = await readFile(report, "utf8");
+        const tests = [...xml.matchAll(/<testcase\b/g)].length;
+        const failures = [...xml.matchAll(/<failure\b/g)].length;
+        if (!existsSync(summaryFile)) return failed(`${tests} tests, ${failures} failed`, "the test wrote no summary");
+        const summary = JSON.parse(await readFile(summaryFile, "utf8")) as {
+          activationMs: number | null; siteMs: number | null; paymentMs: number | null; auditEvents: number; pagesChecked: number;
+          layoutChecks: number; seriousViolations: number; otherViolations: number; externalRequests: number; engineExit: number | null;
+        };
+        const seconds = (ms: number | null) => (ms === null ? "never" : `${(ms / 1000).toFixed(1)} s`);
+        const counted = `${tests} tests, ${failures} failed; published ${seconds(summary.activationMs)} and on the open page ${seconds(summary.siteMs)} after 09:00;`
+          + ` paid ${seconds(summary.paymentMs)} after the confirmation; ${summary.auditEvents} audit events; axe on ${summary.pagesChecked} pages,`
+          + ` ${summary.seriousViolations} serious, ${summary.otherViolations} other; ${summary.layoutChecks} pages fitted at 5 widths`;
+        if (ran.code !== 0 || failures > 0) return failed(counted, `node --test exited ${ran.code}`);
+        if (tests < SITE_FLOOR.e2eTests) return failed(counted, `fewer than ${SITE_FLOOR.e2eTests} tests`);
+        if (summary.auditEvents < SITE_FLOOR.e2eAuditEvents) return failed(counted, `fewer than ${SITE_FLOOR.e2eAuditEvents} audit events of the journey`);
+        if (summary.pagesChecked < SITE_FLOOR.e2ePagesChecked) return failed(counted, `axe ran on fewer than ${SITE_FLOOR.e2ePagesChecked} pages`);
+        if (summary.layoutChecks < SITE_FLOOR.e2eLayoutChecks) return failed(counted, `fewer than ${SITE_FLOOR.e2eLayoutChecks} pages fitted to the widths`);
+        if (summary.externalRequests > 0) return failed(counted, `${summary.externalRequests} requests to other hosts`);
+        if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
+        return passed(counted);
+      } finally {
+        await cluster.sql("postgres", `drop database if exists ${database} with (force)`);
+      }
+    },
+  },
 ];
 
 // pytest's JUnit report: the totals of its test suites.
@@ -331,6 +457,44 @@ async function nodeTests(suite: string, files: string[], floor: number, env: Rec
   await rm(report, { force: true });
   const ran = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=junit", `--test-reporter-destination=${report}`,
     "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true, env: { ...process.env, ...env } });
+  if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
+  const xml = await readFile(report, "utf8");
+  const tests = [...xml.matchAll(/<testcase\b/g)].length;
+  const failures = [...xml.matchAll(/<failure\b/g)].length;
+  const skipped = [...xml.matchAll(/<skipped\b/g)].length;
+  const counted = `${tests} tests, ${failures} failed, ${skipped} skipped`;
+  if (ran.code !== 0 || failures > 0) return failed(counted, `node --test exited ${ran.code}`);
+  if (skipped > 0) return failed(counted, "a skipped test checked nothing");
+  if (tests < floor) return failed(counted, `fewer than ${floor} tests`);
+  return passed(counted);
+}
+
+// The site's floors: what its suites must at least have checked, and the
+// pages its static build must hold. Its build calls the gateway's public API
+// where the end-to-end test starts it (CHECK_GATEWAY_PUBLIC_PORT).
+const siteDir = join(repoRoot, "apps", "site");
+const SITE_FLOOR = {
+  files: 40, nodeFiles: 27, operations: 10, unitTests: 60, e2eTests: 9, e2eAuditEvents: 9, e2ePagesChecked: 9, e2eLayoutChecks: 20,
+};
+const SITE_PAGES = ["index.html", "campaign/index.html", "account/index.html", "session/index.html", "404.html"];
+const SITE_CHECK_API = `http://127.0.0.1:${PORTS.gatewayCheckPublic}/graphql`;
+
+/** Whether the Chromium of the site's Playwright is on this machine: the check never downloads it. */
+async function chromiumInstalled(): Promise<boolean> {
+  try {
+    const { chromium } = await import("playwright");
+    return existsSync(chromium.executablePath());
+  } catch {
+    return false;
+  }
+}
+
+/** Node's test runner over the site's unit tests, counting the cases of its JUnit report. */
+async function siteNodeTests(suite: string, files: string[], floor: number): Promise<Omit<Result, "suite" | "seconds">> {
+  if (files.length === 0) return failed("0", "no test file found");
+  const report = join(reports, `${suite}.xml`);
+  const ran = await run(process.execPath, ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`,
+    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: siteDir, echo: true });
   if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
   const xml = await readFile(report, "utf8");
   const tests = [...xml.matchAll(/<testcase\b/g)].length;
