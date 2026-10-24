@@ -7,6 +7,8 @@
 //      messages answers every public field, and none of the marks comes out.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import { create } from "@bufbuild/protobuf";
+import { PublishedOfferSchema } from "contracts/commerce/v1/catalog";
 import {
   getNamedType, type GraphQLNamedType, type GraphQLSchema, isEnumType, isInputObjectType, isLeafType, isObjectType, isScalarType,
   isUnionType, specifiedScalarTypes,
@@ -385,6 +387,21 @@ describe("the site's API, answered by an engine that plants marked values in eve
       assert.equal(account?.payment?.failureReason, SENTINEL.text);
     } finally {
       engine.close();
+    }
+  });
+
+  test("an offer the engine sends without its breakdown, as the engine of stage 5 does, reads null, and nothing fails", async () => {
+    harness.engine.published.push(create(PublishedOfferSchema, {
+      offerId: "9004", version: 1, market: "IT", plan: "student", title: "Student Winter Pass", text: "Two months at a student price.",
+      terms: "Verified students.", price: { amountMinor: 399n, currency: "EUR" }, listPrice: { amountMinor: 579n, currency: "EUR" },
+      monthsAtOfferPrice: 2, audience: "Verified students", needsStudentCheck: true,
+    }));
+    try {
+      const answer = await harness.site().graphql('{ offers(market: "IT") { id breakdown { price artists topUp } } }');
+      assert.equal(answer.body.errors, undefined, answer.text);
+      assert.deepEqual(answer.body.data.offers.map((offer: { id: string; breakdown: unknown }) => [offer.id, offer.breakdown === null]), [["9001", false], ["9004", true]]);
+    } finally {
+      harness.engine.published.pop();
     }
   });
 
