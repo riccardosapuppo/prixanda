@@ -37,13 +37,13 @@ const failed = (counted: string, detail: string): Omit<Result, "suite" | "second
 const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome: "not run", counted: "-", detail });
 
 // The floors: what each suite must at least have checked.
-const FLOOR = { typecheckedFiles: 12, contractFiles: 30, migrations: 9, pythonTests: 438, invariants: 10, generatedSubscribers: 5_000 };
+const FLOOR = { typecheckedFiles: 12, contractFiles: 30, migrations: 10, pythonTests: 492, invariants: 10, generatedSubscribers: 5_000 };
 // pytest's tests by area, read from the folder each test lives in: the
 // database's own rules (tests/), the rules as plain Python (domain), the
 // business book's numbers (golden), every service against PostgreSQL
 // (services), the calls over gRPC with a real server (e2e), and the
 // properties Hypothesis generates cases for (properties).
-const AREA_FLOOR: Record<string, number> = { database: 73, domain: 127, golden: 31, services: 172, e2e: 26, properties: 9 };
+const AREA_FLOOR: Record<string, number> = { database: 81, domain: 144, golden: 32, services: 198, e2e: 27, properties: 10 };
 
 const SUITES: Suite[] = [
   {
