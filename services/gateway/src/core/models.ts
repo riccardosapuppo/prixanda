@@ -1,0 +1,74 @@
+// The parents the resolvers receive, one per object type of the two schemas
+// (tools/graphql.ts maps each type to its model here). Mostly the engine's own
+// messages, as the contract defines them; a few small shapes of the gateway's
+// where a type has no message of its own.
+import type { AuditEvent, ChainHead, VerifyChainResponse } from "contracts/commerce/v1/audit";
+import type { Entitlements, Market, Plan, PriceBreakdown, PriceListEntry, PublishedOffer } from "contracts/commerce/v1/catalog";
+import type {
+  Approval, Audience, Change, ChangeSummary, ChangeVersion, ListeningRule, ListPriceContent, OfferContent, OfferPage, OfferPeriod,
+  OfferPrice, RequiredSignature, ValidationFinding, ValidationReport,
+} from "contracts/commerce/v1/changes";
+import type { LocalTime, Refusal } from "contracts/commerce/v1/common";
+import type { GetOverviewResponse, Incident, Launch, MarketRevenue, Person, SubscriberCount } from "contracts/commerce/v1/overview";
+import type { Quote } from "contracts/commerce/v1/quotes";
+import type { Assumption, FinanceCondition, SimulationResult, Totals } from "contracts/commerce/v1/simulation";
+import type { SessionInfo } from "./context.ts";
+
+// The console's schema.
+export type PersonModel = Person;
+export type SessionModel = SessionInfo;
+export type MarketModel = Market;
+export type EntitlementsModel = Entitlements;
+export type PriceBreakdownModel = PriceBreakdown;
+export type PlanModel = Plan;
+export type PriceListEntryModel = PriceListEntry;
+export type ChangePageModel = { readonly nodes: readonly ChangeSummary[]; readonly next: string | null };
+export type ChangeSummaryModel = ChangeSummary;
+export type ChangeModel = Change;
+export type ChangeVersionModel = ChangeVersion;
+export type OfferContentModel = OfferContent;
+export type ListPriceContentModel = ListPriceContent;
+export type AudienceModel = Audience;
+export type ListeningRuleModel = ListeningRule;
+export type OfferPriceModel = OfferPrice;
+export type OfferPeriodModel = OfferPeriod;
+export type OfferPageModel = OfferPage;
+export type ApprovalModel = Approval;
+export type RequiredSignatureModel = RequiredSignature;
+export type FactModel = { readonly name: string; readonly value: string };
+export type ValidationFindingModel = ValidationFinding;
+export type ValidationReportModel = ValidationReport;
+/**
+ * A refusal, and the change it is about when there is one: with STALE_VERSION
+ * the client gets the newer version in the same answer (§6.3). Its $typeName
+ * tells it apart from the engine's messages in a union, as theirs do.
+ */
+export type RefusalModel = { readonly $typeName: "gateway.Refusal"; readonly refusal: Refusal; readonly changeId: string | null };
+export type OverviewModel = GetOverviewResponse;
+export type MarketTimeModel = LocalTime;
+export type LaunchModel = Launch;
+export type IncidentModel = Incident;
+export type SubscriberCountModel = SubscriberCount;
+export type MarketRevenueModel = MarketRevenue;
+export type AssumptionModel = Assumption;
+export type TotalsModel = Totals;
+export type FinanceConditionModel = FinanceCondition;
+export type SimulationModel = SimulationResult;
+export type AuditEventModel = AuditEvent;
+export type AuditPageModel = { readonly nodes: readonly AuditEvent[]; readonly next: string | null };
+export type ChainHeadModel = ChainHead;
+export type ChainVerificationModel = VerifyChainResponse;
+
+// The site's schema: the same messages, read through fewer fields.
+export type PublicMarketModel = Market;
+export type PublicEntitlementsModel = Entitlements;
+export type PublicPlanModel = Plan;
+export type PublicListPriceModel = PriceListEntry;
+export type PublicMarketTimeModel = LocalTime;
+export type PublicOfferModel = PublishedOffer;
+export type PublicQuoteModel = Quote;
+export type PublicQuoteRefusalModel = {
+  readonly $typeName: "gateway.QuoteRefusal";
+  readonly code: "OFFER_ENDED" | "NOT_ELIGIBLE" | "NOT_AVAILABLE";
+  readonly reason: string;
+};
