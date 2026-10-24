@@ -175,6 +175,8 @@ const state = {
   activationMs: Number.NaN,
   /** The engine's launch that published the pass, as its log names it: launch-12. */
   launchRun: "",
+  /** The steps of that launch the console read, all done (step i). */
+  launchSteps: 0,
   auditEvents: 0,
   /** What the student of step h pays, as the engine confirmed it and the log has it. */
   subscription: null as null | { price: string; months: number; fullPrice: string; fullPriceFrom: string; payment: string; logged: boolean },
@@ -483,5 +485,42 @@ describe("the Student Autumn Pass through the engine and the gateway (§14.1)", 
       price: "299", months: 3, fullPrice: "579", fullPriceFrom: confirmation.subscription.fullPriceFrom,
       payment: confirmation.payment.state === "PENDING" ? "settled after the confirmation" : "taken at the confirmation", logged: true,
     };
+  });
+
+  test("i. the console reads the pass's launch: one launch, its five steps done, the catalog before and after, the audit events it wrote", async () => {
+    // Every role reads launches (§12.2): the auditor here. The launch was done publishing in step d; its last
+    // two steps (notify, verify) follow on the engine's next passes, so the console reads until it is done.
+    const listed = async () => (await people.auditor.graphql(`query ($change: ID!) { launches(filter: { changeId: $change }) { nodes { id run state } next } }`, {
+      variables: { change: state.changeId },
+    })).body.data.launches;
+    let page = await listed();
+    const asked = performance.now();
+    while (page.nodes[0]?.state !== "DONE" && performance.now() - asked < 20_000) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      page = await listed();
+    }
+    assert.deepEqual(page, { nodes: [{ id: page.nodes[0]?.id, run: state.launchRun, state: "DONE" }], next: null }, "one launch of the pass, done");
+    const answer = await people.auditor.graphql(`query ($id: ID!) { launch(id: $id) {
+      id run state currentStep attempts cause snapshotBefore snapshotAfter resolution starts { market local utc } change { id state }
+      steps { name state attempts error } auditEventSeqs incidents { id } } }`, { variables: { id: page.nodes[0]?.id } });
+    assert.equal(answer.body.errors, undefined, answer.text);
+    const launch = answer.body.data.launch;
+    assert.deepEqual(launch.steps.map((step: { name: string; state: string; error: string | null }) => `${step.name} ${step.state} ${step.error ?? "-"}`),
+      ["check DONE -", "prepare DONE -", "publish DONE -", "notify DONE -", "verify DONE -"]);
+    assert.deepEqual(
+      { state: launch.state, currentStep: launch.currentStep, cause: launch.cause, incidents: launch.incidents, change: launch.change, starts: launch.starts },
+      { state: "DONE", currentStep: null, cause: null, incidents: [], change: { id: state.changeId, state: "ACTIVE" }, starts: { market: "IT", local: "2026-10-26T09:00", utc: "2026-10-26T08:00:00Z" } },
+    );
+    assert.equal(launch.attempts, 5, "one attempt per step: nothing failed");
+    assert.ok(launch.snapshotAfter !== null && launch.snapshotAfter !== launch.snapshotBefore, `the catalog went from ${launch.snapshotBefore} to ${launch.snapshotAfter}`);
+    assert.match(launch.resolution ?? "", /^published at /);
+    // The change's activation in the log is one of the events the launch names.
+    const log = await people.auditor.graphql(`query ($subject: String!) { auditEvents(filter: { subject: $subject, action: "change.activated" }) { nodes { seq requestId } } }`, {
+      variables: { subject: `change:${state.changeId}` },
+    });
+    const activated = log.body.data.auditEvents.nodes[0];
+    assert.equal(activated?.requestId, launch.run);
+    assert.ok(launch.auditEventSeqs.includes(activated?.seq), `${JSON.stringify(launch.auditEventSeqs)} names the activation, event ${activated?.seq}`);
+    state.launchSteps = launch.steps.length;
   });
 });

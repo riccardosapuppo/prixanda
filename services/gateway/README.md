@@ -425,6 +425,10 @@ account, the first month's payment pending at the confirmation and settled
 by the provider's event shortly after (the account then has the receipt,
 which says no money moved), and in the log a `subscription.confirmed`
 written by the subscriber with the site's request id, the chain still whole.
+And the console reads the pass's launch: one launch of the change, done, its
+five steps done at one attempt each, the catalog snapshot before and after
+it, and among the audit events it names the change's activation, which
+carries its run as the request id.
 
 The engine reads the machine's clock when it runs for real, and nothing in
 it moves time. The test starts the same `serve()` through a launcher of its
