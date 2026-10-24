@@ -6,8 +6,12 @@
 //
 // Two ways of lining the lanes up: by each market's local time (09:00 in
 // Rome and 09:00 in London fall on the same vertical, as the offers are
-// scheduled, §3.7) or by UTC (the same instant on the same vertical). The
-// clock change of the week is marked where it happens.
+// scheduled, §3.7) or by UTC (the same instant on the same vertical). By
+// local time every lane starts at the axis calendar's first midnight, read on
+// the market's own wall clock, so a Monday start falls in Monday's column in
+// every market even when one of them is still on the day before; each
+// market's "now" is marked from its own clock. The clock change of the week
+// is marked where it happens.
 import { formatLocal, type LocalParts, localToInstant, offsetMinutes, parseLocal, partsIn, zoneCity } from "./time.ts";
 
 export type Align = "local" | "utc";
@@ -76,6 +80,12 @@ function placeLocal(local: string, zone: string, align: Align, start: number): n
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
+/** The instant a market's wall clock shows a local time (the earlier one when the clocks repeat it), or null when they skip it. */
+function instantOf(local: LocalParts, zone: string): number | null {
+  const at = localToInstant(local, zone);
+  return at.kind === "single" ? at.instant.getTime() : at.kind === "repeated" ? at.earlier.getTime() : null;
+}
+
 /** The clock change of a market inside the window, found hour by hour. */
 function clockChange(zone: string, startUtc: number, align: Align, windowStart: number): Lane["clockChange"] {
   const first = offsetMinutes(new Date(startUtc), zone);
@@ -111,7 +121,7 @@ export function buildWeek(input: {
   readonly plans: readonly string[];
   readonly prices: readonly WeekPrice[];
   readonly offers: readonly WeekOffer[];
-  /** The zone the axis is written in when lanes line up by UTC, and for the day labels. */
+  /** The zone whose calendar the axis follows: the day labels, every lane's first midnight, and the instants when lanes line up by UTC. */
   readonly axisZone: string;
 }): Week {
   const { now, align, markets, plans, prices, offers } = input;
@@ -123,18 +133,21 @@ export function buildWeek(input: {
     return { label: `${WEEKDAYS[weekday]} ${date.getUTCDate()}${index === 0 ? ` ${MONTHS[date.getUTCMonth()]}` : ""}`, at: index / WEEK_DAYS, weekend: weekday === 0 || weekday === 6 };
   });
 
+  // By local time, every lane starts at the axis calendar's first midnight as
+  // a wall-clock time (the same for every market); by UTC, at the axis zone's
+  // midnight as an instant.
+  const firstMidnight = { ...axisToday, hour: 0, minute: 0, second: 0 };
+  const utcStart = instantOf(firstMidnight, input.axisZone) ?? axisStart;
+  const start = align === "local" ? axisStart : utcStart;
+
   const lanes: Lane[] = [];
   let clear = 0;
   for (const market of markets) {
-    const today = partsIn(now, market.timeZone);
-    const localStart = Date.UTC(today.year, today.month - 1, today.day);
-    // By UTC, every lane starts at the axis zone's midnight, as an instant.
-    const axisMidnight = localToInstant({ ...axisToday, hour: 0, minute: 0, second: 0 }, input.axisZone);
-    const utcStart = axisMidnight.kind === "single" ? axisMidnight.instant.getTime() : axisStart;
-    const start = align === "local" ? localStart : utcStart;
-    const nowAt = align === "local" ? (wall(today) - start) / (WEEK_DAYS * DAY) : (now.getTime() - start) / (WEEK_DAYS * DAY);
-    const localMidnight = localToInstant({ ...today, hour: 0, minute: 0, second: 0 }, market.timeZone);
-    const changeStart = localMidnight.kind === "single" ? localMidnight.instant.getTime() : now.getTime();
+    // The market's own clock, against the axis calendar: in the hour when the
+    // axis zone is already on the next day, it falls before the first column.
+    const nowAt = align === "local" ? (wall(partsIn(now, market.timeZone)) - start) / (WEEK_DAYS * DAY) : (now.getTime() - start) / (WEEK_DAYS * DAY);
+    // The clock change is looked for from the window's first midnight in this market.
+    const changeStart = align === "local" ? instantOf(firstMidnight, market.timeZone) ?? utcStart : utcStart;
 
     for (const plan of plans) {
       const sheets: Sheet[] = [];
