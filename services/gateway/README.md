@@ -195,6 +195,15 @@ about 22,400; the site's whole catalog of a market about 330. The limits
 leave room for these and none for the same fields asked again and again.
 Batched requests and persisted queries are off.
 
+No field lowers the cost of the others. A page counts from one row to the
+largest page, whatever its `first` says, and a field under `@skip` or
+`@include` counts as if it ran, since whether it runs is known only later.
+A `first` written in the document must be between 1 and 100, or validation
+refuses the request before anything runs: a field that `@skip` leaves out
+never reaches its resolver's own check, which is what holds for a `first` in
+a variable. Before this, a skipped page of minus two billion rows took its
+cost away from the rest, and let twelve pages of 100 rows through.
+
 The measure reads each fragment once per operation, however many times it is
 spread, and stops as soon as it passes a limit. Read naively, fragments that
 spread the one before them twice would double the work at every level: a few

@@ -6,9 +6,15 @@
 // and a list multiplies what is selected inside it by its size: the `first`
 // argument when the field is paged (its maximum when `first` is a variable,
 // since validation runs before the variables are known), and an assumed size
-// for the other lists. Aliases count one by one, so asking for the same
-// expensive field a hundred times costs a hundred times. Introspection is not
-// counted: the public schema turns it off in production.
+// for the other lists. A page counts one row at least, so no field lowers the
+// cost of the others. Aliases count one by one, so asking for the same
+// expensive field a hundred times costs a hundred times. A field under @skip
+// or @include counts as if it ran: whether it runs is known only later.
+// Introspection is not counted: the public schema turns it off in production.
+//
+// A `first` written in the document is checked here too, between 1 and the
+// largest page: a field that @skip leaves out never reaches its resolver's
+// own check, and a size the resolver would refuse must not be counted either.
 import {
   type ASTVisitor, type FieldNode, getNamedType, getNullableType, GraphQLError, type GraphQLField, type GraphQLNamedType,
   type GraphQLSchema, isInterfaceType, isListType, isObjectType, isUnionType, Kind, type SelectionSetNode, type ValidationContext,
@@ -34,16 +40,24 @@ export const PUBLIC_LIMITS: Limits = { maxDepth: 3, maxCost: 600, assumedListSiz
 
 type Measure = { depth: number; cost: number };
 
+/** A page's size as the estimate counts it: from 1 row to the largest page. */
+function pageSize(rows: number, limits: Limits): number {
+  return Math.max(1, Math.min(rows, limits.maxPage));
+}
+
 /**
  * The page a field asks for: its `first` argument as written, the field's
- * default when it is left out, the largest page when it is a variable.
+ * default when it is left out, the largest page when it is a variable. Never
+ * fewer than 1 row: a page of minus two billion rows, under @skip so that it
+ * never runs, would otherwise take its cost away from the rest of the
+ * operation.
  */
 function pageOf(node: FieldNode, field: GraphQLField<unknown, unknown>, limits: Limits): number | undefined {
   const first = field.args.find((argument) => argument.name === "first");
   if (first === undefined) return undefined;
   const given = node.arguments?.find((argument) => argument.name.value === "first")?.value;
-  if (given === undefined) return typeof first.defaultValue === "number" ? first.defaultValue : limits.maxPage;
-  if (given.kind === Kind.INT) return Math.min(Number(given.value), limits.maxPage);
+  if (given === undefined) return typeof first.defaultValue === "number" ? pageSize(first.defaultValue, limits) : limits.maxPage;
+  if (given.kind === Kind.INT) return pageSize(Number(given.value), limits);
   return limits.maxPage;
 }
 
@@ -60,6 +74,9 @@ type Memo = Map<string, Measure>;
  * otherwise double the work at every level before any limit is checked. And
  * the count stops as soon as it passes a limit, since the answer is then
  * known: past the limit, depth and cost are lower bounds.
+ *
+ * Directives are not read: a field, a fragment or a spread under @skip or
+ * @include counts with what it would cost if it ran, the most it can cost.
  */
 export function measure(
   context: Pick<ValidationContext, "getFragment" | "getSchema">,
@@ -133,6 +150,27 @@ export function depthAndCostRule(limits: Limits): ValidationRule {
 }
 
 /**
+ * A page asked for with a `first` written in the document has between 1 row
+ * and the largest page, or the request is refused before anything runs. The
+ * resolvers check a size that comes in a variable when they run; a field that
+ * @skip leaves out never runs, so for a written size this is the check that
+ * holds, skipped or not.
+ */
+export function pageSizeRule(limits: Limits): ValidationRule {
+  return (context) => ({
+    Argument(node) {
+      if (node.name.value !== "first" || node.value.kind !== Kind.INT) return;
+      // A field's argument, known to the schema: a directive's, or an unknown one, is not a page.
+      if (context.getDirective() !== null || context.getArgument() === null || context.getFieldDef() === null) return;
+      const rows = Number(node.value.value);
+      if (rows < 1 || rows > limits.maxPage) {
+        context.reportError(new GraphQLError(`first must be between 1 and ${limits.maxPage}: ${node.value.value.slice(0, 24)} is not a page size.`, { nodes: [node] }));
+      }
+    },
+  });
+}
+
+/**
  * One mutation per request: each one carries its own Idempotency-Key to the
  * engine, and a key names exactly one action.
  */
@@ -170,7 +208,7 @@ function rootFields(context: ValidationContext, selectionSet: SelectionSetNode, 
 }
 
 export function limitRules(limits: Limits): ValidationRule[] {
-  return [depthAndCostRule(limits), oneMutationRule];
+  return [depthAndCostRule(limits), pageSizeRule(limits), oneMutationRule];
 }
 
 /**

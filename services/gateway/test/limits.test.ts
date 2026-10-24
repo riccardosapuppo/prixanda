@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { buildSchema, parse, specifiedRules, validate } from "graphql";
-import { deepestPath, depthAndCostRule, INTERNAL_LIMITS, measure, PUBLIC_LIMITS } from "../src/core/limits.ts";
+import { deepestPath, depthAndCostRule, INTERNAL_LIMITS, limitRules, measure, PUBLIC_LIMITS } from "../src/core/limits.ts";
 import { buildInternalSchema, buildPublicSchema } from "../src/core/schemas.ts";
 import { codes, type Harness, startHarness } from "./support/harness.ts";
 
@@ -19,6 +19,18 @@ const ALIASED_PAGES = `query ($n: Int!) { ${Array.from({ length: 12 }, (_, index
   `a${index}: changes(first: $n) { nodes { id details { title current { content { __typename ... on OfferContent { pages { title text terms } } } } } } }`).join(" ")} }`;
 
 const SITE_ALIASES = (count: number) => `{ ${Array.from({ length: count }, (_, index) => `a${index}: offers(market: "IT") { id title price listPrice }`).join(" ")} }`;
+
+/** Twelve pages of 100 changes with their pages' texts, written out: 43,224 by the estimate, over the console's 25,000. */
+const TWELVE_PAGES = Array.from({ length: 12 }, (_, index) =>
+  `a${index}: changes(first: 100) { nodes { id details { title current { content { __typename ... on OfferContent { pages { title text terms } } } } } } }`).join(" ");
+
+/** A page that never runs, asked with minus two billion rows, in front of the twelve pages: it must buy them nothing. */
+const CREDIT = "credit: changes(first: -2147483648) @skip(if: true) { nodes { id } }";
+
+/** What the console's API says about a document, with graphql's own rules and the gateway's limits. */
+function refusals(query: string): string[] {
+  return validate(buildInternalSchema(), parse(query), [...specifiedRules, ...limitRules(INTERNAL_LIMITS)]).map((error) => error.message);
+}
 
 function cost(schema: ReturnType<typeof buildInternalSchema>, query: string, limits = INTERNAL_LIMITS) {
   const document = parse(query);
@@ -102,6 +114,51 @@ describe("cost", () => {
   });
 });
 
+describe("pages that would lower the cost", () => {
+  test("a page counts one row at least, however few its first argument asks for", () => {
+    const schema = buildInternalSchema();
+    const page = (first: string) => cost(schema, `{ changes(first: ${first}) { nodes { id title } } }`).cost;
+    assert.equal(page("1"), 1 + 1 + 1 * 2);
+    for (const first of ["0", "-1", "-2147483648"]) assert.equal(page(first), page("1"), `first: ${first}`);
+    assert.equal(page("2147483647"), page("100"), "and as many as the largest page, however many it asks for");
+  });
+
+  test("a skipped page of minus two billion rows does not let twelve costly pages through", () => {
+    const messages = refusals(`{ ${CREDIT} ${TWELVE_PAGES} }`);
+    assert.ok(messages.some((message) => /would cost more than 25000/.test(message)), messages.join("; "));
+    // Without the credit, the twelve pages were refused already: the credit was what let them through.
+    assert.ok(refusals(`{ ${TWELVE_PAGES} }`).some((message) => /would cost more than 25000/.test(message)));
+  });
+
+  test("a first argument written under 1 or over the largest page is refused in validation, skipped or not", () => {
+    for (const first of ["0", "-1", "-2147483648", "101"]) {
+      for (const directive of ["", "@skip(if: true)", "@include(if: false)"]) {
+        const messages = refusals(`{ changes(first: ${first}) ${directive} { nodes { id } } }`);
+        assert.deepEqual(messages, [`first must be between 1 and 100: ${first} is not a page size.`], `first: ${first} ${directive}`);
+      }
+    }
+    for (const first of ["1", "100"]) assert.deepEqual(refusals(`{ changes(first: ${first}) { nodes { id } } }`), [], `first: ${first}`);
+    // Inside a fragment, and on the audit log's pages, the same.
+    assert.equal(refusals("{ ...F } fragment F on Query { auditEvents(first: 0) { nodes { seq } } }").length, 1);
+    // A variable is known only when the query runs, and the resolver checks it then (through HTTP, below).
+    assert.deepEqual(refusals("query ($n: Int!) { changes(first: $n) { nodes { id } } }"), []);
+  });
+
+  test("a field under @skip or @include costs what it would cost if it ran", () => {
+    const schema = buildInternalSchema();
+    const plain = cost(schema, `{ ${TWELVE_PAGES} }`);
+    assert.ok(plain.cost > INTERNAL_LIMITS.maxCost);
+    const page = "changes(first: 100) { nodes { id details { title } } }";
+    const alone = cost(schema, `{ ${page} }`).cost;
+    for (const directive of ["@skip(if: true)", "@include(if: false)", "@skip(if: $no)", "@include(if: $yes)"]) {
+      assert.equal(cost(schema, `query ($no: Boolean!, $yes: Boolean!) { changes(first: 100) ${directive} { nodes { id details { title } } } }`).cost, alone, directive);
+    }
+    // A negative page through a variable is counted as the largest page: it buys nothing either.
+    const credited = cost(schema, `query ($n: Int!) { credit: changes(first: $n) @skip(if: true) { nodes { id } } ${page} }`).cost;
+    assert.ok(credited > alone, `${credited} vs ${alone}`);
+  });
+});
+
 describe("limits through HTTP", () => {
   let harness: Harness;
   before(async () => {
@@ -128,6 +185,31 @@ describe("limits through HTTP", () => {
     assert.deepEqual(codes(answer), ["GRAPHQL_VALIDATION_FAILED"]);
     assert.match(answer.body.errors[0].message, /would cost more than 25000/);
     assert.equal(harness.engine.count(), 0);
+  });
+
+  test("a skipped page with a negative first, in front of twelve costly pages, is refused before the engine", async () => {
+    const client = harness.console();
+    await client.signIn("auditor-1");
+    harness.engine.clearCalls();
+    const answer = await client.graphql(`{ ${CREDIT} ${TWELVE_PAGES} }`);
+    assert.equal(answer.status, 400, answer.text.slice(0, 300));
+    assert.deepEqual(codes(answer), ["GRAPHQL_VALIDATION_FAILED", "GRAPHQL_VALIDATION_FAILED"]);
+    const messages = answer.body.errors.map((error: { message: string }) => error.message);
+    assert.ok(messages.some((message: string) => /first must be between 1 and 100/.test(message)), messages.join("; "));
+    assert.ok(messages.some((message: string) => /would cost more than 25000/.test(message)), messages.join("; "));
+    assert.equal(harness.engine.count("ListChanges"), 0, "none of the twelve pages reached the engine");
+  });
+
+  test("a page size in a variable is checked when the field runs, and a skipped field runs nothing", async () => {
+    const client = harness.console();
+    await client.signIn("auditor-1");
+    harness.engine.clearCalls();
+    const negative = await client.graphql("query ($n: Int!) { changes(first: $n) { nodes { id } } }", { variables: { n: -1 } });
+    assert.deepEqual(codes(negative), ["BAD_USER_INPUT"]);
+    assert.match(negative.body.errors[0].message, /first must be between 1 and 100/);
+    const skipped = await client.graphql("query ($n: Int!) { changes(first: $n) @skip(if: true) { nodes { id } } }", { variables: { n: -2147483648 } });
+    assert.deepEqual(skipped.body, { data: {}, extensions: { requestId: skipped.headers["x-request-id"] } });
+    assert.equal(harness.engine.count("ListChanges"), 0);
   });
 
   test("the site's whole catalog passes, and its offers asked twenty times do not", async () => {
