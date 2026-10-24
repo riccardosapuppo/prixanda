@@ -128,7 +128,11 @@ export async function startCluster(options: { dataDir: string; port: number; eph
     app,
     url(database, who = "app") {
       const as = who === "owner" ? owner : app;
-      return `postgresql://${as.user}:${encodeURIComponent(as.password)}@127.0.0.1:${port}/${database}`;
+      // The URL API encodes the user and the password itself.
+      const url = new URL(`postgresql://127.0.0.1:${port}/${database}`);
+      url.username = as.user;
+      url.password = as.password;
+      return url.href;
     },
     async sql<T extends object>(database: string, text: string, values: unknown[] = []) {
       const client = await connect(database, owner);

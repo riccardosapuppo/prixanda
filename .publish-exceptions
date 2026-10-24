@@ -1,0 +1,8 @@
+# Files whose matches for the publishing gate's "password assigned" heuristic
+# are not secrets: code that passes the random passwords generated for each
+# local PostgreSQL cluster. The passwords themselves live in .data/, which git
+# ignores; no tracked file holds one.
+tools/lib/postgres.ts  # generates the local clusters' passwords and hands them to clients
+tools/lib/flyway.ts    # passes the cluster password to Flyway through the environment
+tools/check.ts         # hands the throwaway cluster's password to Flyway
+tools/db.ts            # hands the development cluster's password to Flyway
