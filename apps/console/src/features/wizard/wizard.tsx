@@ -141,10 +141,17 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
 }) {
   const viewer = useViewer();
   const refresh = useRefreshChanges();
-  const saved = offerContent(change);
+  // The version the form was loaded from, and its content: what a save starts
+  // from (§6.3). It moves only after a save of ours or a reload the person
+  // asks for, never because the query read a newer version in the meantime.
+  const [base, setBase] = useState<{ readonly version: number; readonly content: OfferContent | null }>(() => ({ version: change?.currentVersion ?? 0, content: offerContent(change) }));
+  const saved = base.content;
   const [form, setForm] = useState<OfferForm>(() => (saved ? formFromContent(saved) : emptyForm()));
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
-  const [conflict, setConflict] = useState<Change | null>(null);
+  const [staleRefusal, setStaleRefusal] = useState<Change | null>(null);
+  // A version newer than the one the form started from: someone else saved it.
+  const newer = change !== null && change.currentVersion > base.version ? change : null;
+  const conflict = staleRefusal ?? newer;
   const [outcome, setOutcome] = useState<{ readonly kind: "saved" | "submitted"; readonly version: number } | null>(null);
   const [refusal, setRefusal] = useState<{ readonly code: string; readonly reason: string } | null>(null);
   const [reason, setReason] = useState(change?.authorReason ?? "");
@@ -211,13 +218,15 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
       onCreated(result.id);
       return { id: result.id, version: result.currentVersion };
     }
-    if (!dirty) return { id: change.id, version: change.currentVersion };
-    const result = (await save.mutateAsync({ changeId: change.id, baseVersion: change.currentVersion, offer: typed.input })).saveOfferVersion as ResultUnion;
+    if (conflict === null && !dirty) return { id: change.id, version: base.version };
+    const result = (await save.mutateAsync({ changeId: change.id, baseVersion: base.version, offer: typed.input })).saveOfferVersion as ResultUnion;
     if (result.__typename === "Refusal") {
-      if (result.code === "STALE_VERSION" && result.change) setConflict(result.change);
+      if (result.code === "STALE_VERSION" && result.change) setStaleRefusal(result.change);
       else setRefusal({ code: result.code, reason: result.reason });
       return null;
     }
+    setBase({ version: result.currentVersion, content: offerContent(result) });
+    setStaleRefusal(null);
     await refresh();
     return { id: result.id, version: result.currentVersion };
   }
@@ -258,7 +267,8 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
       document.getElementById("author-reason")?.focus();
       return;
     }
-    const result = (await submit.mutateAsync({ changeId: change.id, version: change.currentVersion, authorReason: reason.trim() || null }).catch(() => null))?.submitChange as ResultUnion | undefined;
+    if (conflict !== null) return;
+    const result = (await submit.mutateAsync({ changeId: change.id, version: base.version, authorReason: reason.trim() || null }).catch(() => null))?.submitChange as ResultUnion | undefined;
     if (result === undefined) return;
     if (result.__typename === "Refusal") {
       setRefusal({ code: result.code, reason: result.reason });
@@ -286,10 +296,11 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
       ) : change && (change.state === "IN_APPROVAL" || change.state === "APPROVED") ? (
         <Callout icon="info" tone="quiet">v{change.currentVersion} is {change.state === "IN_APPROVAL" ? "in approval" : "approved"}. Saving an edit makes v{change.currentVersion + 1} and takes it back to draft: approvals given to v{change.currentVersion} do not carry over (§7.2).</Callout>
       ) : null}
-      {conflict ? <ConflictPanel conflict={conflict} onLoad={() => {
+      {conflict ? <ConflictPanel conflict={conflict} startedFrom={base.version} onLoad={() => {
         const content = offerContent(conflict);
         if (content) setForm(formFromContent(content));
-        setConflict(null);
+        setBase({ version: conflict.currentVersion, content });
+        setStaleRefusal(null);
         void refresh();
       }} /> : null}
       <Stepper step={step} form={form} facts={facts} now={now} onStep={(next) => onStep(next)} />
@@ -696,11 +707,11 @@ function StepCheck({ change, dirty, canEdit, busy, problems, reason, reasonError
   );
 }
 
-function ConflictPanel({ conflict, onLoad }: { readonly conflict: Change; readonly onLoad: () => void }) {
+function ConflictPanel({ conflict, startedFrom, onLoad }: { readonly conflict: Change; readonly startedFrom: number; readonly onLoad: () => void }) {
   const author = conflict.current.author.label;
   return (
     <Callout tone="error" icon="warning" role="alert">
-      <p className="font-bold">Someone saved v{conflict.currentVersion} while you were editing.</p>
+      <p className="font-bold">Someone saved v{conflict.currentVersion} while you were editing v{startedFrom}.</p>
       <p>{author} saved it on {formatInstantIn(conflict.current.createdAt, CONSOLE_ZONE)}. Your edits are still in the form and were not saved: nothing overwrote their version (§6.3).</p>
       <div className="mt-2 flex flex-wrap gap-2">
         <Button size="small" icon="arrows-clockwise" onClick={onLoad}>Load v{conflict.currentVersion} and drop my edits</Button>
