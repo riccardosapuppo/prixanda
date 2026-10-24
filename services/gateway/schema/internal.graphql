@@ -507,6 +507,7 @@ union ChangeResult = Change | Refusal
 type Overview {
   waitingForApproval: [ChangeSummary!]!
   launchesNext7Days: [Launch!]!
+  "The incidents open at this instant, and those opened or closed on its day (UTC), newest first."
   incidentsToday: [Incident!]!
   payingSubscribers: [SubscriberCount!]!
   freeListeners: [SubscriberCount!]!
@@ -536,9 +537,13 @@ type Launch {
   risk: String
 }
 
+"How an incident of a launch stands."
 enum IncidentState {
+  "Its launch went through on its own, and nobody had to act."
   RECOVERED
   OPEN
+  "A person retried or cancelled the launch."
+  RESOLVED
 }
 
 type Incident {

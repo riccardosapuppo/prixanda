@@ -8,10 +8,12 @@
 // Who the listener is comes from the session alone: no argument names a
 // subscriber, and the engine's binding writes the session's subscriber id
 // into every subscriber call (engine.ts).
+import { create } from "@bufbuild/protobuf";
 import { type Refusal, RefusalCode } from "contracts/commerce/v1/common";
-import { idOrNull, money, optionalMoney, orNull } from "../convert.ts";
+import { type Confirmation, type Payment, PaymentSchema, PaymentState, PaymentStateSchema } from "contracts/commerce/v1/subscriptions";
+import { enumName, idOrNull, money, optionalMoney, orNull } from "../convert.ts";
 import { breach, gatewayError } from "../errors.ts";
-import type { AudioQuality, Resolvers } from "../generated/public.ts";
+import type { AudioQuality, PaymentState as PublicPaymentState, Resolvers } from "../generated/public.ts";
 import { positiveId } from "../ids.ts";
 import type { PublicRefusalCode, PublicRefusalModel } from "../models.ts";
 import { listenerOf } from "../policy.ts";
@@ -60,6 +62,25 @@ function refusal(table: ReadonlyMap<RefusalCode, Said>, otherwise: string, refus
   return said
     ? { $typeName: "gateway.PublicRefusal", code: said.code, reason: said.sentence ?? refused.reason }
     : { $typeName: "gateway.PublicRefusal", code: "NOT_AVAILABLE", reason: otherwise };
+}
+
+/**
+ * The first month's payment of a confirmation. An engine that charges after
+ * the confirmation, through its outbox (stage 6), sends the payment, PENDING;
+ * one that charged at the confirmation sent only the receipt, which is a
+ * payment that succeeded then. The site reads one shape from both.
+ */
+function paymentOf(confirmation: Confirmation): Payment {
+  if (confirmation.payment) return confirmation.payment;
+  const receipt = confirmation.receipt ?? breach("the confirmation has neither a payment nor a receipt");
+  return create(PaymentSchema, {
+    state: PaymentState.SUCCEEDED,
+    ...(receipt.amount ? { amount: receipt.amount } : {}),
+    provider: receipt.provider,
+    requestedAt: receipt.issuedAt,
+    settledAt: receipt.issuedAt,
+    receipt,
+  });
 }
 
 export const publicResolvers: Resolvers = {
@@ -206,6 +227,7 @@ export const publicResolvers: Resolvers = {
   Account: {
     market: (account) => account.market,
     subscription: (account) => account.subscription ?? breach("the account has no subscription"),
+    payment: (account) => account.payment ?? null,
     studentVerification: (account) => account.studentVerification ?? null,
   },
   Subscription: {
@@ -238,9 +260,17 @@ export const publicResolvers: Resolvers = {
     demonstration: (receipt) => receipt.demonstration,
     note: (receipt) => receipt.note,
   },
+  Payment: {
+    state: (payment) => enumName<PublicPaymentState>(PaymentStateSchema, payment.state, "payment state"),
+    amount: (payment) => money(payment.amount, "the payment's amount"),
+    provider: (payment) => payment.provider,
+    requestedAt: (payment) => payment.requestedAt,
+    settledAt: (payment) => orNull(payment.settledAt),
+    receipt: (payment) => payment.receipt ?? null,
+  },
   Confirmation: {
     subscription: (confirmation) => confirmation.subscription ?? breach("the confirmation has no subscription"),
-    receipt: (confirmation) => confirmation.receipt ?? breach("the confirmation has no receipt"),
+    payment: (confirmation) => paymentOf(confirmation),
   },
   Refusal: {
     code: (refused) => refused.code,

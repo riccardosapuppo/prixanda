@@ -10,10 +10,12 @@ import { after, before, describe, test } from "node:test";
 import { AuditService } from "contracts/commerce/v1/audit";
 import { CatalogService } from "contracts/commerce/v1/catalog";
 import { ChangeService, ChangeState } from "contracts/commerce/v1/changes";
+import { LaunchService } from "contracts/commerce/v1/launches";
 import { OverviewService, PeopleService } from "contracts/commerce/v1/overview";
 import { QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
 import { SubscriberService } from "contracts/commerce/v1/subscriptions";
+import { SERVICES } from "../src/core/engine.ts";
 import { anyKind, FIELD_ROLES, isByKind, METHOD_ROLES, PUBLIC_METHODS, ROLES, SUBSCRIBER_METHODS } from "../src/core/roles.ts";
 import { type Harness, startHarness } from "./support/harness.ts";
 
@@ -124,6 +126,17 @@ describe("the role matrix", () => {
     }
     const listed = [...PUBLIC_METHODS, ...SUBSCRIBER_METHODS, ...Object.keys(matrix)];
     assert.deepEqual(listed.filter((method) => !contract.includes(method)), [], "the lists name no method the contract lacks");
+  });
+
+  test("leaves the launch service of stage 6 to a later round: in the contract, not served, and in none of the lists", () => {
+    // The console's schema exposes ListLaunches, GetLaunch, RetryLaunch and
+    // CancelLaunch later; until then the gateway binds no client to them, and
+    // adding one without its roles stops engineCalls() (src/core/engine.ts).
+    const launches = LaunchService.methods.map((method) => method.name);
+    assert.deepEqual(launches.sort(), ["CancelLaunch", "GetLaunch", "ListLaunches", "RetryLaunch"]);
+    assert.ok(!(Object.values(SERVICES) as unknown[]).includes(LaunchService));
+    const listed: string[] = [...PUBLIC_METHODS, ...SUBSCRIBER_METHODS, ...Object.keys(matrix)];
+    assert.deepEqual(launches.filter((method) => listed.includes(method)), []);
   });
 });
 

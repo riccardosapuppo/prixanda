@@ -643,6 +643,7 @@ export type Overview = {
   readonly __typename?: 'Overview';
   readonly waitingForApproval: ReadonlyArray<ChangeSummary>;
   readonly launchesNext7Days: ReadonlyArray<Launch>;
+  /** The incidents open at this instant, and those opened or closed on its day (UTC), newest first. */
   readonly incidentsToday: ReadonlyArray<Incident>;
   readonly payingSubscribers: ReadonlyArray<SubscriberCount>;
   readonly freeListeners: ReadonlyArray<SubscriberCount>;
@@ -674,9 +675,13 @@ export type Launch = {
   readonly risk?: Maybe<Scalars['String']['output']>;
 };
 
+/** How an incident of a launch stands. */
 export type IncidentState =
+  /** Its launch went through on its own, and nobody had to act. */
   | 'RECOVERED'
-  | 'OPEN';
+  | 'OPEN'
+  /** A person retried or cancelled the launch. */
+  | 'RESOLVED';
 
 export type Incident = {
   readonly __typename?: 'Incident';

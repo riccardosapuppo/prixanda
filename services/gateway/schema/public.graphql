@@ -75,7 +75,13 @@ type Mutation {
   signOutListener: Boolean!
   "The simulated provider verifies the session's listener as a student, for 12 months (§10)."
   verifyStudent: VerificationResult!
-  "Subscribes the session's listener at exactly the quoted price (§4.5). No money moves: the receipt is a demonstration."
+  """
+  Subscribes the session's listener at exactly the quoted price (§4.5). The
+  subscription starts at once; its first month's payment comes back PENDING
+  and is settled by the payment provider shortly after: read
+  me { account { payment } } again until it is not. No money moves: the
+  provider is simulated, and its receipt says so.
+  """
   confirmSubscription(quoteId: ID!): SubscriptionResult!
 }
 
@@ -185,6 +191,8 @@ type Account {
   market: MarketCode!
   "The subscription running today in the listener's market."
   subscription: Subscription!
+  "The first month's payment of the running subscription; null on the free plan, and for a subscription that came with the demo's data."
+  payment: Payment
   "The latest student verification; null when there has been none."
   studentVerification: StudentVerification
 }
@@ -234,9 +242,33 @@ type Receipt {
   note: String!
 }
 
+"A payment's state: the provider's answer settles it, each answer counted once."
+enum PaymentState {
+  "Asked for and not settled yet; the subscription runs meanwhile."
+  PENDING
+  "Taken: the receipt is issued."
+  SUCCEEDED
+  "Declined: the paid subscription ends at the end of that day, and the free plan follows the day after."
+  FAILED
+}
+
+"The first month's payment of a subscription confirmed from a quote (§4.5). No money moves: the provider is simulated."
+type Payment {
+  state: PaymentState!
+  amount: Money!
+  "simulated: no money moves."
+  provider: String!
+  requestedAt: DateTime!
+  "When the provider's answer settled it; null while pending."
+  settledAt: DateTime
+  "Issued when the payment succeeds; null before, and when it fails."
+  receipt: Receipt
+}
+
 type Confirmation {
   subscription: Subscription!
-  receipt: Receipt!
+  "The first month's payment: PENDING until the provider answers, then in the account."
+  payment: Payment!
 }
 
 enum RefusalCode {
@@ -252,7 +284,7 @@ enum RefusalCode {
   NOT_COMBINABLE
   "The offer has been taken as many times as it can be (§6.1)."
   CAP_REACHED
-  "The payment provider declined the charge."
+  "The payment provider declined a charge taken at the confirmation, so nothing was subscribed. A payment asked after the confirmation fails as a FAILED payment instead."
   PAYMENT_DECLINED
   "This cannot be done here now."
   NOT_AVAILABLE

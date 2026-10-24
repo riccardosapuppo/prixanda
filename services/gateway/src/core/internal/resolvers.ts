@@ -128,7 +128,7 @@ async function person(context: InternalContext, id: string) {
 const roleOf = (role: number): Role => enumName<Role>(RoleSchema, role, "role");
 
 const AUDIO: Record<string, AudioQuality> = { standard: "STANDARD", lossless: "LOSSLESS" };
-const INCIDENT: Record<string, IncidentState> = { recovered: "RECOVERED", open: "OPEN" };
+const INCIDENT: Record<string, IncidentState> = { recovered: "RECOVERED", open: "OPEN", resolved: "RESOLVED" };
 const ACTOR_ROLES: readonly ActorRole[] = ["MARKETING", "COMMERCIAL_LEAD", "FINANCE", "CATALOG_MANAGER", "ON_CALL", "AUDITOR", "SYSTEM", "SUBSCRIBER"];
 const ASSUMPTIONS: readonly AssumptionName[] = ["ELIGIBLE", "TAKE_UP", "INCREMENTAL", "RETENTION", "HORIZON_MONTHS"];
 

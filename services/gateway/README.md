@@ -117,23 +117,35 @@ Plans and their entitlements, list prices, offers on sale, quotes; and, since
 stage 5, the subscriber's side: the demo's listeners (`demoListeners`), the
 session's listener and their account (`me { account }`: plan, price, the
 offer's months left, the day the list price applies from, the next charge,
-the student verification and its end), `verifyStudent`, and
-`confirmSubscription(quoteId)`, which subscribes at exactly the quoted price
-and answers with the subscription and a receipt that says it is a
-demonstration (no money moves). Nothing about floors, the artists' pool,
-top-ups or margins, no changes, versions or approvals, no people, no audit
-log, no ids of subscriptions or of the verifier's records. Three tests check
-it, each from another angle (`test/public-contract.test.ts`):
+the first month's payment, the student verification and its end),
+`verifyStudent`, and `confirmSubscription(quoteId)`, which subscribes at
+exactly the quoted price. Nothing about floors, the artists' pool, top-ups or
+margins, no changes, versions or approvals, no people, no audit log, no ids
+of subscriptions, payments or the verifier's records, and none of the
+payment provider's own words. Three tests check it, each from another angle
+(`test/public-contract.test.ts`):
 
 1. the whole surface of the schema (types, fields, arguments, enum values,
    union members) equals a list written in the test, in both directions;
 2. no name in it belongs to the internal vocabulary (with exceptions, each
-   named in the test with its reason: a visitor may be told `NOT_ELIGIBLE` or
-   `PAYMENT_DECLINED`, signs in and out as a listener, and sends back their
-   session's `csrfToken`);
+   named in the test where it stands, with its reason: a visitor may be told
+   `NOT_ELIGIBLE`, signs in and out as a listener, sends back their session's
+   `csrfToken`, and reads their payment's `state`);
 3. an engine that plants marked values in every internal field of its
    messages, the subscriber's included, answers every public field, signed in
-   as a listener who verifies and subscribes, and none of the marks comes out.
+   as a listener who verifies, subscribes and pays, and none of the marks
+   comes out.
+
+The payment is asynchronous, as the engine of stage 6 makes it: the
+subscription starts at the confirmation, and its first month's `payment`
+comes back `PENDING`, asked of the payment provider after the confirmation
+commits. The provider's answer settles it, usually within a second: the site
+reads `me { account { payment { state receipt } } }` again until it is
+`SUCCEEDED`, with a receipt that says no money moved, or `FAILED`, and the
+paid subscription then ends with that day. An engine that still charges at
+the confirmation (the engine of stage 5) sends the receipt alone: the gateway
+reads it as a payment that succeeded at the confirmation, and that engine's
+account has no payment to show. The fake engine answers both ways.
 
 No argument or input of the site's schema can carry money: the price is
 always the engine's (§4.5).
@@ -141,7 +153,8 @@ always the engine's (§4.5).
 A refusal on the site is `Refusal { code reason }`, with the site's codes:
 `OFFER_ENDED` (asking for a quote of an offer no longer on sale),
 `QUOTE_EXPIRED`, `NOT_ELIGIBLE`, `ALREADY_SUBSCRIBED`, `NOT_COMBINABLE`,
-`CAP_REACHED`, `PAYMENT_DECLINED`, and `NOT_AVAILABLE` for any other. The
+`CAP_REACHED`, `PAYMENT_DECLINED` (a charge declined at the confirmation, by
+an engine that still charges there), and `NOT_AVAILABLE` for any other. The
 engine's sentence travels only where it names nothing the site does not
 already show; for `NOT_COMBINABLE`, `CAP_REACHED` and `PAYMENT_DECLINED`,
 whose sentences name an offer's group, its cap or the provider's words, and
@@ -223,7 +236,7 @@ The engine writes it into the audit log (§11.1).
 
 | | Console | Site |
 |---|---|---|
-| Depth | 8 fields | 4 fields |
+| Depth | 8 fields | 5 fields |
 | Cost | 25,000 | 600 |
 | Tokens in the document | 5,000 | 1,500 |
 | Body | 64 KiB | 64 KiB |

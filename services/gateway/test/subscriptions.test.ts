@@ -13,10 +13,11 @@ import { type Client, codes, type Harness, startHarness } from "./support/harnes
 
 const EUR = (amountMinor: string) => ({ amountMinor, currency: "EUR" });
 const SUBSCRIPTION = "plan market paid price startedOn billingDay offerTitle offerMonths offerMonthsLeft fullPriceFrom fullPrice nextBillingOn nextCharge";
+const PAYMENT = "state amount provider requestedAt settledAt receipt { id amount issuedAt provider providerReference demonstration note }";
 const CONFIRM = `mutation ($q: ID!) { confirmSubscription(quoteId: $q) { __typename
-  ... on Confirmation { subscription { ${SUBSCRIPTION} } receipt { id amount issuedAt provider providerReference demonstration note } }
+  ... on Confirmation { subscription { ${SUBSCRIPTION} } payment { ${PAYMENT} } }
   ... on Refusal { code reason } } }`;
-const ACCOUNT = `{ me { account { market subscription { ${SUBSCRIPTION} } studentVerification { verifiedOn validUntil provider valid } } } }`;
+const ACCOUNT = `{ me { account { market subscription { ${SUBSCRIPTION} } payment { ${PAYMENT} } studentVerification { verifiedOn validUntil provider valid } } } }`;
 
 /** 26 October 2026, 10:30 in Rome: the Student Autumn Pass is on sale (§14.1). */
 const MONDAY_26_OCTOBER = Date.parse("2026-10-26T09:30:00Z");
@@ -57,25 +58,36 @@ describe("the Student Autumn Pass, from the site", () => {
     harness.engine.clearCalls();
     const answer = await student.graphql(CONFIRM, { variables: { q: quoteId }, key: "confirm-autumn-0001" });
     assert.equal(answer.body.errors, undefined, answer.text);
-    const { subscription, receipt } = answer.body.data.confirmSubscription;
+    const { subscription, payment } = answer.body.data.confirmSubscription;
     assert.deepEqual(subscription, {
       plan: "student", market: "IT", paid: true, price: EUR("299"), startedOn: "2026-10-26", billingDay: 26,
       offerTitle: "Student Autumn Pass", offerMonths: 3, offerMonthsLeft: 3, fullPriceFrom: "2027-01-26", fullPrice: EUR("579"),
       nextBillingOn: "2026-11-26", nextCharge: EUR("299"),
     });
-    assert.equal(receipt.demonstration, true);
-    assert.equal(receipt.provider, "simulated");
-    assert.deepEqual(receipt.amount, EUR("299"));
-    assert.equal(receipt.issuedAt, "2026-10-26T09:30:00Z");
-    assert.match(receipt.note, /no money moved/);
+    // The first month is asked for after the confirmation: pending, and no receipt yet.
+    assert.deepEqual(payment, { state: "PENDING", amount: EUR("299"), provider: "simulated", requestedAt: "2026-10-26T09:30:00Z", settledAt: null, receipt: null });
     // The engine heard the quote's id and the session's listener, and no person of the team.
     const call = harness.engine.calls.find((candidate) => candidate.method === "ConfirmQuote");
     const sent = call?.message as { quoteId: string; subscriberId: string } | undefined;
     assert.deepEqual({ quoteId: sent?.quoteId, subscriberId: sent?.subscriberId }, { quoteId, subscriberId: "5001" });
     assert.deepEqual([call?.actor, call?.role, call?.idempotencyKey], [null, null, "confirm-autumn-0001"]);
-    // The account says the same.
+    // The account says the same: the subscription runs while the payment is pending.
     const account = await student.graphql(ACCOUNT);
     assert.deepEqual(account.body.data.me.account.subscription, subscription);
+    assert.deepEqual(account.body.data.me.account.payment, payment);
+  });
+
+  test("the provider's answer settles the payment: the account then has the receipt, which says no money moved", async () => {
+    harness.clock.advance(800);
+    assert.equal(harness.engine.settlePayments(), 1);
+    const account = await (await listener(harness, LISTENERS.verified)).graphql(ACCOUNT);
+    const { receipt, ...payment } = account.body.data.me.account.payment;
+    assert.deepEqual(payment, { state: "SUCCEEDED", amount: EUR("299"), provider: "simulated", requestedAt: "2026-10-26T09:30:00Z", settledAt: "2026-10-26T09:30:00Z" });
+    assert.deepEqual({ amount: receipt.amount, provider: receipt.provider, demonstration: receipt.demonstration, issuedAt: receipt.issuedAt },
+      { amount: EUR("299"), provider: "simulated", demonstration: true, issuedAt: "2026-10-26T09:30:00Z" });
+    assert.match(receipt.note, /no money moved/);
+    assert.match(receipt.providerReference, /^sim-pay-/);
+    assert.equal(harness.engine.settlePayments(), 0, "an answer counts once");
   });
 
   test("the audit log has the subscription, written by the subscriber with the site's request id", async () => {
@@ -104,6 +116,69 @@ function pick(subscription: Record<string, unknown>) {
   return { price: subscription["price"], offerMonthsLeft: subscription["offerMonthsLeft"], nextBillingOn: subscription["nextBillingOn"], nextCharge: subscription["nextCharge"] };
 }
 
+describe("a payment the provider declines", () => {
+  let harness: Harness;
+  before(async () => {
+    harness = await startHarness();
+    moveTo(harness, MONDAY_26_OCTOBER);
+  });
+  after(async () => {
+    await harness.close();
+  });
+
+  test("is FAILED, with no receipt: the subscription runs to the end of the day, and the free plan follows", async () => {
+    const student = await listener(harness, LISTENERS.verified);
+    const confirmed = await student.graphql(CONFIRM, { variables: { q: await quote(student, "9001") } });
+    assert.equal(confirmed.body.data.confirmSubscription.payment.state, "PENDING", confirmed.text);
+    assert.equal(harness.engine.settlePayments("failed", "Card ending 4242 declined by the simulated provider."), 1);
+    const today = (await student.graphql(ACCOUNT)).body.data.me.account;
+    assert.deepEqual({ state: today.payment.state, settledAt: today.payment.settledAt, receipt: today.payment.receipt },
+      { state: "FAILED", settledAt: "2026-10-26T09:30:00Z", receipt: null });
+    assert.equal(today.subscription.plan, "student", "paid for until the end of the day");
+    assert.doesNotMatch(JSON.stringify(today), /4242/, "the provider's own words stay with the engine");
+    moveTo(harness, Date.parse("2026-10-27T09:30:00Z"));
+    const tomorrow = (await (await listener(harness, LISTENERS.verified)).graphql(ACCOUNT)).body.data.me.account;
+    assert.deepEqual({ plan: tomorrow.subscription.plan, paid: tomorrow.subscription.paid, payment: tomorrow.payment }, { plan: "free", paid: false, payment: null });
+  });
+});
+
+describe("an engine that charges at the confirmation, as the engine of stage 5 does", () => {
+  let harness: Harness;
+  before(async () => {
+    harness = await startHarness({ engine: { payments: "at-confirmation" } });
+    moveTo(harness, MONDAY_26_OCTOBER);
+  });
+  after(async () => {
+    await harness.close();
+  });
+
+  test("answers with the receipt alone: the site reads a payment that succeeded at the confirmation", async () => {
+    const student = await listener(harness, LISTENERS.verified);
+    const answer = await student.graphql(CONFIRM, { variables: { q: await quote(student, "9001") } });
+    assert.equal(answer.body.errors, undefined, answer.text);
+    const { receipt, ...payment } = answer.body.data.confirmSubscription.payment;
+    assert.deepEqual(payment, { state: "SUCCEEDED", amount: EUR("299"), provider: "simulated", requestedAt: "2026-10-26T09:30:00Z", settledAt: "2026-10-26T09:30:00Z" });
+    assert.deepEqual({ amount: receipt.amount, demonstration: receipt.demonstration, issuedAt: receipt.issuedAt }, { amount: EUR("299"), demonstration: true, issuedAt: "2026-10-26T09:30:00Z" });
+    assert.match(receipt.note, /no money moved/);
+    // That engine keeps no payment in the account: the confirmation's is the one to show.
+    const account = await student.graphql(ACCOUNT);
+    assert.deepEqual({ plan: account.body.data.me.account.subscription.plan, payment: account.body.data.me.account.payment }, { plan: "student", payment: null });
+  });
+
+  test("a charge the provider declines there is PAYMENT_DECLINED, and nothing is subscribed", async () => {
+    const student = await listener(harness, LISTENERS.unverified);
+    await student.graphql("mutation { verifyStudent { __typename } }");
+    const quoteId = await quote(student, "9001");
+    harness.engine.declineNextCharge("Card ending 4242 declined by the simulated provider.");
+    const answer = await student.graphql(CONFIRM, { variables: { q: quoteId } });
+    assert.deepEqual(answer.body.data.confirmSubscription, {
+      __typename: "Refusal", code: "PAYMENT_DECLINED", reason: "The payment provider declined the charge, so no subscription was made.",
+    });
+    const account = await student.graphql(ACCOUNT);
+    assert.equal(account.body.data.me.account.subscription.plan, "free");
+  });
+});
+
 describe("a confirmation, retried", () => {
   let harness: Harness;
   before(async () => {
@@ -122,7 +197,8 @@ describe("a confirmation, retried", () => {
     assert.equal(first.body.data.confirmSubscription.__typename, "Confirmation", first.text);
     assert.deepEqual(again.body.data, first.body.data);
     assert.equal(harness.engine.replays, 1);
-    assert.equal(harness.engine.receipts.length, 1, "one subscription, one receipt");
+    const paid = harness.engine.listeners.get(LISTENERS.verified)?.subscriptions.filter((subscription) => subscription.paid) ?? [];
+    assert.equal(paid.length, 1, "one subscription, however many times it was asked");
     assert.equal(harness.engine.audit.filter((event) => event.action === "subscription.confirmed").length, 1);
     const other = await quote(student, null, "family");
     const reused = await student.graphql(CONFIRM, { variables: { q: other }, key: "confirm-retried-01" });
@@ -242,17 +318,6 @@ describe("the engine's refusals, in the site's words", () => {
     const answer = await france.graphql('mutation { requestQuote(plan: "student", market: "IT", offerId: "9001") { __typename ... on Refusal { code reason } } }');
     assert.deepEqual(answer.body.data.requestQuote, { __typename: "Refusal", code: "NOT_ELIGIBLE", reason: "Subscriber #5004 is in France, and this quote is for Italy." });
     assert.equal((harness.engine.calls.find((call) => call.method === "GetQuote")?.message as { subscriberId: string }).subscriberId, "5004");
-  });
-
-  test("a declined payment is PAYMENT_DECLINED, and nothing is subscribed", async () => {
-    const student = await listener(harness, LISTENERS.verified);
-    const quoteId = await quote(student, "9001");
-    harness.engine.declineNextCharge("Card ending 4242 declined by the simulated provider.");
-    assert.deepEqual(await refusal(student, quoteId), {
-      __typename: "Refusal", code: "PAYMENT_DECLINED", reason: "The payment provider declined the charge, so no subscription was made.",
-    });
-    const account = await student.graphql(ACCOUNT);
-    assert.equal(account.body.data.me.account.subscription.plan, "free");
   });
 
   test("with a paid plan running, another subscription is ALREADY_SUBSCRIBED", async () => {

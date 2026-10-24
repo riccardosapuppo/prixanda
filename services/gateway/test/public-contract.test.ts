@@ -26,6 +26,7 @@ const ALLOWED = [
   "scalar PlanCode",
   "enum AudioQuality: STANDARD, LOSSLESS",
   "enum RefusalCode: OFFER_ENDED, QUOTE_EXPIRED, NOT_ELIGIBLE, ALREADY_SUBSCRIBED, NOT_COMBINABLE, CAP_REACHED, PAYMENT_DECLINED, NOT_AVAILABLE",
+  "enum PaymentState: PENDING, SUCCEEDED, FAILED",
   "union QuoteResult = Quote | Refusal",
   "union VerificationResult = StudentVerification | Refusal",
   "union SubscriptionResult = Confirmation | Refusal",
@@ -97,6 +98,7 @@ const ALLOWED = [
   "Me.account: Account!",
   "Account.market: MarketCode!",
   "Account.subscription: Subscription!",
+  "Account.payment: Payment",
   "Account.studentVerification: StudentVerification",
   "Subscription.plan: PlanCode!",
   "Subscription.market: MarketCode!",
@@ -115,6 +117,12 @@ const ALLOWED = [
   "StudentVerification.validUntil: Date!",
   "StudentVerification.provider: String!",
   "StudentVerification.valid: Boolean!",
+  "Payment.state: PaymentState!",
+  "Payment.amount: Money!",
+  "Payment.provider: String!",
+  "Payment.requestedAt: DateTime!",
+  "Payment.settledAt: DateTime",
+  "Payment.receipt: Receipt",
   "Receipt.id: ID!",
   "Receipt.amount: Money!",
   "Receipt.issuedAt: DateTime!",
@@ -123,13 +131,17 @@ const ALLOWED = [
   "Receipt.demonstration: Boolean!",
   "Receipt.note: String!",
   "Confirmation.subscription: Subscription!",
-  "Confirmation.receipt: Receipt!",
+  "Confirmation.payment: Payment!",
   "Refusal.code: RefusalCode!",
   "Refusal.reason: String!",
 ];
 
-/** The internal vocabulary: economics, workflow, people and the log. None of it may name anything public. */
-const INTERNAL_WORDS = /floor|artist|minimum|top.?up|breakdown|keeps|margin|payment|vat|net\b|approv|author|version|fingerprint|hash|sign|audit|eligib|simulat|person|people|role|session|csrf|change|draft|state|below|internal|cost|contribution|revenue|actor|request.?id|engine/i;
+/**
+ * The internal vocabulary: economics, workflow, people and the log. None of it
+ * may name anything public. A listener's own payment is theirs; what the
+ * payment provider costs the company is the console's.
+ */
+const INTERNAL_WORDS = /floor|artist|minimum|top.?up|breakdown|keeps|margin|payment.?cost|vat|net\b|approv|author|version|fingerprint|hash|sign|audit|eligib|simulat|person|people|role|session|csrf|change|draft|state|below|internal|cost|contribution|revenue|actor|request.?id|engine/i;
 
 function surface(schema: GraphQLSchema): string[] {
   const lines: string[] = [];
@@ -150,17 +162,20 @@ function surface(schema: GraphQLSchema): string[] {
   return lines;
 }
 
-/** Every name the schema shows: types, fields, arguments, enum values. */
-function names(schema: GraphQLSchema): string[] {
-  const found: string[] = [];
+/** Every name the schema shows, with where it shows it: Type, Type.field, Type.field(argument), Enum.VALUE. */
+function names(schema: GraphQLSchema): Array<{ name: string; where: string }> {
+  const found: Array<{ name: string; where: string }> = [];
   for (const type of Object.values(schema.getTypeMap())) {
     if (type.name.startsWith("__") || specifiedScalarTypes.includes(type as never)) continue;
-    found.push(type.name);
-    if (isEnumType(type)) found.push(...type.getValues().map((value) => value.name));
+    found.push({ name: type.name, where: type.name });
+    if (isEnumType(type)) for (const value of type.getValues()) found.push({ name: value.name, where: `${type.name}.${value.name}` });
     if (isObjectType(type)) {
-      for (const field of Object.values(type.getFields())) found.push(field.name, ...field.args.map((arg) => arg.name));
+      for (const field of Object.values(type.getFields())) {
+        found.push({ name: field.name, where: `${type.name}.${field.name}` });
+        for (const arg of field.args) found.push({ name: arg.name, where: `${type.name}.${field.name}(${arg.name})` });
+      }
     }
-    if (isInputObjectType(type)) found.push(...Object.keys(type.getFields()));
+    if (isInputObjectType(type)) for (const name of Object.keys(type.getFields())) found.push({ name, where: `${type.name}.${name}` });
   }
   return found;
 }
@@ -189,19 +204,24 @@ describe("the site's schema, as written", () => {
   test("names nothing with a word of the internal vocabulary", () => {
     const all = names(schema);
     assert.ok(all.length > 60, `only ${all.length} names were read: the check would pass on nothing`);
-    // The exceptions, named. A visitor may be told they are not eligible for
-    // an offer; how many people are eligible is the console's. A listener
-    // signs in and out of the site's demonstration, which is no signature of
-    // an approval, and their page sends back its own session's CSRF token. A
-    // listener is told their charge was declined; payment costs are the console's.
-    const exceptions = ["NOT_ELIGIBLE", "signInAsListener", "signOutListener", "csrfToken", "PAYMENT_DECLINED"];
-    assert.deepEqual(all.filter((name) => INTERNAL_WORDS.test(name) && !exceptions.includes(name)), []);
-    assert.deepEqual(exceptions.filter((name) => !all.includes(name)), [], "an exception for a name the schema no longer has");
+    // The exceptions, each where it stands. A visitor may be told they are
+    // not eligible for an offer; how many people are eligible is the
+    // console's. A listener signs in and out of the site's demonstration,
+    // which is no signature of an approval, and their page sends back its own
+    // session's CSRF token. A payment has a state of its own, which is no
+    // change's state of the workflow.
+    const exceptions = [
+      "RefusalCode.NOT_ELIGIBLE", "Mutation.signInAsListener", "Mutation.signOutListener", "Me.csrfToken", "PaymentState", "Payment.state",
+    ];
+    assert.deepEqual(all.filter(({ name, where }) => INTERNAL_WORDS.test(name) && !exceptions.includes(where)).map(({ where }) => where), []);
+    assert.deepEqual(exceptions.filter((where) => !all.some((entry) => entry.where === where)), [], "an exception for a name the schema no longer has");
   });
 
   test("the vocabulary check finds the internal schema's names, so it is not blind", () => {
     // The same check, run on the console's names, must find plenty.
-    const internalNames = ["floor", "artistsMinimum", "breakdown", "approveChange", "fingerprint", "auditEvents", "eligible", "session", "topUp"];
+    const internalNames = [
+      "floor", "artistsMinimum", "breakdown", "approveChange", "fingerprint", "auditEvents", "eligible", "session", "topUp", "paymentCosts", "ChangeState",
+    ];
     assert.deepEqual(internalNames.filter((name) => !INTERNAL_WORDS.test(name)), []);
   });
 
@@ -254,9 +274,12 @@ describe("the site's API, answered by an engine that plants marked values in eve
     assert.equal(typeof quoteId, "string", answers[1]?.text);
     answers.push(await site.graphql(`mutation ($q: ID!) { confirmSubscription(quoteId: $q) ${all("SubscriptionResult")} }`, { variables: { q: quoteId } }));
     answers.push(await site.graphql(`{ me ${all("Me")} }`));
+    // The provider's event: the payment succeeds, and the account has its receipt.
+    assert.equal(harness.engine.settlePayments(), 1);
+    answers.push(await site.graphql(`{ me ${all("Me")} }`));
     for (const answer of answers) assert.equal(answer.body.errors, undefined, answer.text);
     // The answers are full: the check below is not passing on empty data.
-    const [catalog, quote, plain, ended, verified, confirmed, after] = answers.map((answer) => answer.body.data);
+    const [catalog, quote, plain, ended, verified, confirmed, pending, settled] = answers.map((answer) => answer.body.data);
     assert.equal(catalog.markets.length, 4);
     assert.equal(catalog.plans.length, 5);
     assert.ok(catalog.prices.length >= 1);
@@ -270,13 +293,16 @@ describe("the site's API, answered by an engine that plants marked values in eve
     assert.deepEqual(ended.requestQuote, { __typename: "Refusal", code: "OFFER_ENDED", reason: "This offer is no longer on sale." });
     assert.equal(verified.verifyStudent.__typename, "StudentVerification");
     assert.equal(confirmed.confirmSubscription.__typename, "Confirmation");
-    assert.deepEqual(confirmed.confirmSubscription.receipt.amount, { amountMinor: "299", currency: "EUR" });
-    assert.equal(after.me.account.subscription.paid, true);
+    assert.equal(confirmed.confirmSubscription.payment.state, "PENDING");
+    assert.equal(pending.me.account.subscription.paid, true);
+    assert.equal(pending.me.account.payment.state, "PENDING");
+    assert.equal(settled.me.account.payment.state, "SUCCEEDED");
+    assert.deepEqual(settled.me.account.payment.receipt.amount, { amountMinor: "299", currency: "EUR" });
     // The engine's messages carried the marks in floors, minimums, breakdowns,
     // price-list change ids, below-floor flags, top-ups and offer versions,
-    // and in the subscriber's ids of subscriptions and accounts and the
-    // verifier's references.
-    assert.ok(harness.engine.calls.length >= 8);
+    // and in the subscriber's ids of subscriptions, accounts and payments, the
+    // provider's reasons and the verifier's references.
+    assert.ok(harness.engine.calls.length >= 9);
     for (const answer of answers) {
       for (const mark of [String(SENTINEL.amount), SENTINEL.changeId, "987654", SENTINEL.text, "belowFloor", "breakdown", "floor"]) {
         assert.ok(!answer.text.includes(mark), `the public answer carries ${mark}: ${answer.text.slice(0, 400)}`);
@@ -297,6 +323,9 @@ describe("the site's API, answered by an engine that plants marked values in eve
       assert.equal(account?.subscriberId, SENTINEL.changeId);
       assert.equal(account?.subscription?.subscriptionId, SENTINEL.changeId);
       assert.equal(account?.studentVerification?.reference, SENTINEL.text);
+      // The payment of the subscription the test above confirmed.
+      assert.equal(account?.payment?.paymentId, SENTINEL.text);
+      assert.equal(account?.payment?.failureReason, SENTINEL.text);
     } finally {
       engine.close();
     }

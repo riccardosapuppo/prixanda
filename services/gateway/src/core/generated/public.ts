@@ -7,7 +7,7 @@ import type { DateValue } from '../scalars.ts';
 import type { MarketCodeValue } from '../scalars.ts';
 import type { PlanCodeValue } from '../scalars.ts';
 import type { GraphQLResolveInfo, GraphQLScalarType, GraphQLScalarTypeConfig } from 'graphql';
-import type { PublicMarketModel, PublicEntitlementsModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel } from '../models.ts';
+import type { PublicMarketModel, PublicEntitlementsModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicPaymentModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel } from '../models.ts';
 import type { PublicContext } from '../context.ts';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
@@ -82,7 +82,13 @@ export type Mutation = {
   readonly signOutListener: Scalars['Boolean']['output'];
   /** The simulated provider verifies the session's listener as a student, for 12 months (§10). */
   readonly verifyStudent: VerificationResult;
-  /** Subscribes the session's listener at exactly the quoted price (§4.5). No money moves: the receipt is a demonstration. */
+  /**
+   * Subscribes the session's listener at exactly the quoted price (§4.5). The
+   * subscription starts at once; its first month's payment comes back PENDING
+   * and is settled by the payment provider shortly after: read
+   * me { account { payment } } again until it is not. No money moves: the
+   * provider is simulated, and its receipt says so.
+   */
   readonly confirmSubscription: SubscriptionResult;
 };
 
@@ -218,6 +224,8 @@ export type Account = {
   readonly market: Scalars['MarketCode']['output'];
   /** The subscription running today in the listener's market. */
   readonly subscription: Subscription;
+  /** The first month's payment of the running subscription; null on the free plan, and for a subscription that came with the demo's data. */
+  readonly payment?: Maybe<Payment>;
   /** The latest student verification; null when there has been none. */
   readonly studentVerification?: Maybe<StudentVerification>;
 };
@@ -270,10 +278,34 @@ export type Receipt = {
   readonly note: Scalars['String']['output'];
 };
 
+/** A payment's state: the provider's answer settles it, each answer counted once. */
+export type PaymentState =
+  /** Asked for and not settled yet; the subscription runs meanwhile. */
+  | 'PENDING'
+  /** Taken: the receipt is issued. */
+  | 'SUCCEEDED'
+  /** Declined: the paid subscription ends at the end of that day, and the free plan follows the day after. */
+  | 'FAILED';
+
+/** The first month's payment of a subscription confirmed from a quote (§4.5). No money moves: the provider is simulated. */
+export type Payment = {
+  readonly __typename?: 'Payment';
+  readonly state: PaymentState;
+  readonly amount: Scalars['Money']['output'];
+  /** simulated: no money moves. */
+  readonly provider: Scalars['String']['output'];
+  readonly requestedAt: Scalars['DateTime']['output'];
+  /** When the provider's answer settled it; null while pending. */
+  readonly settledAt?: Maybe<Scalars['DateTime']['output']>;
+  /** Issued when the payment succeeds; null before, and when it fails. */
+  readonly receipt?: Maybe<Receipt>;
+};
+
 export type Confirmation = {
   readonly __typename?: 'Confirmation';
   readonly subscription: Subscription;
-  readonly receipt: Receipt;
+  /** The first month's payment: PENDING until the provider answers, then in the account. */
+  readonly payment: Payment;
 };
 
 export type RefusalCode =
@@ -289,7 +321,7 @@ export type RefusalCode =
   | 'NOT_COMBINABLE'
   /** The offer has been taken as many times as it can be (§6.1). */
   | 'CAP_REACHED'
-  /** The payment provider declined the charge. */
+  /** The payment provider declined a charge taken at the confirmation, so nothing was subscribed. A payment asked after the confirmation fails as a FAILED payment instead. */
   | 'PAYMENT_DECLINED'
   /** This cannot be done here now. */
   | 'NOT_AVAILABLE';
@@ -421,6 +453,8 @@ export type ResolversTypes = {
   Subscription: ResolverTypeWrapper<PublicSubscriptionModel>;
   StudentVerification: ResolverTypeWrapper<PublicStudentVerificationModel>;
   Receipt: ResolverTypeWrapper<PublicReceiptModel>;
+  PaymentState: PaymentState;
+  Payment: ResolverTypeWrapper<PublicPaymentModel>;
   Confirmation: ResolverTypeWrapper<PublicConfirmationModel>;
   RefusalCode: RefusalCode;
   Refusal: ResolverTypeWrapper<PublicRefusalModel>;
@@ -456,6 +490,7 @@ export type ResolversParentTypes = {
   Subscription: PublicSubscriptionModel;
   StudentVerification: PublicStudentVerificationModel;
   Receipt: PublicReceiptModel;
+  Payment: PublicPaymentModel;
   Confirmation: PublicConfirmationModel;
   Refusal: PublicRefusalModel;
   QuoteResult: ResolversUnionTypes<ResolversParentTypes>['QuoteResult'];
@@ -589,6 +624,7 @@ export type MeResolvers<ContextType = PublicContext, ParentType extends Resolver
 export type AccountResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Account'] = ResolversParentTypes['Account']> = {
   market: Resolver<ResolversTypes['MarketCode'], ParentType, ContextType>;
   subscription: Resolver<ResolversTypes['Subscription'], ParentType, ContextType>;
+  payment: Resolver<Maybe<ResolversTypes['Payment']>, ParentType, ContextType>;
   studentVerification: Resolver<Maybe<ResolversTypes['StudentVerification']>, ParentType, ContextType>;
 };
 
@@ -626,9 +662,18 @@ export type ReceiptResolvers<ContextType = PublicContext, ParentType extends Res
   note: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
 
+export type PaymentResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Payment'] = ResolversParentTypes['Payment']> = {
+  state: Resolver<ResolversTypes['PaymentState'], ParentType, ContextType>;
+  amount: Resolver<ResolversTypes['Money'], ParentType, ContextType>;
+  provider: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  requestedAt: Resolver<ResolversTypes['DateTime'], ParentType, ContextType>;
+  settledAt: Resolver<Maybe<ResolversTypes['DateTime']>, ParentType, ContextType>;
+  receipt: Resolver<Maybe<ResolversTypes['Receipt']>, ParentType, ContextType>;
+};
+
 export type ConfirmationResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Confirmation'] = ResolversParentTypes['Confirmation']> = {
   subscription: Resolver<ResolversTypes['Subscription'], ParentType, ContextType>;
-  receipt: Resolver<ResolversTypes['Receipt'], ParentType, ContextType>;
+  payment: Resolver<ResolversTypes['Payment'], ParentType, ContextType>;
   __isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>;
 };
 
@@ -672,6 +717,7 @@ export type Resolvers<ContextType = PublicContext> = {
   Subscription: SubscriptionResolvers<ContextType>;
   StudentVerification: StudentVerificationResolvers<ContextType>;
   Receipt: ReceiptResolvers<ContextType>;
+  Payment: PaymentResolvers<ContextType>;
   Confirmation: ConfirmationResolvers<ContextType>;
   Refusal: RefusalResolvers<ContextType>;
   QuoteResult: QuoteResultResolvers<ContextType>;

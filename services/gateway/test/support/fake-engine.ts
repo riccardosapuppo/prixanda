@@ -12,7 +12,7 @@
 import { createHash } from "node:crypto";
 import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
 import { setTimeout as sleep } from "node:timers/promises";
-import { create, toBinary } from "@bufbuild/protobuf";
+import { create, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
 import { Code, ConnectError, type ConnectRouter, type HandlerContext, type Interceptor, type UnaryResponse } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { AuditEventSchema, AuditService, ChainHeadSchema, type AuditEvent } from "contracts/commerce/v1/audit";
@@ -26,11 +26,12 @@ import {
   Severity, ValidationReportSchema, type ValidationReport,
 } from "contracts/commerce/v1/changes";
 import { type Money, MoneySchema, type Refusal, RefusalCode, RefusalSchema, Role } from "contracts/commerce/v1/common";
-import { OverviewService, PeopleService, PersonSchema, type Person } from "contracts/commerce/v1/overview";
+import { IncidentSchema, OverviewService, PeopleService, PersonSchema, type Person } from "contracts/commerce/v1/overview";
 import { QuoteSchema, QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
 import {
-  AccountSchema, DemoListenerSchema, ReceiptSchema, StudentVerificationSchema, SubscriberService, type Subscription, SubscriptionSchema,
+  AccountSchema, DemoListenerSchema, type Payment, PaymentSchema, PaymentState, ReceiptSchema, StudentVerificationSchema, SubscriberService,
+  type Subscription, SubscriptionSchema,
 } from "contracts/commerce/v1/subscriptions";
 import { Health, HealthCheckResponse_ServingStatus } from "contracts/grpc/health/v1/health";
 import { PORTS as REPO_PORTS } from "../../../../tools/lib/paths.ts";
@@ -145,6 +146,19 @@ export type StoredSubscription = {
   quoteId: string | null;
   offerId: string | null;
   offerMonths: number;
+  /** The first month's payment, asked after the confirmation; null when charged at it, on the free plan, and for the data's own. */
+  payment?: StoredPayment | null;
+};
+
+/** The first month's payment as the engine of stage 6 keeps it, settled by the provider's events. */
+export type StoredPayment = {
+  id: string;
+  state: "pending" | "succeeded" | "failed";
+  amountMinor: bigint;
+  requestedAt: string;
+  settledAt: string;
+  failureReason: string;
+  receipt: { id: string; issuedAt: string; reference: string } | null;
 };
 
 export type StoredListener = {
@@ -234,6 +248,12 @@ function addMonths(day: string, months: number): string {
   return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(Math.min(date, last)).padStart(2, "0")}`;
 }
 
+/** The day after, or before, in the calendar. */
+function addDays(day: string, days: number): string {
+  const [year = 0, month = 1, date = 1] = day.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, date + days)).toISOString().slice(0, 10);
+}
+
 /** The engine's billing schedule (commerce/domain/billing.py): charged on the first day, then on the billing day each month. */
 const LAST_BILLING_DAY = 28;
 const billingDayFor = (start: string) => Math.min(Number(start.slice(8, 10)), LAST_BILLING_DAY);
@@ -282,6 +302,13 @@ export type FakeEngineOptions = {
   readonly extraPeople?: Record<string, { label: string; roles: string[] }>;
   /** Plant SENTINEL values in every internal field the catalog's messages carry. */
   readonly sentinels?: boolean;
+  /**
+   * When the first month is charged: after the confirmation (the default),
+   * through the engine's outbox as in stage 6, the payment PENDING until a
+   * test settles it as the provider's events would; or at the confirmation,
+   * as the engine of stage 5 did, the receipt in the answer itself.
+   */
+  readonly payments?: "after-confirmation" | "at-confirmation";
 };
 
 const money = (amountMinor: bigint, currency: string): Money => create(MoneySchema, { amountMinor, currency });
@@ -298,6 +325,8 @@ export class FakeEngine {
   readonly offerRules = new Map<string, OfferRules>([["9001", { neverPaid: true, group: "student", cap: 0 }]]);
   readonly listeners = new Map<string, StoredListener>(demoListeners().map((listener) => [listener.id, listener]));
   readonly quotes = new Map<string, StoredQuote>();
+  /** The home's incidents of today, as GetOverview answers them; none unless a test adds them. */
+  readonly incidents: MessageInitShape<typeof IncidentSchema>[] = [];
   readonly receipts: Array<{ id: string; subscriptionId: string; quoteId: string; subscriberId: string }> = [];
   /** Idempotency keys and what they answered (the engine's behaviour 2). */
   readonly #idempotency = new Map<string, { method: string; actor: string; role: string; fingerprint: string; response: UnaryResponse }>();
@@ -369,9 +398,49 @@ export class FakeEngine {
     this.#delays.set(method, ms);
   }
 
-  /** The simulated payment provider declines the next charge, with this reason (the engine's PaymentProvider may). */
+  /**
+   * With payments at the confirmation (the engine of stage 5): the simulated
+   * provider declines the next charge with this reason, as a real provider
+   * may, and the confirmation is refused with PAYMENT_DECLINED.
+   */
   declineNextCharge(reason: string): void {
     this.#declineNext = reason;
+  }
+
+  /**
+   * With payments after the confirmation (stage 6): the provider's answer to
+   * every pending payment, as its events settle them. Succeeded issues the
+   * receipt; failed ends the paid subscription at the end of that day, with
+   * the free plan from the day after. Returns how many it settled.
+   */
+  settlePayments(outcome: "succeeded" | "failed" = "succeeded", reason = "The simulated provider declined the charge."): number {
+    let settled = 0;
+    for (const listener of this.listeners.values()) {
+      for (const subscription of [...listener.subscriptions]) {
+        const payment = subscription.payment;
+        if (payment?.state !== "pending") continue;
+        payment.settledAt = this.#now();
+        if (outcome === "succeeded") {
+          payment.state = "succeeded";
+          payment.receipt = {
+            id: `r_${hex(sha256(`receipt-${payment.id}`)).slice(0, 32)}`, issuedAt: this.#now(),
+            reference: `sim-pay-${hex(sha256(payment.id)).slice(0, 24)}`,
+          };
+          this.receipts.push({ id: payment.receipt.id, subscriptionId: subscription.id, quoteId: subscription.quoteId ?? "", subscriberId: listener.id });
+        } else {
+          payment.state = "failed";
+          payment.failureReason = reason;
+          const tomorrow = addDays(this.#today(listener.market), 1);
+          subscription.endedOn = tomorrow;
+          listener.subscriptions.push({
+            id: String(this.#nextSubscription++), plan: "free", paid: false, priceMinor: 0n, startedOn: tomorrow, endedOn: null,
+            billingDay: 0, quoteId: null, offerId: null, offerMonths: 0,
+          });
+        }
+        settled += 1;
+      }
+    }
+    return settled;
   }
 
   /**
@@ -623,6 +692,24 @@ export class FakeEngine {
     return message;
   }
 
+  /** A payment as the engine of stage 6 answers it, with its receipt once it succeeded. */
+  #payment(stored: StoredPayment, currency: string): Payment {
+    const planted = this.#options.sentinels;
+    const state = { pending: PaymentState.PENDING, succeeded: PaymentState.SUCCEEDED, failed: PaymentState.FAILED }[stored.state];
+    return create(PaymentSchema, {
+      paymentId: planted ? SENTINEL.text : stored.id, state, amount: money(stored.amountMinor, currency), provider: "simulated",
+      requestedAt: stored.requestedAt, settledAt: stored.settledAt, failureReason: planted ? SENTINEL.text : stored.failureReason,
+      ...(stored.receipt
+        ? {
+          receipt: create(ReceiptSchema, {
+            receiptId: stored.receipt.id, amount: money(stored.amountMinor, currency), issuedAt: stored.receipt.issuedAt, provider: "simulated",
+            providerReference: stored.receipt.reference, demonstration: true, note: RECEIPT_NOTE,
+          }),
+        }
+        : {}),
+    });
+  }
+
   /** A role check on a method with an outcome: a refusal, never an error (the engine's behaviour 6). */
   #mayNot(method: string, context: HandlerContext, kind: Kind | null): { outcome: { case: "refusal"; value: Refusal } } | null {
     const role = context.requestHeader.get("x-actor-role") ?? "";
@@ -845,36 +932,43 @@ export class FakeEngine {
           }
         }
         if (current.startedOn >= today) throw new ConnectError("the free plan started today and cannot end today: subscribe again tomorrow", Code.FailedPrecondition);
-        const declined = this.#declineNext;
-        this.#declineNext = null;
-        if (declined !== null) return this.#refuse(RefusalCode.PAYMENT_DECLINED, declined, { provider: "simulated" });
-        const reference = `sim-pay-${hex(sha256(quote.id)).slice(0, 24)}`;
+        const atConfirmation = this.#options.payments === "at-confirmation";
+        if (atConfirmation) {
+          const declined = this.#declineNext;
+          this.#declineNext = null;
+          if (declined !== null) return this.#refuse(RefusalCode.PAYMENT_DECLINED, declined, { provider: "simulated" });
+        }
         current.endedOn = today;
         const stored: StoredSubscription = {
           id: String(this.#nextSubscription++), plan: quote.plan, paid: true, priceMinor: quote.priceMinor, startedOn: today, endedOn: null,
-          billingDay: billingDayFor(today), quoteId: quote.id, offerId: quote.offerId, offerMonths: quote.months,
+          billingDay: billingDayFor(today), quoteId: quote.id, offerId: quote.offerId, offerMonths: quote.months, payment: null,
         };
         listener.subscriptions.push(stored);
-        const receiptId = `r_${hex(sha256(`receipt-${stored.id}`)).slice(0, 32)}`;
-        this.receipts.push({ id: receiptId, subscriptionId: stored.id, quoteId: quote.id, subscriberId: listener.id });
         const subscription = this.#subscription(listener, stored, today);
-        this.#log(context, "subscription.confirmed", `subscription:${stored.id}`, "", {
+        const confirmed = {
           subscriber: listener.id, quote: quote.id, offer: quote.offerId, plan: quote.plan, market: market.code, price: quote.priceMinor,
-          offer_months: quote.months, full_price_from: subscription.fullPriceFrom || null, from: current.plan, receipt: receiptId,
-          provider: "simulated", provider_reference: reference,
-        }, { actor: `subscriber-${listener.id}`, role: "subscriber" });
-        return {
-          outcome: {
-            case: "confirmation" as const,
-            value: {
-              subscription,
-              receipt: create(ReceiptSchema, {
-                receiptId, amount: money(quote.priceMinor, market.currency), issuedAt: this.#now(), provider: "simulated",
-                providerReference: reference, demonstration: true, note: RECEIPT_NOTE,
-              }),
-            },
-          },
+          offer_months: quote.months, full_price_from: subscription.fullPriceFrom || null, from: current.plan,
         };
+        const by = { actor: `subscriber-${listener.id}`, role: "subscriber" };
+        if (atConfirmation) {
+          // The engine of stage 5: the provider charged inside the confirmation, and the receipt came back with it.
+          const reference = `sim-pay-${hex(sha256(quote.id)).slice(0, 24)}`;
+          const receiptId = `r_${hex(sha256(`receipt-${stored.id}`)).slice(0, 32)}`;
+          this.receipts.push({ id: receiptId, subscriptionId: stored.id, quoteId: quote.id, subscriberId: listener.id });
+          this.#log(context, "subscription.confirmed", `subscription:${stored.id}`, "", { ...confirmed, receipt: receiptId, provider: "simulated", provider_reference: reference }, by);
+          const receipt = create(ReceiptSchema, {
+            receiptId, amount: money(quote.priceMinor, market.currency), issuedAt: this.#now(), provider: "simulated",
+            providerReference: reference, demonstration: true, note: RECEIPT_NOTE,
+          });
+          return { outcome: { case: "confirmation" as const, value: { subscription, receipt } } };
+        }
+        // Stage 6: the payment is asked for after the confirmation commits, through the outbox, and comes back PENDING.
+        stored.payment = {
+          id: `pay_${hex(sha256(`payment-${stored.id}`)).slice(0, 32)}`, state: "pending", amountMinor: quote.priceMinor, requestedAt: this.#now(),
+          settledAt: "", failureReason: "", receipt: null,
+        };
+        this.#log(context, "subscription.confirmed", `subscription:${stored.id}`, "", { ...confirmed, payment: stored.payment.id }, by);
+        return { outcome: { case: "confirmation" as const, value: { subscription, payment: this.#payment(stored.payment, market.currency) } } };
       },
       getAccount: (request) => {
         const listener = this.#listener(request.subscriberId);
@@ -882,11 +976,13 @@ export class FakeEngine {
         const current = this.#current(listener, today);
         if (current === undefined) throw new ConnectError(`subscriber #${listener.id} is on no plan on ${today}`, Code.FailedPrecondition);
         const verification = this.#latestVerification(listener, today);
+        const currency = this.#market(listener.market).currency;
         return {
           account: create(AccountSchema, {
             subscriberId: this.#options.sentinels ? SENTINEL.changeId : listener.id, market: listener.market,
             subscription: this.#subscription(listener, current, today),
             ...(verification ? { studentVerification: verification } : {}),
+            ...(current.payment ? { payment: this.#payment(current.payment, currency) } : {}),
           }),
         };
       },
@@ -1104,7 +1200,7 @@ export class FakeEngine {
             changeId: stored.id, title: stored.versions.at(-1)?.content.title ?? "", state: stored.state, atRisk: false, risk: "",
             starts: { market: "IT", local: "2026-11-02T09:00", utc: "2026-11-02T08:00:00Z" },
           })),
-          incidentsToday: [],
+          incidentsToday: this.incidents.map((incident) => create(IncidentSchema, incident)),
           payingSubscribers: [{ market: "IT", plan: "student", count: 12_480n }, { market: "DE", plan: "family", count: 9_310n }],
           freeListeners: [{ market: "IT", plan: "free", count: 51_200n }],
           ...(revenue

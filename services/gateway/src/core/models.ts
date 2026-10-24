@@ -12,7 +12,7 @@ import type { LocalTime, Refusal } from "contracts/commerce/v1/common";
 import type { GetOverviewResponse, Incident, Launch, MarketRevenue, Person, SubscriberCount } from "contracts/commerce/v1/overview";
 import type { Quote } from "contracts/commerce/v1/quotes";
 import type { Assumption, FinanceCondition, SimulationResult, Totals } from "contracts/commerce/v1/simulation";
-import type { Account, Confirmation, DemoListener, Receipt, StudentVerification, Subscription } from "contracts/commerce/v1/subscriptions";
+import type { Account, Confirmation, DemoListener, Payment, Receipt, StudentVerification, Subscription } from "contracts/commerce/v1/subscriptions";
 import type { Listener, SessionInfo } from "./context.ts";
 
 // The console's schema.
@@ -74,7 +74,9 @@ export type PublicMeModel = SessionInfo<Listener>;
 export type PublicAccountModel = Account;
 export type PublicSubscriptionModel = Subscription;
 export type PublicStudentVerificationModel = StudentVerification;
+export type PublicPaymentModel = Payment;
 export type PublicReceiptModel = Receipt;
+/** The engine's confirmation: its payment, or, from an engine that charged at the confirmation, only its receipt. */
 export type PublicConfirmationModel = Confirmation;
 /** A refusal as the site may say it: a public code, and a sentence written for a visitor. */
 export type PublicRefusalModel = {
