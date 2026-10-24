@@ -30,7 +30,8 @@ export type E2eOutcome = { readonly tests: number; readonly failures: number; re
 
 /** The stack on a migrated database, then Playwright; the JUnit report goes to reports/console-e2e.xml. */
 export async function runEndToEnd(cluster: Cluster, database: string, reports: string): Promise<E2eOutcome> {
-  const stack = await startStack({ cluster, database, seed: true, enginePort: PORTS.engineCheck, console: "static" });
+  // The launch test needs a launch that meets a fault: the publish step's connection is cut once, and the step is tried again.
+  const stack = await startStack({ cluster, database, seed: true, enginePort: PORTS.engineCheck, console: "static", launchFault: { step: "publish", kind: "cut" }, activationIntervalSeconds: 0.5 });
   try {
     const report = join(reports, "console-e2e.xml");
     await rm(report, { force: true });

@@ -151,6 +151,16 @@ export type StackOptions = {
   /** "static": serve apps/console/out (built beforehand); "dev": run next dev. */
   readonly console: "static" | "dev";
   readonly echo?: boolean;
+  /**
+   * A fault armed in one launch step, for the end-to-end tests: the engine
+   * then runs from its own fault-injection launcher
+   * (services/commerce/tests/faults/engine_with_faults.py) on the machine's
+   * time, and the first launch to reach that step has the step's database
+   * connection cut inside its transaction, once.
+   */
+  readonly launchFault?: { readonly step: "check" | "prepare" | "publish" | "notify" | "verify"; readonly kind: "cut" };
+  /** Seconds between the engine's passes of its jobs (launches, outbox); the engine's own default otherwise. */
+  readonly activationIntervalSeconds?: number;
 };
 
 export async function startStack(options: StackOptions): Promise<Stack> {
@@ -185,8 +195,11 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       await assertFree(port, what);
     }
 
-    say(`engine on ${engineUrl}`);
-    children.engine = spawn(venvPython, ["-m", "commerce.server"], {
+    const fault = options.launchFault;
+    // The fault launcher's clock starts at this whole second and runs with the machine's.
+    const wall = Math.floor(Date.now() / 1000);
+    say(`engine on ${engineUrl}${fault ? `, with a fault armed: ${fault.kind} in the ${fault.step} step of the first launch` : ""}`);
+    children.engine = spawn(venvPython, fault ? [join(commerceDir, "tests", "faults", "engine_with_faults.py")] : ["-m", "commerce.server"], {
       cwd: commerceDir,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
@@ -198,6 +211,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
         COMMERCE_ENGINE_HOST: "127.0.0.1",
         COMMERCE_ENGINE_PORT: String(options.enginePort),
         COMMERCE_STOP_ON_STDIN_CLOSE: "1",
+        ...(options.activationIntervalSeconds !== undefined ? { COMMERCE_ACTIVATION_INTERVAL_SECONDS: String(options.activationIntervalSeconds) } : {}),
+        ...(fault ? { FAULT_STEP: fault.step, FAULT_KIND: fault.kind, FAULT_CLOCK_BASE: new Date(wall * 1000).toISOString().replace(".000Z", "Z"), FAULT_CLOCK_WALL: String(wall) } : {}),
       },
     });
     collect(children.engine, "engine", logs, echo);

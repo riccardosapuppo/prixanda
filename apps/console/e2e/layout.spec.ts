@@ -3,7 +3,7 @@
 // scrolls sideways (tables and the week's lanes scroll inside their own
 // boxes), and no text is cut.
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
-import { enterAs, layoutProblems, submittedOffer } from "./support.ts";
+import { asPerson, enterAs, layoutProblems, submittedOffer } from "./support.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -77,6 +77,17 @@ test("the approval", async () => {
   await atEveryWidth(`/campaigns/approval/?id=${changeId}`, async (on) => {
     await expect(on.getByRole("heading", { name: "Decision" })).toBeVisible();
     await expect(on.getByRole("heading", { name: "Version and fingerprint" })).toBeVisible();
+  });
+});
+
+test("a launch's timeline (the launch test, before this file, ran one)", async () => {
+  const reader = asPerson("marketing-1");
+  await reader.signIn();
+  const first = (await reader.query("query { launches(first: 1) { nodes { id run } } }")).launches.nodes[0] as { id: string; run: string } | undefined;
+  expect(first, "a launch to look at").toBeTruthy();
+  await atEveryWidth(`/launches/run/?id=${first?.id}`, async (on) => {
+    await expect(on.getByRole("heading", { name: `Launch timeline: ${first?.run}`, level: 1 })).toBeVisible();
+    await expect(on.getByRole("heading", { name: "Live now" })).toBeVisible();
   });
 });
 
