@@ -124,6 +124,20 @@ def format_instant(instant: datetime) -> str:
     return utc.strftime("%Y-%m-%dT%H:%M:%S.%fZ" if utc.microsecond else "%Y-%m-%dT%H:%M:%SZ")
 
 
+def add_months(moment: datetime, months: int) -> datetime:
+    """The same day and time some months later; a day the month lacks becomes
+    its last day (31 January plus one month is 28 or 29 February)."""
+    index = moment.month - 1 + months
+    year, month = moment.year + index // 12, index % 12 + 1
+    for day in (moment.day, 31, 30, 29, 28):
+        if day <= moment.day:
+            try:
+                return moment.replace(year=year, month=month, day=day)
+            except ValueError:
+                continue
+    raise ValueError(f"no day {moment.day} in {year}-{month:02d}")
+
+
 # Spelled out here rather than through strftime("%B"), which follows the
 # process's locale.
 MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",

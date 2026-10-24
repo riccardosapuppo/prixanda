@@ -68,3 +68,41 @@ async def db():
         await owner.close()
         await app.close()
         await _admin(f"drop database {name} with (force)")
+
+
+@pytest_asyncio.fixture(scope="session")
+async def seeded_template():
+    """The migrated template with the tests' hand-written world (tests/seed.py), made once."""
+    from seed import seed
+
+    name = f"seeded_{uuid.uuid4().hex[:12]}"
+    await _admin(f"create database {name} template {TEMPLATE}")
+    owner = await asyncpg.connect(on_database(ADMIN_URL, name))
+    try:
+        await seed(owner)
+    finally:
+        await owner.close()
+    yield name
+    await _admin(f"drop database {name} with (force)")
+
+
+@pytest_asyncio.fixture
+async def world(seeded_template):
+    """A database of its own with the seeded world, and the engine on it as the engine's role."""
+    from commerce.adapters.asyncpg_database import AsyncpgDatabase
+    from commerce.engine.call import FixedClock
+    from commerce.engine.engine import Engine
+    from engine_support import World
+    from helpers import T0
+
+    name = f"test_{uuid.uuid4().hex[:16]}"
+    await _admin(f"create database {name} template {seeded_template}")
+    owner = await asyncpg.connect(on_database(ADMIN_URL, name))
+    database = await AsyncpgDatabase.connect(APP_URL.format(database=name), max_size=8)
+    clock = FixedClock(T0)
+    try:
+        yield World(name, owner, Engine(database, clock), clock)
+    finally:
+        await database.close()
+        await owner.close()
+        await _admin(f"drop database {name} with (force)")
