@@ -9,6 +9,8 @@
 const f1 = (n: number) => String(Math.round(n * 10) / 10);
 
 export type Dye = "madder" | "saffron" | "indigo";
+/** A part of a canopy: a dye, or the hatched grey of what collecting the money costs. */
+export type Part = Dye | "neutral";
 
 // ---------------------------------------------------------------------------
 // The months of an offer: one saffron sail per month at the offer price, then
@@ -71,10 +73,38 @@ export function monthsScene(months: number): MonthsScene {
 // show the overlap as their product (the chord): the artists' sail and the
 // service's top-up overlap by exactly the top-up.
 
-export type CanopyPart = { readonly from: bigint; readonly to: bigint; readonly dye: Dye };
+export type CanopyPart = { readonly from: bigint; readonly to: bigint; readonly dye: Part };
+
+type Amount = { readonly amountMinor: string };
+
+/**
+ * The sheets of a month's price on one rope, from the engine's breakdown:
+ * the artists, what the service keeps, card and payment costs, VAT. The
+ * service's sheet starts where the artists' pool ends, so when the service
+ * tops the artists up the two sheets overlap by exactly the top-up, and the
+ * overlap shows as their chord.
+ */
+export function priceParts(breakdown: {
+  readonly price: Amount;
+  readonly artists: Amount;
+  readonly topUp: Amount;
+  readonly companyKeeps: Amount;
+  readonly paymentCosts: Amount;
+}): CanopyPart[] {
+  const artists = BigInt(breakdown.artists.amountMinor);
+  const pool = artists - BigInt(breakdown.topUp.amountMinor);
+  const keepsEnd = artists + BigInt(breakdown.companyKeeps.amountMinor);
+  const paymentEnd = keepsEnd + BigInt(breakdown.paymentCosts.amountMinor);
+  return [
+    { from: 0n, to: artists, dye: "madder" },
+    { from: pool, to: keepsEnd, dye: "saffron" },
+    { from: keepsEnd, to: paymentEnd, dye: "neutral" },
+    { from: paymentEnd, to: BigInt(breakdown.price.amountMinor), dye: "indigo" },
+  ];
+}
 
 export type CanopySail = {
-  readonly dye: Dye;
+  readonly dye: Part;
   readonly path: string;
   readonly hem: readonly [number, number];
   /** The corner ties, when the sail is wide enough to show them. */
@@ -102,7 +132,7 @@ export function canopy(parts: readonly CanopyPart[], max: bigint, options: { rea
   const usable = width - padX * 2;
   // Minor units are integers, and well inside a double's exact range for a month's money.
   const x = (value: bigint) => padX + (Number(value) / Number(max)) * usable;
-  const drop: Record<Dye, number> = { madder: height - 30, saffron: height - 50, indigo: height - 58 };
+  const drop: Record<Part, number> = { madder: height - 30, saffron: height - 50, indigo: height - 58, neutral: height - 66 };
   const sails: CanopySail[] = [];
   for (const part of parts) {
     if (part.to <= part.from) continue;
@@ -116,7 +146,7 @@ export function canopy(parts: readonly CanopyPart[], max: bigint, options: { rea
     sails.push({
       dye: part.dye,
       hem: [a, b],
-      guys: w > 18 ? [[a, bottom], [b, bottom]] : [],
+      guys: w > 18 && part.dye !== "neutral" ? [[a, bottom], [b, bottom]] : [],
       path: `M${f1(a)} ${rope}L${f1(b)} ${rope}Q${f1(b - side)} ${f1(middle)} ${f1(b)} ${f1(bottom)}`
         + `Q${f1((a + b) / 2)} ${f1(bottom - sag * 2)} ${f1(a)} ${f1(bottom)}Q${f1(a + side)} ${f1(middle)} ${f1(a)} ${rope}Z`,
     });
@@ -124,4 +154,56 @@ export function canopy(parts: readonly CanopyPart[], max: bigint, options: { rea
   const joints = [...new Set(sails.flatMap((sail) => [sail.hem[0], sail.hem[1]]).map((value) => Math.round(value * 10) / 10))];
   const cord = options.minimum !== undefined && options.minimum > 0n ? x(options.minimum) : null;
   return { width, height, rope, ropeFrom: padX - 8, ropeTo: x(max) + 8, sails, joints, cord };
+}
+
+// ---------------------------------------------------------------------------
+// The promise, plan by plan: one sail per paid plan on the same rope, as long
+// as what a month of that plan gives the artists, and the minimum as a dashed
+// cord every sail reaches. Where the pool alone falls short, the part the
+// service adds hangs at the bottom of the sail as the chord of the two dyes.
+
+export type PromiseSail = {
+  readonly a: number;
+  readonly b: number;
+  readonly bottom: number;
+  readonly path: string;
+  /** The top-up, from the pool's own length down to the sail's hem; null when the pool covers it. */
+  readonly chord: string | null;
+};
+
+export type PromiseFigure = {
+  readonly width: number;
+  readonly height: number;
+  readonly rope: number;
+  readonly sails: readonly PromiseSail[];
+  /** The height of the minimum's cord, and how far it runs. */
+  readonly cordY: number;
+  readonly cordTo: number;
+};
+
+export function promiseSails(
+  items: readonly { readonly artists: bigint; readonly pool: bigint }[],
+  { minimum, width = 640, height = 226, area = 1 }: { readonly minimum: bigint; readonly width?: number; readonly height?: number; readonly area?: number },
+): PromiseFigure {
+  if (items.length === 0) throw new RangeError("a promise needs at least one paid plan");
+  const largest = items.reduce((most, item) => (item.artists > most ? item.artists : most), minimum);
+  const max = Number(largest) * 1.08;
+  const rope = 22;
+  const deep = height - 16;
+  const y = (value: bigint) => rope + (Number(value) / max) * (deep - rope);
+  const slot = (width * area) / items.length;
+  const sails = items.map((item, i) => {
+    const a = i * slot + slot * 0.13;
+    const b = (i + 1) * slot - slot * 0.13;
+    const bottom = y(item.artists);
+    const sag = Math.min(12, (b - a) * 0.09);
+    const side = 3;
+    const path = `M${f1(a)} ${rope}L${f1(b)} ${rope}Q${f1(b - side)} ${f1((rope + bottom) / 2)} ${f1(b)} ${f1(bottom)}`
+      + `Q${f1((a + b) / 2)} ${f1(bottom - sag)} ${f1(a)} ${f1(bottom)}Q${f1(a + side)} ${f1((rope + bottom) / 2)} ${f1(a)} ${rope}Z`;
+    const chord = item.pool < item.artists
+      ? `M${f1(a + 1)} ${f1(y(item.pool))}L${f1(b - 1)} ${f1(y(item.pool))}L${f1(b)} ${f1(bottom)}Q${f1((a + b) / 2)} ${f1(bottom - sag)} ${f1(a)} ${f1(bottom)}Z`
+      : null;
+    return { a, b, bottom, path, chord };
+  });
+  return { width, height, rope, sails, cordY: y(minimum), cordTo: width * area };
 }

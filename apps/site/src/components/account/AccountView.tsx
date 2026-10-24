@@ -84,11 +84,13 @@ function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly tim
   return (
     <div className="grid gap-8">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <p className="m-0 flex items-center gap-2">
-          <Icon name="user-circle" size={20} />
-          <b>{me.title}</b>
+        <p className="m-0 grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2">
+          <Icon name="user-circle" size={22} className="mt-[0.2rem]" />
+          <span className="grid">
+            <span className="text-md text-ink-2">{copy.account.demo}</span>
+            <b className="text-xl">{me.title}</b>
+          </span>
         </p>
-        <p className="m-0 text-md text-ink-2">{copy.account.demo}</p>
         <button type="button" className="btn btn-quiet" aria-disabled={signOut.isPending} onClick={() => signOut.isPending || signOut.mutate()}>
           <Icon name="user-switch" size={16} />
           {copy.entrance.switch}

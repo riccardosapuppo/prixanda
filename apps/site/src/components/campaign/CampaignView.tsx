@@ -96,7 +96,7 @@ function CampaignPage({ offer, market, marketName, minimum, planName }: {
             <b className="num text-[2.125rem] leading-none font-[720] [font-stretch:112%] md:text-[2.5rem]">{price}</b>
             <span className="basis-full text-md text-ink-2">{copy.campaign.monthsAt(months)}</span>
           </p>
-          <CampaignAction offer={offer} market={market} planName={planName} />
+          <CampaignAction offer={offer} market={market} marketName={marketName} planName={planName} />
         </div>
         <figure aria-labelledby="campaign-months" className="col-span-12 m-0 grid gap-2 lg:col-span-7">
           <p className="m-0 justify-self-start rounded-control border border-saffron bg-stone-0 px-[0.7rem] py-[0.3rem] text-md font-[650] text-saffron">

@@ -81,8 +81,8 @@ export function labelOf(release: Release): Label {
 }
 
 /** The records of a label, in the catalogue's order. */
-export function releasesOf(label: Label): readonly Release[] {
-  return RELEASES.filter((release) => release.labelId === label.id);
+export function releasesOf(label: Label, releases: readonly Release[] = RELEASES): readonly Release[] {
+  return releases.filter((release) => release.labelId === label.id);
 }
 
 /** Minutes as the site writes a running time: 47 min, 1 h 30 min. */
@@ -91,4 +91,23 @@ export function runningTime(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;
   const rest = minutes % 60;
   return rest === 0 ? `${Math.floor(minutes / 60)} h` : `${Math.floor(minutes / 60)} h ${rest} min`;
+}
+
+/** A label's name as an address: Casa Lenta is casa-lenta. */
+export function slug(name: string): string {
+  return name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+/** A label's listening session: its records one after the other. */
+export function sessionOf(label: Label, releases: readonly Release[] = RELEASES): {
+  readonly records: readonly Release[];
+  readonly tracks: number;
+  readonly minutes: number;
+} {
+  const records = releasesOf(label, releases);
+  return {
+    records,
+    tracks: records.reduce((sum, record) => sum + record.tracks, 0),
+    minutes: records.reduce((sum, record) => sum + record.minutes, 0),
+  };
 }

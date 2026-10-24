@@ -50,8 +50,8 @@ export function SiteFrame({ children }: { readonly children: ReactNode }) {
           <ProjectTags />
         </div>
       </div>
-      <header className="border-b border-cord">
-        <div className="wrap flex min-h-[4.25rem] items-center gap-8 max-md:min-h-[3.75rem] max-md:gap-3">
+      <header className="site-head">
+        <div className="wrap site-head-row flex min-h-[4.25rem] items-center gap-8 max-md:min-h-[3.75rem]">
           <Wordmark />
           <HeaderLinks />
         </div>

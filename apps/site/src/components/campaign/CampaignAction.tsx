@@ -8,7 +8,12 @@ import type { Offer } from "../../data/hooks.ts";
 import type { SiteMarket } from "../../data/markets.ts";
 import { Checkout } from "./Checkout.tsx";
 
-export function CampaignAction({ offer, market, planName }: { readonly offer: Offer; readonly market: SiteMarket; readonly planName: string }) {
+export function CampaignAction({ offer, market, marketName, planName }: {
+  readonly offer: Offer;
+  readonly market: SiteMarket;
+  readonly marketName: string;
+  readonly planName: string;
+}) {
   const [open, setOpen] = useState(false);
   const cta = useRef<HTMLButtonElement>(null);
   const label = offer.needsStudentCheck ? copy.campaign.checkStudent : copy.campaign.take(planName);
@@ -16,9 +21,15 @@ export function CampaignAction({ offer, market, planName }: { readonly offer: Of
   if (open) {
     return (
       <Checkout
-        offer={offer}
-        market={market}
-        planName={planName}
+        target={{
+          plan: offer.plan,
+          planName,
+          market,
+          marketName,
+          offer: { id: offer.id, title: offer.title, audience: offer.audience },
+          needsStudentCheck: offer.needsStudentCheck,
+          listPrice: offer.listPrice,
+        }}
         onClose={() => {
           setOpen(false);
           requestAnimationFrame(() => cta.current?.focus());

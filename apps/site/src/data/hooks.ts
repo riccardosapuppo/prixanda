@@ -4,11 +4,13 @@
 // page asking the same thing share one request. Mutations that change the
 // demo listener's session or account update or refresh what the pages read.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { LABELS, RELEASES } from "../content/editorial.ts";
 import {
   SiteConfirmSubscription, SiteDemoListeners, SiteMarkets, SiteMe, type SiteMeQuery, SiteOffers, type SiteOffersQuery, SitePlans,
   SiteRequestQuote, type SiteRequestQuoteMutationVariables, SiteSignIn, SiteSignOut, SiteVerifyStudent,
 } from "../graphql/generated.ts";
+import type { SiteApi } from "./api.ts";
 import { OFFERS_REFRESH_MS } from "./config.ts";
 import { keys } from "./keys.ts";
 import { isSiteMarket, SITE_MARKETS, type SiteMarket } from "./markets.ts";
@@ -31,13 +33,29 @@ export function useMarkets() {
   });
 }
 
+const plansQuery = (api: SiteApi, market: SiteMarket) => ({
+  queryKey: keys.plans(market),
+  queryFn: async ({ signal }: { readonly signal: AbortSignal }) => (await api.query(SitePlans, { market }, signal)).plans,
+});
+
 /** A market's plans now, with the price a new subscriber pays and where it goes. */
 export function usePlans(market: SiteMarket) {
   const api = useSiteApi();
-  return useQuery({
-    queryKey: keys.plans(market),
-    queryFn: async ({ signal }) => (await api.query(SitePlans, { market }, signal)).plans,
-  });
+  return useQuery(plansQuery(api, market));
+}
+
+/**
+ * Asks for the plans of every market once the page has shown its own, so a
+ * visitor who changes market sees its prices at once (and the page reads
+ * them again in the background, as for any page that opens).
+ */
+export function usePrefetchPlans(when: boolean) {
+  const api = useSiteApi();
+  const client = useQueryClient();
+  useEffect(() => {
+    if (!when) return;
+    for (const market of SITE_MARKETS) void client.prefetchQuery({ ...plansQuery(api, market), staleTime: 60_000 });
+  }, [when, api, client]);
 }
 
 /**

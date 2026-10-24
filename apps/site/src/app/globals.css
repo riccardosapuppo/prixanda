@@ -29,6 +29,7 @@
   }
   a {
     color: var(--color-indigo);
+    text-decoration-line: underline;
     text-decoration-thickness: 1px;
     text-underline-offset: 0.2em;
   }

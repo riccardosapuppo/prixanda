@@ -11,9 +11,11 @@ import { Failure, Loading } from "../ui/States.tsx";
 
 type Heading = "h1" | "h2" | "h3";
 
-export function Entrance({ market, heading = "h2", focusOnMount = false }: {
+export function Entrance({ market, elsewhere = copy.entrance.inOtherMarket, heading = "h2", focusOnMount = false }: {
   /** The market the visitor came for: its listeners come first. */
   readonly market?: string;
+  /** What a listener of another market should know, given the name of their market. */
+  readonly elsewhere?: (marketName: string) => string;
   readonly heading?: Heading;
   readonly focusOnMount?: boolean;
 }) {
@@ -69,7 +71,7 @@ export function Entrance({ market, heading = "h2", focusOnMount = false }: {
                   <span className="font-semibold">{listener.title}</span>
                   <span className="text-sm text-ink-2">{listener.label}</span>
                   {market !== undefined && listener.market !== market ? (
-                    <span className="text-sm text-ink-2">{copy.entrance.inOtherMarket(marketName(listener.market))}</span>
+                    <span className="text-sm text-ink-2">{elsewhere(marketName(listener.market))}</span>
                   ) : null}
                 </span>
               </label>

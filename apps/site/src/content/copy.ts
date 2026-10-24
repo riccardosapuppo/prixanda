@@ -7,6 +7,13 @@ import { BRAND, DISCLAIMER, SIMULATED_LABEL } from "design";
 
 const service = BRAND.service;
 const months = (count: number) => `${count} ${count === 1 ? "month" : "months"}`;
+const WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"] as const;
+/** A small count in words, the way a sentence says it: two accounts, six skips. */
+const inWords = (count: number) => WORDS[count] ?? String(count);
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** What a plan includes, as the API says it. */
+type Includes = { readonly seats: number; readonly skipsPerHour: number | null; readonly audio: string; readonly offline: boolean };
 
 export const copy = {
   service,
@@ -18,21 +25,69 @@ export const copy = {
   },
   /** Next to the step where a visitor could take the demonstration for a purchase, and only there. */
   disclaimer: DISCLAIMER,
-  nav: { label: service, plans: "Plans", account: "Account", skip: "Skip to the content" },
+  nav: { label: service, plans: "Plans", releases: "New releases", sessions: "Listening sessions", account: "Account", menu: "Menu", skip: "Skip to the content" },
+  home: {
+    title: { before: `${service} streams records from `, strong: "small labels", after: " in Italy, France, Germany and the UK." },
+    sessionTitle: (label: string) => `${label} session`,
+    listen: "Listen to the session",
+    coverNote: (technique: string, label: string) => `${technique}, from the ${label} house style. Generated from the record's seed.`,
+  },
+  promise: {
+    label: "The promise to the artists",
+    title: { before: "At least ", after: " of every paid plan goes to the artists. Every month." },
+    lede: (minimum: string) => `If a discount pushes the artists' share below ${minimum}, we pay the difference ourselves.`,
+    small: (minimum: string) => `The artists' share is a fixed part of the price without VAT, never less than ${minimum}.`,
+    caption: (market: string) => `What one month of each paid plan gives the artists in ${market}.`,
+    neverLess: (minimum: string) => `Never less than ${minimum}`,
+    topUp: (plan: string, topUp: string, minimum: string) => `${plan}: includes ${topUp} that ${service} adds to reach the ${minimum} minimum.`,
+  },
   plans: {
-    title: "Plans and prices",
+    title: "Plans",
     marketLabel: "Prices for",
     vatNote: "VAT included",
     perMonth: "a month",
-    onNow: "On now",
+    toArtists: (amount: string) => `${amount} to the artists`,
+    whereGoes: { before: "Where your ", after: " goes" },
+    rows: {
+      artists: "To the artists you play",
+      keeps: `What ${service} keeps`,
+      payment: "Card and payment costs",
+      vat: (rate: string) => `VAT (${rate}), to the tax office`,
+    },
+    topUpNote: (topUp: string, minimum: string) => `Includes ${topUp} that ${service} adds to reach the ${minimum} minimum.`,
+    cordTag: (minimum: string) => `never less than ${minimum}`,
+    legend: "Plan",
+    choose: (plan: string) => `Choose ${plan}`,
+    monthVat: "a month, VAT included",
+    freeLine: "Every demo listener starts on Free.",
+    freeAction: "Enter as a demo listener",
+    seeAccount: "See the account",
+    gets: {
+      title: "What you get", seats: "Accounts", skips: "Skips", sound: "Sound", offline: "Offline", unlimited: "Unlimited",
+      perHour: (n: number) => `${n} an hour`, lossless: "Lossless", standard: "Standard", yes: "Yes", no: "No",
+    },
+    onNow: (title: string, price: string, months: number) => `On now: ${title}, ${price} a month for ${months} ${months === 1 ? "month" : "months"}`,
     noOffers: "No campaign is running in this market today.",
-    lines: {
-      free: "The whole catalogue. Six skips an hour, standard quality.",
-      individual: "Lossless, offline, skip as much as you like.",
-      duo: "Two accounts, one bill.",
-      family: "Up to five accounts, one bill.",
-      student: "Individual at a student price. Needs a student check, valid 12 months.",
-    } as Readonly<Record<string, string>>,
+    /** A plan's line under its name; the counts in it are the plan's own, from the API. */
+    line: (code: string, includes: Includes): string => {
+      const sound = includes.audio === "LOSSLESS" ? "lossless" : "standard";
+      switch (code) {
+        case "free":
+          return includes.skipsPerHour === null
+            ? `The whole catalogue, ${sound} quality.`
+            : `The whole catalogue. ${capital(inWords(includes.skipsPerHour))} skips an hour, ${sound} quality.`;
+        case "individual":
+          return `${capital(sound)}, ${includes.offline ? "offline, " : ""}${includes.skipsPerHour === null ? "skip as much as you like" : `${inWords(includes.skipsPerHour)} skips an hour`}.`;
+        case "duo":
+          return `${capital(inWords(includes.seats))} accounts, one bill.`;
+        case "family":
+          return `Up to ${inWords(includes.seats)} accounts, one bill.`;
+        case "student":
+          return "Individual at a student price. Needs a student check, valid 12 months.";
+        default:
+          return "";
+      }
+    },
   },
   campaign: {
     vatIncluded: "VAT included",
@@ -58,7 +113,7 @@ export const copy = {
     },
   },
   /** The promise to the artists, told once on a campaign page, from the engine's breakdown of the offer price. */
-  promise: {
+  campaignPromise: {
     label: "The artists' share of this offer",
     topUp: (price: string, topUp: string, artists: string) =>
       `Your ${price} is below what the artists' minimum needs, so ${service} adds ${topUp} a month and they still get ${artists}.`,
@@ -68,6 +123,37 @@ export const copy = {
     total: "to the artists you play, every month",
     minimum: (minimum: string) => `never less than ${minimum}`,
   },
+  catalogue: {
+    releases: "New releases",
+    labelFacts: (market: string, records: number, technique: string) => `${market}, ${records} ${records === 1 ? "record" : "records"}, ${technique} covers`,
+    tracks: (tracks: number, time: string) => `${tracks} tracks, ${time}`,
+    sessions: "Listening sessions",
+    sessionFacts: (records: number, tracks: number) => `${records} ${records === 1 ? "record" : "records"}, ${tracks} tracks`,
+    listen: "Listen",
+    listenTo: (label: string) => ` to the ${label} session`,
+  },
+  session: {
+    back: "All listening sessions",
+    title: (label: string) => `${label} session`,
+    facts: (market: string, records: number, tracks: number, time: string, technique: string) =>
+      `${market}, ${records} ${records === 1 ? "record" : "records"}, ${tracks} tracks, ${time}. Covers printed as ${technique}s, generated.`,
+    player: "Player",
+    position: "Position in the session",
+    now: (track: number, tracks: number) => `Track ${track} of ${tracks}.`,
+    play: "Play",
+    playOn: "Play on",
+    pause: "Pause",
+    previous: "Previous record",
+    next: "Next record",
+    simulated: "Simulated: no sound, no stream. Pressing play only moves the clock.",
+    running: "Running order",
+    from: (tracks: number, time: string, start: string) => `${tracks} tracks, ${time}. From ${start}`,
+    playing: "Playing",
+    paused: "Paused",
+    first: "First",
+    played: "Played",
+    missing: { title: "Which session?", body: "This address names no listening session.", action: "All listening sessions" },
+  },
   /** DEMONSTRATION MODE: the entrance picks one of the demo's invented listeners. Not a sign-in. */
   entrance: {
     title: "Enter as a demo listener",
@@ -76,6 +162,7 @@ export const copy = {
     enter: "Enter as this listener",
     switch: "Switch listener",
     inOtherMarket: (marketName: string) => `In ${marketName}: this campaign is not sold there.`,
+    otherPrices: (marketName: string, here: string) => `In ${marketName}: the prices here are for ${here}.`,
   },
   check: {
     title: "Student check",
@@ -100,6 +187,13 @@ export const copy = {
   },
   refusal: {
     notForYou: "This offer isn't for this listener",
+    planNotForYou: "This plan isn't for this listener",
+    otherMarket: {
+      title: "These are another market's prices",
+      body: (theirs: string, here: string) =>
+        `This listener is in ${theirs}, and these are the prices for ${here}. A listener subscribes at the prices of their own market.`,
+      action: (theirs: string) => `See the prices for ${theirs}`,
+    },
     whoFor: (audience: string) => `It is for: ${audience.charAt(0).toLowerCase()}${audience.slice(1)}.`,
     stillPlan: (planName: string, price: string) => `${planName} is still there at ${price} a month.`,
     seePlans: "See the plans",

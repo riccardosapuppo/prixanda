@@ -5,6 +5,7 @@ import { SiteFrame } from "../components/frame/SiteFrame.tsx";
 import { copy } from "../content/copy.ts";
 import { SiteData } from "../data/provider.tsx";
 import "./globals.css";
+import "./site.css";
 
 export const metadata: Metadata = {
   title: { default: copy.service, template: `%s · ${copy.service}` },
