@@ -55,13 +55,13 @@ export function createEngineClient(transport: Transport): EngineClient {
  * The methods that change something carry an idempotency key, and the engine
  * refuses them without one (the engine's behaviour 2): ChangeService's
  * writes, GetQuote, which saves a quote, ExportHead, which writes
- * audit.exported, the subscriber's VerifyStudent and ConfirmQuote, and the
- * on-call engineer's RetryLaunch and CancelLaunch.
+ * audit.exported, the subscriber's VerifyStudent, ConfirmQuote and
+ * AnswerPriceChange, and the on-call engineer's RetryLaunch and CancelLaunch.
  */
 export const IDEMPOTENT_METHODS = [
   "CreateChange", "SaveVersion", "ValidateChange", "SubmitChange", "ApproveChange", "RejectChange",
   "ScheduleChange", "CancelChange", "SuspendChange", "GetQuote", "ExportHead", "VerifyStudent", "ConfirmQuote",
-  "RetryLaunch", "CancelLaunch",
+  "RetryLaunch", "CancelLaunch", "AnswerPriceChange", "BuyPrepaidPass", "ActivatePrepaidPass",
 ] as const;
 
 export type Actor = { readonly id: string; readonly role: RoleName };

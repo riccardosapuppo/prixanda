@@ -33,7 +33,8 @@ INSUFFICIENT_PRIVILEGE = "42501"
 # RL006 an idempotent call is completed twice, or pruned while it runs,
 # RL007 a draft is published, RL008 a launch, a step or an incident moves in
 # a way the job does not, RL009 an outbox message, a notice of the site, a
-# payment or an event of the provider changes after the fact.
+# payment or an event of the provider changes after the fact, RL010 a price of
+# a subscription's history breaks a rule (V12).
 RETRYABLE = (SERIALIZATION_FAILURE, DEADLOCK_DETECTED)
 
 

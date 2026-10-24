@@ -144,11 +144,107 @@
       "expect": {"net_from": 1596, "net_to": 1764, "pool_from": 958, "pool_to": 1058}
     },
     {
+      "id": "family-migration-maquette",
+      "section": "§8.7, §14.3",
+      "kind": "migration",
+      "note": "The maquette's simulation (maquette/contenuti/content.json, migration_de_family): 8,412 existing subscribers, 93% typed by the commercial lead.",
+      "input": {"currency": "EUR", "vat_bp": 1900, "from": 1899, "to": 2099, "existing": 8412, "acceptance_bp": 9300, "after_window": "move_to_free"},
+      "expect": {"accepting": 7823, "not_accepting": 589, "moving_to_free": 589, "revenue_change": 374220, "contribution_change": 144916, "revenue_at_risk": 940044, "break_even_revenue_bp": 9048, "break_even_contribution_bp": 9042}
+    },
+    {
+      "id": "family-migration-keeping-the-old-price",
+      "section": "§8.2, §8.7",
+      "kind": "migration",
+      "note": "Where the market's choice keeps the old price, nobody leaves and nothing is at risk: 7,823 x (17.64 - 15.96) and 7,823 x (6.68 - 6.04).",
+      "input": {"currency": "EUR", "vat_bp": 1900, "from": 1899, "to": 2099, "existing": 8412, "acceptance_bp": 9300, "after_window": "keep_old_price"},
+      "expect": {"accepting": 7823, "not_accepting": 589, "moving_to_free": 0, "revenue_change": 1314264, "contribution_change": 500672, "revenue_at_risk": 0, "break_even_revenue_bp": null, "break_even_contribution_bp": null}
+    },
+    {
+      "id": "consent-billed-on-the-deadline-s-day",
+      "section": "§8.2, §8.8",
+      "kind": "migration_dates",
+      "note": "The maquette's listener, billed on the 17th: a yes pays from 17 December; without one the month paid on 17 November runs out on the deadline's day, and nothing is charged then.",
+      "input": {"requirement": "consent", "after_window": "move_to_free", "window_days": 45, "sent_local": "2026-11-02T09:00", "starts": "2026-12-01", "started_on": "2026-03-17", "billing_day": 17, "offer_ends": null, "yes_on": "2026-11-02"},
+      "expect": {"window_ends": "2026-12-17T23:59", "new_price_from": "2026-12-17", "leaves_on": "2026-12-17"}
+    },
+    {
+      "id": "consent-billed-on-the-5th",
+      "section": "§8.2, §8.8",
+      "kind": "migration_dates",
+      "note": "Billed on the 5th: the deadline falls in the month paid on 5 December, which runs to 5 January.",
+      "input": {"requirement": "consent", "after_window": "move_to_free", "window_days": 45, "sent_local": "2026-11-02T09:00", "starts": "2026-12-01", "started_on": "2026-04-05", "billing_day": 5, "offer_ends": null, "yes_on": "2026-11-02"},
+      "expect": {"window_ends": "2026-12-17T23:59", "new_price_from": "2026-12-05", "leaves_on": "2027-01-05"}
+    },
+    {
+      "id": "consent-billed-on-the-18th",
+      "section": "§8.2, §8.8",
+      "kind": "migration_dates",
+      "note": "Billed on the 18th: the month paid on 18 November runs to 18 December.",
+      "input": {"requirement": "consent", "after_window": "move_to_free", "window_days": 45, "sent_local": "2026-11-02T09:00", "starts": "2026-12-01", "started_on": "2026-05-18", "billing_day": 18, "offer_ends": null, "yes_on": "2026-11-20"},
+      "expect": {"window_ends": "2026-12-17T23:59", "new_price_from": "2026-12-18", "leaves_on": "2026-12-18"}
+    },
+    {
+      "id": "consent-yes-on-the-deadline-s-day",
+      "section": "§8.2, §8.8",
+      "kind": "migration_dates",
+      "note": "A yes on the day of a charge: that day's charge may be made already, so the new price starts at the next one.",
+      "input": {"requirement": "consent", "after_window": "move_to_free", "window_days": 45, "sent_local": "2026-11-02T09:00", "starts": "2026-12-01", "started_on": "2026-03-17", "billing_day": 17, "offer_ends": null, "yes_on": "2026-12-17"},
+      "expect": {"window_ends": "2026-12-17T23:59", "new_price_from": "2027-01-17", "leaves_on": "2026-12-17"}
+    },
+    {
+      "id": "consent-inside-an-offer",
+      "section": "§8.2, §8.8",
+      "kind": "migration_dates",
+      "note": "Three offer months from 10 October keep their price: the first charge at the list price, 10 January 2027, is the first that can change.",
+      "input": {"requirement": "consent", "after_window": "move_to_free", "window_days": 45, "sent_local": "2026-11-02T09:00", "starts": "2026-12-01", "started_on": "2026-10-10", "billing_day": 10, "offer_ends": "2027-01-10", "yes_on": "2026-11-02"},
+      "expect": {"window_ends": "2026-12-17T23:59", "new_price_from": "2027-01-10", "leaves_on": "2027-01-10"}
+    },
+    {
+      "id": "consent-new-price-after-the-deadline",
+      "section": "§8.2, §8.8",
+      "kind": "migration_dates",
+      "note": "New subscribers pay from 1 January: nobody leaves, or pays it, before.",
+      "input": {"requirement": "consent", "after_window": "move_to_free", "window_days": 45, "sent_local": "2026-11-02T09:00", "starts": "2027-01-01", "started_on": "2026-04-05", "billing_day": 5, "offer_ends": null, "yes_on": "2026-11-02"},
+      "expect": {"window_ends": "2026-12-17T23:59", "new_price_from": "2027-01-05", "leaves_on": "2027-01-05"}
+    },
+    {
+      "id": "notice-billed-on-the-17th",
+      "section": "§8.2, §8.8",
+      "kind": "migration_dates",
+      "note": "Italy: 30 days of notice end on 2 December at 23:59; a no leaves on the day the new price would first be charged.",
+      "input": {"requirement": "notice", "after_window": "new_price", "window_days": 30, "sent_local": "2026-11-02T09:00", "starts": "2026-12-01", "started_on": "2026-03-17", "billing_day": 17, "offer_ends": null, "yes_on": null},
+      "expect": {"window_ends": "2026-12-02T23:59", "new_price_from": "2026-12-17", "leaves_on": "2026-12-17"}
+    },
+    {
+      "id": "notice-billed-the-day-after-it-ends",
+      "section": "§8.2, §8.8",
+      "kind": "migration_dates",
+      "note": "Billed on the 3rd, the day after the notice ran out.",
+      "input": {"requirement": "notice", "after_window": "new_price", "window_days": 30, "sent_local": "2026-11-02T09:00", "starts": "2026-12-01", "started_on": "2026-03-03", "billing_day": 3, "offer_ends": null, "yes_on": null},
+      "expect": {"window_ends": "2026-12-02T23:59", "new_price_from": "2026-12-03", "leaves_on": "2026-12-03"}
+    },
+    {
+      "id": "notice-billed-on-its-last-day",
+      "section": "§8.2, §8.8",
+      "kind": "migration_dates",
+      "note": "Billed on the 2nd, the notice's last day: that charge is still at the old price.",
+      "input": {"requirement": "notice", "after_window": "new_price", "window_days": 30, "sent_local": "2026-11-02T09:00", "starts": "2026-12-01", "started_on": "2026-03-02", "billing_day": 2, "offer_ends": null, "yes_on": null},
+      "expect": {"window_ends": "2026-12-02T23:59", "new_price_from": "2027-01-02", "leaves_on": "2027-01-02"}
+    },
+    {
       "id": "prepaid-pass-italy",
       "section": "§9.2",
       "kind": "prepaid",
       "input": {"currency": "EUR", "vat_bp": 2200, "price": 2999, "months": 3},
       "expect": {"net": 2458, "monthly": [819, 819, 820], "console": ["€8.19", "€8.19", "€8.20"]}
+    },
+    {
+      "id": "prepaid-unearned-maquette",
+      "section": "§9.2, §14.4",
+      "kind": "prepaid_value",
+      "note": "The maquette's finance figure (maquette/contenuti/content.json, prepaid): 1,240 Italian codes paid for, 860 of them activated and each in its first month; unused codes stay unearned until they expire.",
+      "input": {"currency": "EUR", "vat_bp": 2200, "price": 2999, "months": 3, "sold": 1240, "activated": 860, "activated_on": "2026-10-20", "day": "2026-10-24"},
+      "expect": {"net": 2458, "sold": 1240, "activated": 860, "unearned": 2343580, "console": "€23,435.80"}
     },
     {
       "id": "pounds-reported-in-euros",

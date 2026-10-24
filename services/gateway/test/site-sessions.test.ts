@@ -29,7 +29,7 @@ describe("in development, where the site keeps sessions", () => {
       harness.engine.clearCalls();
       const entrance = await site.graphql("{ demoListeners { id market title label plan studentVerified } me { id } }");
       assert.equal(entrance.body.errors, undefined, entrance.text);
-      assert.deepEqual(entrance.body.data.demoListeners.map((listener: { id: string }) => listener.id), ["5001", "5002", "5003", "5004"]);
+      assert.deepEqual(entrance.body.data.demoListeners.map((listener: { id: string }) => listener.id), ["5001", "5002", "5003", "5004", "5005"]);
       for (const listener of entrance.body.data.demoListeners) assert.match(listener.label, /^Simulated listener\./);
       assert.equal(entrance.body.data.me, null);
       const call = harness.engine.calls.find((candidate) => candidate.method === "ListDemoListeners");
@@ -52,7 +52,7 @@ describe("in development, where the site keeps sessions", () => {
     });
 
     test("offers only the demo's listeners: any other id is not found, and a malformed one is refused", async () => {
-      for (const [id, code] of [["5005", "NOT_FOUND"], ["1", "NOT_FOUND"], ["0", "BAD_USER_INPUT"], ["listener-1", "BAD_USER_INPUT"]] as const) {
+      for (const [id, code] of [["5006", "NOT_FOUND"], ["1", "NOT_FOUND"], ["0", "BAD_USER_INPUT"], ["listener-1", "BAD_USER_INPUT"]] as const) {
         const site = harness.site();
         const answer = await site.graphql("mutation ($id: ID!) { signInAsListener(listenerId: $id) { id } }", { variables: { id } });
         assert.deepEqual(codes(answer), [code], id);

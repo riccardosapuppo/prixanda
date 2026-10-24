@@ -16,7 +16,7 @@ import { QuoteService } from "contracts/commerce/v1/quotes";
 import { SimulationService } from "contracts/commerce/v1/simulation";
 import { SubscriberService } from "contracts/commerce/v1/subscriptions";
 import { SERVICES } from "../src/core/engine.ts";
-import { anyKind, FIELD_ROLES, isByKind, METHOD_ROLES, PUBLIC_METHODS, ROLES, SUBSCRIBER_METHODS } from "../src/core/roles.ts";
+import { anyKind, FIELD_ROLES, isByKind, KINDS, METHOD_ROLES, PUBLIC_METHODS, ROLES, SUBSCRIBER_METHODS } from "../src/core/roles.ts";
 import { type Harness, startHarness } from "./support/harness.ts";
 
 const BOOK = join(import.meta.dirname, "..", "..", "..", "docs", "business.md");
@@ -52,17 +52,32 @@ function paragraph(book: string, mark: string): string {
 
 const ALL = ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"];
 
-/** The coordinator's table, method by method; for the methods that depend on the kind of change, offers and list prices apart. */
-const TABLE: Record<string, string[] | { offer: string[]; listPrice: string[] }> = {
-  CreateChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
-  SaveVersion: { offer: ["marketing"], listPrice: ["commercial_lead"] },
-  ValidateChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
-  SubmitChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
+type PerKind = { offer: string[]; listPrice: string[]; priceMigration: string[]; prepaid: string[] };
+
+/**
+ * The coordinator's table, method by method; for the methods that depend on
+ * the kind of change, offers, list prices, price migrations and prepaid
+ * passes apart. Stage 7: only the commercial lead writes and schedules a
+ * migration, and the commercial lead or the on-call engineer cancels it
+ * (BRIEF-TAPPA-7.md, behaviour 1); a prepaid pass goes as a list price does,
+ * written by the commercial lead and signed by finance (§14.4).
+ */
+const TABLE: Record<string, string[] | PerKind> = {
+  CreateChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"] },
+  SaveVersion: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"] },
+  ValidateChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"] },
+  SubmitChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"] },
   SimulateOffer: ["marketing", "commercial_lead", "finance"],
+  SimulateMigration: ["marketing", "commercial_lead", "finance"],
   ApproveChange: ["commercial_lead", "finance"],
   RejectChange: ["commercial_lead", "finance"],
-  ScheduleChange: { offer: ["marketing", "commercial_lead"], listPrice: ["commercial_lead"] },
-  CancelChange: { offer: ["marketing", "commercial_lead", "on_call"], listPrice: ["commercial_lead", "on_call"] },
+  ScheduleChange: {
+    offer: ["marketing", "commercial_lead"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"],
+  },
+  CancelChange: {
+    offer: ["marketing", "commercial_lead", "on_call"], listPrice: ["commercial_lead", "on_call"], priceMigration: ["commercial_lead", "on_call"],
+    prepaid: ["commercial_lead", "on_call"],
+  },
   SuspendChange: ["on_call"],
   GetChange: ALL,
   BatchGetChanges: ALL,
@@ -79,7 +94,7 @@ const TABLE: Record<string, string[] | { offer: string[]; listPrice: string[] }>
 };
 
 const sorted = (roles: readonly string[]) => [...roles].sort();
-const matrix = METHOD_ROLES as Record<string, readonly string[] | { offer: readonly string[]; listPrice: readonly string[] }>;
+const matrix = METHOD_ROLES as Record<string, readonly string[] | Readonly<Record<string, readonly string[]>>>;
 const may = (method: string, role: string) => {
   const allowed = matrix[method];
   return allowed !== undefined && anyKind(allowed as never).includes(role as never);
@@ -106,16 +121,19 @@ describe("the role matrix", () => {
         assert.deepEqual(sorted(actual as readonly string[]), sorted(expected), method);
       } else {
         assert.ok(actual !== undefined && isByKind(actual as never), `${method} should depend on the kind`);
-        const byKind = actual as { offer: readonly string[]; listPrice: readonly string[] };
-        assert.deepEqual(sorted(byKind.offer), sorted(expected.offer), `${method} for offers`);
-        assert.deepEqual(sorted(byKind.listPrice), sorted(expected.listPrice), `${method} for list prices`);
+        const byKind = actual as Readonly<Record<string, readonly string[]>>;
+        assert.deepEqual(Object.keys(byKind).sort(), [...KINDS].sort(), `${method} names every kind of change`);
+        assert.deepEqual(Object.keys(expected).sort(), [...KINDS].sort(), `the table names every kind of change for ${method}`);
+        for (const kind of KINDS) assert.deepEqual(sorted(byKind[kind] ?? []), sorted(expected[kind]), `${method} for ${kind}`);
       }
     }
   });
 
   test("keeps the cannots of §12", () => {
     assert.ok(!may("ApproveChange", "marketing"), "marketing cannot approve");
-    assert.ok(!(METHOD_ROLES.CreateChange.listPrice as readonly string[]).includes("catalog_manager"), "the catalog manager cannot change prices");
+    for (const kind of ["listPrice", "priceMigration", "prepaid"] as const) {
+      assert.ok(!(METHOD_ROLES.CreateChange[kind] as readonly string[]).includes("catalog_manager"), `the catalog manager cannot change prices (${kind})`);
+    }
     for (const method of ["CreateChange", "SaveVersion", "ApproveChange", "RejectChange"]) {
       assert.ok(!may(method, "on_call"), `the on-call engineer cannot ${method}`);
     }
@@ -131,9 +149,16 @@ describe("the role matrix", () => {
     }
   });
 
-  test("lets finance and the commercial lead, and nobody else, read revenue", () => {
-    for (const [field, roles] of Object.entries(FIELD_ROLES)) assert.deepEqual(sorted(roles), ["commercial_lead", "finance"], field);
-    assert.deepEqual(Object.keys(FIELD_ROLES).sort(), ["Overview.monthlyRevenue", "Overview.monthlyRevenueEur", "Overview.monthlyTopUps"]);
+  test("lets finance and the commercial lead, and nobody else, read revenue; finance alone the value of prepaid passes not yet earned", () => {
+    const expected: Record<string, string[]> = {
+      "Overview.monthlyRevenue": ["commercial_lead", "finance"],
+      "Overview.monthlyRevenueEur": ["commercial_lead", "finance"],
+      "Overview.monthlyTopUps": ["commercial_lead", "finance"],
+      "Overview.prepaid": ["finance"],
+      "Overview.prepaidUnearnedEur": ["finance"],
+    };
+    assert.deepEqual(Object.keys(FIELD_ROLES).sort(), Object.keys(expected).sort());
+    for (const [field, roles] of Object.entries(FIELD_ROLES)) assert.deepEqual(sorted(roles), expected[field], field);
   });
 
   test("§11.4 and §12.2 quoted here are the book's, and the matrix does what they say", async () => {
@@ -147,12 +172,16 @@ describe("the role matrix", () => {
     // "The auditor exports it, and the auditor and the on-call engineer verify the chain."
     assert.deepEqual(sorted(METHOD_ROLES.ExportHead), ["auditor"]);
     assert.deepEqual(sorted(METHOD_ROLES.VerifyChain), ["auditor", "on_call"]);
-    // "Revenue is read by finance and the commercial lead": the fields the
-    // gateway narrows (FIELD_ROLES) are the revenue of the home, read by those
-    // two and nobody else. Unearned pass value has no field before stage 7.
+    // "Revenue is read by finance and the commercial lead, unearned pass value
+    // by finance": the fields the gateway narrows (FIELD_ROLES) are the
+    // revenue of the home, read by those two and nobody else, and the value of
+    // prepaid passes not yet earned, read by finance alone (stage 7).
     const revenue = Object.keys(FIELD_ROLES).filter((field) => /revenue|topups/i.test(field));
-    assert.deepEqual(revenue.sort(), Object.keys(FIELD_ROLES).sort(), "every narrowed field is revenue");
+    const unearned = Object.keys(FIELD_ROLES).filter((field) => /prepaid/i.test(field));
+    assert.deepEqual([...revenue, ...unearned].sort(), Object.keys(FIELD_ROLES).sort(), "every narrowed field is revenue or unearned pass value");
     for (const field of revenue) assert.deepEqual(sorted(FIELD_ROLES[field as keyof typeof FIELD_ROLES]), ["commercial_lead", "finance"], field);
+    assert.ok(unearned.length >= 2);
+    for (const field of unearned) assert.deepEqual(sorted(FIELD_ROLES[field as keyof typeof FIELD_ROLES]), ["finance"], field);
   });
 
   test("asks for the home in a role that reads its narrower fields first, when the person holds one", () => {
@@ -163,14 +192,18 @@ describe("the role matrix", () => {
   test("covers every method of the contract: public, the subscriber's, or in the matrix, exactly one of them", () => {
     const services = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService, SubscriberService, LaunchService];
     const contract = services.flatMap((service) => service.methods.map((method) => method.name));
-    // Catalog 4, Change 12, Quote 1, Simulation 1, Audit 3, Overview 1, People 1, Subscriber 4, Launch 4.
-    assert.equal(contract.length, 31, "the contract's methods were all read");
+    // Catalog 5, Change 12, Quote 1, Simulation 2, Audit 3, Overview 1, People 1, Subscriber 7, Launch 4.
+    assert.equal(contract.length, 36, "the contract's methods were all read");
     // The gateway binds a client to every service of the contract, and engineCalls() refuses a method no list names.
     assert.deepEqual((Object.values(SERVICES) as unknown[]).length, services.length);
     for (const service of services) assert.ok((Object.values(SERVICES) as unknown[]).includes(service), service.typeName);
-    assert.deepEqual([...PUBLIC_METHODS].sort(), ["GetPriceList", "GetQuote", "ListDemoListeners", "ListMarkets", "ListOffers", "ListPeople", "ListPlans"]);
+    assert.deepEqual([...PUBLIC_METHODS].sort(), [
+      "GetPriceList", "GetQuote", "ListDemoListeners", "ListMarkets", "ListOffers", "ListPeople", "ListPlans", "ListPrepaidPasses",
+    ]);
     // The brief of stage 5: these act for the listener of the site's session, with no x-actor.
-    assert.deepEqual([...SUBSCRIBER_METHODS].sort(), ["ConfirmQuote", "GetAccount", "VerifyStudent"]);
+    assert.deepEqual([...SUBSCRIBER_METHODS].sort(), [
+      "ActivatePrepaidPass", "AnswerPriceChange", "BuyPrepaidPass", "ConfirmQuote", "GetAccount", "VerifyStudent",
+    ]);
     for (const method of contract) {
       const kinds = [(PUBLIC_METHODS as readonly string[]).includes(method), (SUBSCRIBER_METHODS as readonly string[]).includes(method), Object.hasOwn(matrix, method)];
       assert.equal(kinds.filter(Boolean).length, 1, `${method} must be public, the subscriber's, or in the matrix, and only one of them`);

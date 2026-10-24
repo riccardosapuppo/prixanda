@@ -15,8 +15,8 @@ export type RoleName = (typeof ROLES)[number];
 /** Who may call a method; the order is a precedence: a person holding two of them acts in the first. */
 export type Allowed = readonly RoleName[];
 
-/** The kinds of change the contract carries today; entitlements, migrations and passes come with stage 7. */
-export const KINDS = ["offer", "listPrice"] as const;
+/** The kinds of change the console writes today; entitlements come later. */
+export const KINDS = ["offer", "listPrice", "priceMigration", "prepaid"] as const;
 export type Kind = (typeof KINDS)[number];
 
 /** A method whose roles depend on the kind of change it acts on. */
@@ -28,7 +28,9 @@ const ALL: Allowed = ROLES;
  * The engine methods that act for nobody: the gateway sends them no x-actor
  * and no x-actor-role (the coordinator's convention 2).
  */
-export const PUBLIC_METHODS = ["ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote", "ListDemoListeners"] as const;
+export const PUBLIC_METHODS = [
+  "ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote", "ListDemoListeners", "ListPrepaidPasses",
+] as const;
 
 /**
  * The engine methods that act for the listener of the site's session (the
@@ -37,34 +39,44 @@ export const PUBLIC_METHODS = ["ListPeople", "ListMarkets", "ListPlans", "GetPri
  * session's, which the gateway writes itself (engine.ts): the browser never
  * names who it acts for.
  */
-export const SUBSCRIBER_METHODS = ["VerifyStudent", "ConfirmQuote", "GetAccount"] as const;
+export const SUBSCRIBER_METHODS = ["VerifyStudent", "ConfirmQuote", "GetAccount", "AnswerPriceChange", "BuyPrepaidPass", "ActivatePrepaidPass"] as const;
 
 /** The other engine methods, and the roles that may call them. */
 export const METHOD_ROLES = {
-  // Marketing creates and edits campaigns; the commercial lead owns the price list.
-  CreateChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
-  SaveVersion: { offer: ["marketing"], listPrice: ["commercial_lead"] },
+  // Marketing creates and edits campaigns; the commercial lead owns the price
+  // list, and with it the price migrations (§8, §14.3) and the prepaid passes,
+  // which are prices too (§9, §14.4).
+  CreateChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"] },
+  SaveVersion: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"] },
   // The role that may create that kind of change moves it on.
-  ValidateChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
-  SubmitChange: { offer: ["marketing"], listPrice: ["commercial_lead"] },
+  ValidateChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"] },
+  SubmitChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"] },
   SimulateOffer: ["marketing", "commercial_lead", "finance"],
+  // A price migration's simulation (§8.7), for the same three roles.
+  SimulateMigration: ["marketing", "commercial_lead", "finance"],
   // Finance first: a person holding both signs as finance. The engine checks
   // which signatures the version needs and that its author does not sign.
   ApproveChange: ["finance", "commercial_lead"],
   RejectChange: ["finance", "commercial_lead"],
   // Finance approves but does not schedule the start: separation of duties.
-  ScheduleChange: { offer: ["commercial_lead", "marketing"], listPrice: ["commercial_lead"] },
+  ScheduleChange: {
+    offer: ["commercial_lead", "marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"],
+  },
   // Cancelling a scheduled start is part of the on-call engineer's "roll back a launch".
-  CancelChange: { offer: ["commercial_lead", "on_call", "marketing"], listPrice: ["commercial_lead", "on_call"] },
+  CancelChange: {
+    offer: ["commercial_lead", "on_call", "marketing"], listPrice: ["commercial_lead", "on_call"], priceMigration: ["commercial_lead", "on_call"],
+    prepaid: ["commercial_lead", "on_call"],
+  },
   SuspendChange: ["on_call"],
   // The log is read, never changed (§11.4).
   GetChange: ALL,
   BatchGetChanges: ALL,
   ListChanges: ALL,
   // Everyone reads the home, but the engine fills its revenue only for
-  // finance and the commercial lead (FIELD_ROLES below): a person who also
-  // holds one of those roles must ask in it, or the revenue comes back empty
-  // while the field check lets it through.
+  // finance and the commercial lead, and the value of prepaid passes not yet
+  // earned only for finance (FIELD_ROLES below): a person who also holds one
+  // of those roles must ask in it, finance first, or those figures come back
+  // empty while the field check lets them through.
   GetOverview: ["finance", "commercial_lead", "marketing", "catalog_manager", "on_call", "auditor"],
   ListEvents: ALL,
   // The on-call engineer verifies the chain when the runbook says it does not add up.
@@ -83,13 +95,17 @@ export type MethodName = keyof typeof METHOD_ROLES;
 
 /**
  * Fields of the console's API narrower than the operation that returns them:
- * finance and the commercial lead read revenue. The engine leaves these
- * fields empty for the other roles; the gateway answers FORBIDDEN on them.
+ * finance and the commercial lead read revenue, finance alone the value of
+ * prepaid passes sold and not yet earned (§9.2, §12.2). The engine leaves
+ * these fields empty for the other roles; the gateway answers FORBIDDEN on
+ * them.
  */
 export const FIELD_ROLES = {
   "Overview.monthlyRevenue": ["finance", "commercial_lead"],
   "Overview.monthlyRevenueEur": ["finance", "commercial_lead"],
   "Overview.monthlyTopUps": ["finance", "commercial_lead"],
+  "Overview.prepaid": ["finance"],
+  "Overview.prepaidUnearnedEur": ["finance"],
 } as const satisfies Record<string, Allowed>;
 
 /** Every role that may call the method, whatever the kind of change. */

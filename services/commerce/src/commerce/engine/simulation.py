@@ -10,19 +10,19 @@ signatures a version needs: validation uses the defaults (§7.3).
 
 from __future__ import annotations
 
-from commerce.domain import policy
+from commerce.domain import migration, policy
 from commerce.domain.economics import Book, Campaign, break_even_retention, finance_conditions, simulate
-from commerce.domain.localtime import format_instant, to_local
+from commerce.domain.localtime import describe_local, format_instant, format_local, to_instant, to_local
 from commerce.domain.money import Money, format_money
-from commerce.domain.offers import Offer
+from commerce.domain.offers import Offer, PriceMigration
 from commerce.domain.validation import resolve_price
-from commerce.engine import contract, eligibility, records, reference
+from commerce.engine import contract, eligibility, prepaid, records, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.catalog import list_price_at, market_code
 from commerce.engine.changes import require_role
 from commerce.engine.database import Connection
 from commerce.engine.errors import InvalidArgument, NotFound, Refused
-from commerce.v1 import simulation_pb2
+from commerce.v1 import common_pb2, simulation_pb2
 
 # name: (lowest, highest) accepted for a typed value.
 ASSUMPTIONS = {
@@ -39,6 +39,10 @@ class Simulation:
         self.clock = clock
         self.book = book
 
+    async def simulate_migration(self, tx: Connection, call: Call,
+                                 request: simulation_pb2.SimulateMigrationRequest) -> simulation_pb2.SimulateMigrationResponse:
+        return await simulate_migration(tx, call, request, clock=self.clock, book=self.book)
+
     async def simulate_offer(self, tx: Connection, call: Call,
                              request: simulation_pb2.SimulateOfferRequest) -> simulation_pb2.SimulateOfferResponse:
         require_role(call, policy.SIMULATORS, "run a simulation")
@@ -46,7 +50,8 @@ class Simulation:
         if kind is None:
             raise NotFound(f"no change #{request.change_id}")
         if kind != "offer":
-            raise InvalidArgument(f"change #{request.change_id} is not an offer: only campaigns are simulated")
+            raise InvalidArgument(f"change #{request.change_id} is not an offer: SimulateOffer simulates campaigns"
+                                  + ("; a price migration has SimulateMigration" if kind == "price_migration" else ""))
         version = request.version or await tx.fetchval("select current_version from change where id = $1", request.change_id)
         offer, _, _ = await records.version_content(tx, request.change_id, version)
         assert isinstance(offer, Offer)
@@ -139,3 +144,91 @@ class Simulation:
                                 for c in conditions],
             break_even_retention_bp=-1 if break_even is None else break_even,
             assumptions=assumptions, horizon_months=horizon))
+
+
+# name: (lowest, highest) accepted for a typed value of a migration's simulation.
+MIGRATION_ASSUMPTIONS = {"existing": (0, 100_000_000), "acceptance": (0, 10_000)}
+
+
+async def simulate_migration(tx: Connection, call: Call, request: simulation_pb2.SimulateMigrationRequest, *, clock: Clock,
+                             book: Book) -> simulation_pb2.SimulateMigrationResponse:
+    """A price migration against not running it, per month (§8.7): its assumptions are the existing subscribers,
+    counted in the data or typed, and the share that accepts, the book's illustrative default or typed."""
+    require_role(call, policy.SIMULATORS, "run a simulation")
+    kind = await tx.fetchval("select kind from change where id = $1", request.change_id)
+    if kind is None:
+        raise NotFound(f"no change #{request.change_id}")
+    if kind != "price_migration":
+        raise InvalidArgument(f"change #{request.change_id} is not a price migration"
+                              + ("; a campaign has SimulateOffer" if kind == "offer" else ""))
+    version = request.version or await tx.fetchval("select current_version from change where id = $1", request.change_id)
+    change, _, _ = await records.version_content(tx, request.change_id, version)
+    assert isinstance(change, PriceMigration)
+    typed: dict[str, int] = {}
+    for override in request.overrides:
+        if override.name not in MIGRATION_ASSUMPTIONS:
+            raise InvalidArgument(f"{override.name!r} is not an assumption; they are {', '.join(MIGRATION_ASSUMPTIONS)}")
+        if override.name in typed:
+            raise InvalidArgument(f"{override.name} is typed twice")
+        low, high = MIGRATION_ASSUMPTIONS[override.name]
+        if not low <= override.value <= high:
+            raise InvalidArgument(f"{override.name} is between {low} and {high}")
+        typed[override.name] = override.value
+    if not (change.plan and change.market and change.amount and change.notices and change.starts):
+        raise Refused("INVALID", "Nothing to simulate yet: the migration needs its plan, market, new price and dates.")
+    now = clock.now()
+    ref = await reference.load(tx, now)
+    market = ref.market(change.market)
+    rules = (await reference.policies(tx)).get(market.code)
+    if rules is None:
+        raise Refused("INVALID", f"{market.name} has no rules yet for raising an existing subscriber's price (§8).")
+    old = await list_price_at(tx, change.plan, market, change.starts)
+    if old is None:
+        raise Refused("INVALID", f"No {change.plan} price is in force in {market.name} when the new price starts.")
+    if change.amount <= old:
+        raise Refused("INVALID", f"{format_money(change.amount)} is not above the price in force, {format_money(old)}: "
+                                 "a price migration raises the price.")
+    typed_by = f"typed by {policy.ROLE_NAMES[call.role]} at {format_instant(now)}"
+    existing = typed.get("existing")
+    if existing is None:
+        existing = await eligibility.current_subscribers(tx, market.code, change.plan, market.today(now), by_the_month=True)
+    acceptance = typed.get("acceptance", book.price_increase_acceptance_bp)
+    result = migration.simulate_migration(market.terms(book), old.amount, change.amount.amount, existing, acceptance, rules)
+    window_ends = rules.window_ends(change.notices)
+    if rules.consent:
+        existing_from = (f"from their first charge after they consent, and not before new subscribers pay it; they answer "
+                         f"by {describe_local(window_ends, market.zone)}")
+    else:
+        existing_from = (f"from their first charge after the {rules.window_days} days of notice, ending "
+                         f"{describe_local(window_ends, market.zone)}, unless they leave before it")
+
+    def m(amount: int) -> common_pb2.Money:
+        return contract.money(Money(amount, market.currency))
+
+    def priced(step: migration.Step) -> simulation_pb2.PriceStep:
+        return simulation_pb2.PriceStep(price=m(step.price), net=m(step.net), artists=m(step.artists),
+                                        payment_costs=m(step.payment_costs), contribution=m(step.contribution))
+
+    def local(moment) -> common_pb2.LocalTime:
+        return common_pb2.LocalTime(market=market.code, local=format_local(moment)[:16],
+                                    utc=format_instant(to_instant(moment, market.zone)))
+
+    conditions = finance_conditions(book, sets_list_price=True, below_floor=[], discount_and_top_up=None, contribution=None,
+                                    horizon_months=book.horizon_months, asks_consent=True)
+    return simulation_pb2.SimulateMigrationResponse(result=simulation_pb2.MigrationSimulation(
+        before=priced(result.before), after=priced(result.after), new_subscribers_from=local(change.starts),
+        notices_from=local(change.notices), window_ends=local(window_ends), existing_from=existing_from,
+        existing=result.existing, accepting=result.accepting, not_accepting=result.not_accepting,
+        moving_to_free=result.moving_to_free, monthly_revenue_change=m(result.revenue_change),
+        monthly_contribution_change=m(result.contribution_change), revenue_at_risk_monthly=m(result.revenue_at_risk),
+        break_even_acceptance_revenue_bp=-1 if result.break_even_revenue_bp is None else result.break_even_revenue_bp,
+        break_even_acceptance_contribution_bp=-1 if result.break_even_contribution_bp is None else result.break_even_contribution_bp,
+        prepaid_passes_untouched=await prepaid.untouched(tx, market.code, change.plan, market.today(now)),
+        assumptions=[
+            simulation_pb2.Assumption(name="existing", value=existing,
+                                      source=typed_by if "existing" in typed else f"counted in the data at {format_instant(now)}"),
+            simulation_pb2.Assumption(name="acceptance", value=acceptance,
+                                      source=typed_by if "acceptance" in typed else "default: business book §16 (illustrative)"),
+        ],
+        finance_conditions=[simulation_pb2.FinanceCondition(number=c.number, rule=c.rule, met=c.met, detail=c.detail)
+                            for c in conditions]))

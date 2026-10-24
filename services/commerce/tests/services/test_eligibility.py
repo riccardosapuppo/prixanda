@@ -10,6 +10,7 @@ import pytest
 
 from commerce.domain.offers import Audience, ListeningRule
 from commerce.engine import eligibility
+from helpers import add_subscription
 
 DAY = date(2026, 10, 24)
 DOPPELFENSTER = 4
@@ -44,8 +45,7 @@ async def test_each_audience_reaches_the_people_the_seed_put_in_it(world, audien
 async def test_the_listening_window_moves_with_the_day(world):
     # Four hours in the first week of October: inside the 30 days on 24 October, outside on 6 November.
     await world.owner.execute("insert into subscriber (id, market, joined_on) values (205, 'DE', '2026-01-10')")
-    await world.owner.execute("insert into subscription (id, subscriber_id, market, currency, plan_id, paid, price_minor, "
-                              "started_on, billing_day) values (205, 205, 'DE', 'EUR', 'free', false, 0, '2026-01-10', 10)")
+    await add_subscription(world.owner, 205, "DE", "free", 0, "2026-01-10", subscription=205)
     for day in range(1, 9):
         await world.owner.execute("insert into listening_day (subscriber_id, artist_id, day, seconds) values (205, 4, $1, 1800)",
                                   date(2026, 10, day))

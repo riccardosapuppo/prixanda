@@ -10,6 +10,7 @@ from datetime import date, datetime
 
 from commerce.domain.economics import Book, MarketTerms
 from commerce.domain.localtime import format_instant, to_local
+from commerce.domain.migration import Policy
 from commerce.domain.offers import Known
 from commerce.domain.validation import PlanFacts
 from commerce.engine.database import Connection
@@ -89,3 +90,14 @@ async def artist_names(tx: Connection, ids: set[int]) -> dict[int, str]:
     rows = await tx.fetch("select id, name from artist where id in (select jsonb_array_elements_text($1::text::jsonb)::int)",
                           json.dumps(sorted(ids)))
     return {row["id"]: row["name"] for row in rows}
+
+
+async def policies(tx: Connection) -> dict[str, Policy]:
+    """Each market's rules for raising an existing subscriber's price (§8): the law and the choices, apart."""
+    rows = await tx.fetch(
+        "select market, legal_requirement, legal_basis, legal_sources::text as legal_sources, window_days, after_window, "
+        "commercial_choice, alternatives::text as alternatives from price_change_policy order by market")
+    return {row["market"].strip(): Policy(
+        row["market"].strip(), row["legal_requirement"], row["legal_basis"], tuple(json.loads(row["legal_sources"])),
+        row["window_days"], row["after_window"], row["commercial_choice"], tuple(json.loads(row["alternatives"])))
+        for row in rows}

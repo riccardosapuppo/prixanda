@@ -15,11 +15,11 @@ from datetime import datetime
 
 from commerce.domain.economics import SignatureNeed
 from commerce.domain.localtime import format_instant, parse_instant
-from commerce.domain.offers import Content, ListPrice, from_json
+from commerce.domain.offers import Content, ListPrice, PriceMigration, from_json
 from commerce.engine import contract
 from commerce.engine.database import Connection, utc_text
 from commerce.engine.errors import NotFound
-from commerce.v1 import changes_pb2
+from commerce.v1 import changes_pb2, common_pb2
 
 ZERO_HASH = "decode(repeat('00', 32), 'hex')"
 
@@ -94,14 +94,16 @@ def needs_from_report(report: dict) -> list[SignatureNeed]:
 
 
 def starts_of(content: Content) -> list[tuple[str, datetime]]:
-    """The local start of each market a change starts in."""
+    """The local start of each market a change starts in. A price migration starts when its notices go out."""
     if isinstance(content, ListPrice):
         return [(content.market, content.starts)] if content.market and content.starts else []
+    if isinstance(content, PriceMigration):
+        return [(content.market, content.notices)] if content.market and content.notices else []
     return [(p.market, p.starts) for p in content.periods if p.starts is not None]
 
 
 def markets_of(content: Content) -> list[str]:
-    if isinstance(content, ListPrice):
+    if isinstance(content, (ListPrice, PriceMigration)):
         return [content.market] if content.market else []
     seen: list[str] = []
     for entry in (*content.prices, *content.periods, *content.pages):
@@ -173,6 +175,22 @@ async def load_changes(tx: Connection, ids: list[int]) -> dict[int, changes_pb2.
         change.sentence = row["sentence"]
     for row in submissions:
         out[row["change_id"]].author_reason = row["author_reason"] or ""
+    for row in await tx.fetch(
+            "select change_id, count(*)::bigint as asked, min(kind) as kind, min(market) as market, "
+            "min(to_char(window_ends_local, 'YYYY-MM-DD\"T\"HH24:MI')) as ends_local, "
+            f"min({utc_text('window_ends_at')}) as ends_at, "
+            "count(*) filter (where state = 'waiting')::bigint as waiting, "
+            "count(*) filter (where state = 'accepted')::bigint as accepted, "
+            "count(*) filter (where state = 'declined')::bigint as declined, "
+            "count(*) filter (where state = 'lapsed')::bigint as lapsed, "
+            "count(*) filter (where state = 'new_price')::bigint as new_price, "
+            "count(*) filter (where leaves_on is not null)::bigint as left_paid "
+            f"from price_change_request where change_id in {IDS} group by change_id", payload):
+        out[row["change_id"]].migration.CopyFrom(changes_pb2.MigrationProgress(
+            requirement=row["kind"],
+            window_ends=common_pb2.LocalTime(market=row["market"].strip(), local=row["ends_local"], utc=iso(row["ends_at"])),
+            asked=row["asked"], waiting=row["waiting"], accepted=row["accepted"], declined=row["declined"],
+            lapsed=row["lapsed"], new_price=row["new_price"], left=row["left_paid"]))
     return out
 
 
@@ -187,9 +205,7 @@ def summary(change: changes_pb2.Change, updated_at: str) -> changes_pb2.ChangeSu
     current = next((v for v in change.versions if v.version == change.current_version), None)
     markets: list[str] = []
     if current is not None:
-        field = current.WhichOneof("content")
-        content = contract.offer_from_proto(current.offer) if field == "offer" else contract.list_price_from_proto(current.list_price)
-        markets = markets_of(content)
+        markets = markets_of(contract.content_from_message(current))
     return changes_pb2.ChangeSummary(
         id=change.id, kind=change.kind, title=change.title, state=change.state, current_version=change.current_version,
         created_by=change.created_by, markets=markets, required_signatures=list(change.required_signatures),

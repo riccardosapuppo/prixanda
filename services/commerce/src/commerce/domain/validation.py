@@ -38,8 +38,11 @@ from commerce.domain.economics import (
 )
 from commerce.domain.localtime import AmbiguousLocalTime, describe_local, format_local, to_instant
 from commerce.domain.money import BASIS_POINTS, Money, format_money, round_half_up
-from commerce.domain.offers import Audience, Content, ListPrice, Offer, OfferPeriod, OfferPrice
-from commerce.domain.sentence import OfferClause, audience_short, list_price_sentence, offer_clause
+from commerce.domain.migration import Policy
+from commerce.domain.offers import Audience, Content, ListPrice, Offer, OfferPeriod, OfferPrice, PrepaidPass, PriceMigration
+from commerce.domain.sentence import (
+    OfferClause, audience_short, list_price_sentence, migration_sentence, offer_clause, prepaid_sentence,
+)
 
 BLOCKING, NEEDS_SIGNATURE, INFO = "blocking", "needs_signature", "info"
 # A neighbour in one of these states can clash: it is on its way to the site, or there.
@@ -101,6 +104,8 @@ class Context:
     # For a list price: prices of the same plan and market already in the
     # price list from the version's start or later, as (local start, amount).
     later_prices: tuple[tuple[datetime, Money], ...] = ()
+    # For a price migration: the rules of its market for existing subscribers (§8).
+    policy: Policy | None = None
 
 
 @dataclass(frozen=True)
@@ -432,7 +437,7 @@ def validate_list_price(change: ListPrice, ctx: Context) -> Report:
                       starts=format_local(later_start), amount=amount.amount)
         for other in ctx.neighbours:
             content = other.content
-            if (isinstance(content, ListPrice) and other.state in PENDING_OR_LIVE and other.state != "active"
+            if (isinstance(content, (ListPrice, PriceMigration)) and other.state in PENDING_OR_LIVE and other.state != "active"
                     and content.plan == change.plan and content.market == change.market):
                 overlaps.append(f"{other.title} (#{other.change_id})")
                 found.add("overlap", BLOCKING, code,
@@ -452,8 +457,174 @@ def validate_list_price(change: ListPrice, ctx: Context) -> Report:
                   per_market)
 
 
+def validate_price_migration(change: PriceMigration, ctx: Context) -> Report:
+    """A list price for new subscribers, and the market's rules for the existing ones (§8): finance signs (§7.3,
+    conditions 1 and 5). The price must rise: a lower price is a new list price (§4.2)."""
+    found = _Findings()
+    book = ctx.book
+    plan = ctx.plans.get(change.plan) if change.plan else None
+    market = ctx.markets.get(change.market) if change.market else None
+    if plan is None:
+        found.add("price", BLOCKING, "", "Choose the plan.")
+    if market is None:
+        found.add("price", BLOCKING, "", "Choose the market.")
+    if change.amount is None:
+        found.add("price", BLOCKING, change.market or "", "Set the new price.")
+    if change.notices is None:
+        found.add("dates", BLOCKING, change.market or "", "Set when the existing subscribers are asked or told.")
+    if change.starts is None:
+        found.add("dates", BLOCKING, change.market or "", "Set from when new subscribers pay the new price.")
+    per_market: dict[str, dict[str, object]] = {}
+    if market is None:
+        sentence = f"{change.title}: market not chosen yet."
+    else:
+        code = market.code
+        for moment in (change.notices, change.starts):
+            if moment is not None:
+                _check_times(found, market, OfferPeriod(code, moment, None), ctx.now)
+        if change.notices is not None and change.starts is not None and change.starts < change.notices:
+            found.add("dates", BLOCKING, code,
+                      f"{market.name}: new subscribers pay the new price from {describe_local(change.starts, market.zone)}, "
+                      f"before the existing ones are asked or told, {describe_local(change.notices, market.zone)}.",
+                      notices=format_local(change.notices), starts=format_local(change.starts))
+        if change.amount is not None:
+            terms = book.terms(market.currency, market.vat_bp)
+            floor = Money(terms.floor(), market.currency)
+            if market.list_price is not None and change.amount <= market.list_price:
+                found.add("price", BLOCKING, code,
+                          f"{market.name}: a price migration raises the price, and {format_money(change.amount)} is not "
+                          f"above the price in force, {format_money(market.list_price)}; a lower price is a new list price.",
+                          amount=change.amount.amount, list_price=market.list_price.amount)
+            if change.amount < floor:
+                top_up = terms.top_up(terms.net(change.amount.amount))
+                found.add("floor", NEEDS_SIGNATURE, code,
+                          f"{market.name}: {format_money(change.amount)} is below the floor of {format_money(floor)}. "
+                          f"As a standing exception (§5.5) the artists' minimum would cost "
+                          f"{format_money(Money(top_up, market.currency))} a month per subscription.",
+                          amount=change.amount.amount, floor=floor.amount, top_up=top_up)
+            per_market[code] = {"eligible": market.eligible, "list_price": None if market.list_price is None else market.list_price.amount,
+                                "new_price": change.amount.amount, "floor": floor.amount, "currency": market.currency}
+        if ctx.policy is None:
+            found.add("price", BLOCKING, code, f"{market.name} has no rules yet for raising an existing subscriber's price (§8).")
+        overlaps = []
+        for later_start, amount in ctx.later_prices:
+            overlaps.append(f"{format_money(amount)} from {format_local(later_start)}")
+            found.add("overlap", BLOCKING, code,
+                      f"{market.name}: the price list already holds {format_money(amount)} from {describe_local(later_start, market.zone)}.",
+                      starts=format_local(later_start), amount=amount.amount)
+        for other in ctx.neighbours:
+            content = other.content
+            if (isinstance(content, (ListPrice, PriceMigration)) and other.state in PENDING_OR_LIVE and other.state != "active"
+                    and content.plan == change.plan and content.market == change.market):
+                overlaps.append(f"{other.title} (#{other.change_id})")
+                found.add("overlap", BLOCKING, code,
+                          f"{market.name}: {other.title} (#{other.change_id}, {other.state.replace('_', ' ')}) "
+                          f"already changes this price.", change=other.change_id)
+            elif (isinstance(content, PriceMigration) and other.state == "active" and ctx.policy is not None
+                    and content.plan == change.plan and content.market == change.market
+                    and content.notices is not None and change.notices is not None):
+                # One request per subscriber at a time: the next migration asks once the last one's window ended.
+                window_ends = ctx.policy.window_ends(content.notices)
+                if change.notices <= window_ends:
+                    overlaps.append(f"{other.title} (#{other.change_id})")
+                    found.add("overlap", BLOCKING, code,
+                              f"{market.name}: {other.title} (#{other.change_id}) asks or tells the existing subscribers "
+                              f"until {describe_local(window_ends, market.zone)}; this migration can reach them after that.",
+                              change=other.change_id, window_ends=format_local(window_ends))
+        policy = ctx.policy
+        sentence = migration_sentence(
+            market_name=market.name, plan_name=plan.name if plan else "no plan", current=market.list_price, new=change.amount,
+            starts=describe_local(change.starts, market.zone) if change.starts else None,
+            notices=describe_local(change.notices, market.zone) if change.notices else None, subscribers=market.eligible,
+            consent=bool(policy and policy.consent), window_days=policy.window_days if policy else 0,
+            choice=policy.commercial_choice if policy else "", overlaps=overlaps)
+    conditions = finance_conditions(book, sets_list_price=True, below_floor=[], discount_and_top_up=None,
+                                    contribution=None, horizon_months=book.horizon_months, asks_consent=True)
+    signatures = signatures_needed(conditions)
+    _signature_finding(found, signatures)
+    eligible = market.eligible if market is not None else 0
+    return Report(not found.blocking(), tuple(found.items), tuple(conditions), tuple(signatures), eligible, sentence,
+                  per_market)
+
+
+def validate_prepaid(content: PrepaidPass, ctx: Context) -> Report:
+    """A pass puts a price on sale (§9.1): finance signs it, as for a list price (§7.3, condition 1). In each
+    market it is sold in: its price, its period of sale and its page. A price under what its months would cost at
+    the market's floor is a standing exception finance signs, as an offer's would be (§5.5). A pass gives a plan
+    anyone can have: a gift cannot carry a student verification."""
+    found = _Findings()
+    book = ctx.book
+    plan = ctx.plans.get(content.plan) if content.plan else None
+    if plan is None:
+        found.add("price", BLOCKING, "", "Choose the plan the pass gives.")
+    elif plan.needs_student_check:
+        found.add("audience", BLOCKING, "", f"{plan.name} needs a student verification, which a gift code cannot carry.")
+    if content.months < 1:
+        found.add("dates", BLOCKING, "", "Say how many months the pass gives.")
+    if content.code_valid_months < 1:
+        found.add("dates", BLOCKING, "", "Say how many months a code can wait to be activated.")
+    if not content.prices:
+        found.add("price", BLOCKING, "", "Set the price in at least one market.")
+    sold = set(content.markets())
+    for entry in (*content.periods, *content.pages):
+        if entry.market not in sold:
+            check = "dates" if isinstance(entry, OfferPeriod) else "page_text"
+            found.add(check, BLOCKING, entry.market, f"{ctx.markets[entry.market].name} has no price: remove it, or price it.")
+    below_floor: list[str] = []
+    per_market: dict[str, dict[str, object]] = {}
+    clauses: list[str] = []
+    months = max(content.months, 1)
+    for code in content.markets():
+        market = ctx.markets[code]
+        entry = content.price_in(code)
+        assert entry is not None and entry.fixed is not None  # shape_problems refuses a pass priced otherwise
+        price = entry.fixed
+        terms = book.terms(market.currency, market.vat_bp)
+        floor = Money(terms.floor(), market.currency)
+        if price.amount < floor.amount * months:
+            monthly_net = terms.net(price.amount) // months
+            top_up = terms.top_up(monthly_net)
+            below_floor.append(f"{market.name}: {format_money(price)} for {months} months against a floor of "
+                               f"{format_money(floor)} a month")
+            found.add("floor", NEEDS_SIGNATURE, code,
+                      f"{market.name}: {format_money(price)} for {months} months is below the floor of {format_money(floor)} "
+                      f"a month; the artists' minimum would cost {format_money(Money(top_up, market.currency))} a month "
+                      f"per pass.", price=price.amount, floor=floor.amount, months=months, top_up=top_up)
+        period = content.period_in(code)
+        if period is None:
+            found.add("dates", BLOCKING, code, f"{market.name}: set when the pass is on sale.")
+        else:
+            _check_times(found, market, period, ctx.now)
+        page = content.page_in(code)
+        missing = [] if page is None else [name for name in ("title", "text", "terms") if not getattr(page, name).strip()]
+        if page is None or missing:
+            what = "a page" if page is None else "its page " + " and ".join(missing)
+            found.add("page_text", BLOCKING, code, f"{market.name} needs {what}.")
+        per_market[code] = {"price": price.amount, "months": content.months, "floor": floor.amount, "currency": market.currency,
+                            "list_price": None if market.list_price is None else market.list_price.amount}
+        clause = f"{market.name}: {format_money(price)}"
+        if market.list_price is not None:
+            clause += f" ({format_money(market.list_price)} a month at the list price)"
+        if period is not None and period.starts is not None:
+            clause += f", on sale from {describe_local(period.starts, market.zone)}"
+        clauses.append(clause)
+    sentence = prepaid_sentence(title=content.title, plan_name=plan.name if plan else "no plan", months=content.months,
+                                code_valid_months=content.code_valid_months, markets=clauses)
+    conditions = finance_conditions(book, sets_list_price=True, below_floor=below_floor, discount_and_top_up=None,
+                                    contribution=None, horizon_months=book.horizon_months)
+    signatures = signatures_needed(conditions)
+    _signature_finding(found, signatures)
+    return Report(not found.blocking(), tuple(found.items), tuple(conditions), tuple(signatures), 0, sentence, per_market)
+
+
 def validate(content: Content, ctx: Context) -> Report:
-    return validate_offer(content, ctx) if isinstance(content, Offer) else validate_list_price(content, ctx)
+    if isinstance(content, Offer):
+        return validate_offer(content, ctx)
+    if isinstance(content, PriceMigration):
+        return validate_price_migration(content, ctx)
+    if isinstance(content, PrepaidPass):
+        return validate_prepaid(content, ctx)
+    return validate_list_price(content, ctx)
 
 
 def report_to_json(report: Report) -> dict:

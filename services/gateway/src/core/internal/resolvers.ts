@@ -5,7 +5,8 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import {
   ChangeKindSchema, ChangeStateSchema, type ListPriceContent, type ListPriceContentSchema, type OfferContent, type OfferContentSchema,
-  SegmentSchema, SeveritySchema,
+  type PrepaidPassContent, type PrepaidPassContentSchema, type PriceMigrationContent, type PriceMigrationContentSchema, SegmentSchema,
+  SeveritySchema,
 } from "contracts/commerce/v1/changes";
 import { RefusalCodeSchema, RoleSchema } from "contracts/commerce/v1/common";
 import { LaunchStateSchema, LaunchStepStateSchema } from "contracts/commerce/v1/launches";
@@ -16,7 +17,8 @@ import {
 } from "../convert.ts";
 import { breach, contractBroken, gatewayError } from "../errors.ts";
 import type {
-  ActorRole, AssumptionName, AudioQuality, IncidentKind, IncidentState, ListPriceInput, OfferInput, Resolvers, Role,
+  ActorRole, AfterWindow, AssumptionName, AudioQuality, IncidentKind, IncidentState, ListPriceInput, OfferInput, PrepaidPassInput,
+  PriceChangeRequirement, PriceMigrationInput, Resolvers, Role,
 } from "../generated/internal.ts";
 import { positiveId } from "../ids.ts";
 import type { ChangeModel, LaunchRunModel, RefusalModel } from "../models.ts";
@@ -103,6 +105,39 @@ function listPriceContent(input: ListPriceInput): MessageInitShape<typeof ListPr
   };
 }
 
+/** A price migration as the console types it; the engine's validation says whether its price and dates hold (§8). */
+function priceMigrationContent(input: PriceMigrationInput): MessageInitShape<typeof PriceMigrationContentSchema> {
+  return {
+    title: input.title,
+    plan: input.plan,
+    market: input.market,
+    amount: { amountMinor: input.amount.amountMinor, currency: input.amount.currency },
+    noticesLocal: input.noticesLocal,
+    startsLocal: input.startsLocal,
+  };
+}
+
+/**
+ * A prepaid pass as the console types it (§9, §14.4): a fixed price in each
+ * market, VAT included, which the input cannot write any other way; its
+ * periods and pages as an offer's.
+ */
+function prepaidPassContent(input: PrepaidPassInput): MessageInitShape<typeof PrepaidPassContentSchema> {
+  return {
+    title: input.title,
+    plan: input.plan,
+    months: input.months,
+    prices: input.prices.map((price) => ({
+      market: price.market, price: { case: "fixed" as const, value: { amountMinor: price.amount.amountMinor, currency: price.amount.currency } },
+    })),
+    periods: input.periods.map((period) => ({ market: period.market, startsLocal: period.startsLocal, endsLocal: period.endsLocal ?? "" })),
+    codeValidMonths: input.codeValidMonths,
+    pages: input.pages.map((page) => ({
+      market: page.market, title: page.title, text: page.text, terms: page.terms, treatment: page.treatment ?? "standard",
+    })),
+  };
+}
+
 type Outcome = { case: "change"; value: ChangeModel } | { case: "refusal"; value: RefusalModel["refusal"] } | { case: undefined; value?: undefined };
 
 /**
@@ -153,7 +188,11 @@ function launchId(value: string): string {
   return id;
 }
 const ACTOR_ROLES: readonly ActorRole[] = ["MARKETING", "COMMERCIAL_LEAD", "FINANCE", "CATALOG_MANAGER", "ON_CALL", "AUDITOR", "SYSTEM", "SUBSCRIBER"];
-const ASSUMPTIONS: readonly AssumptionName[] = ["ELIGIBLE", "TAKE_UP", "INCREMENTAL", "RETENTION", "HORIZON_MONTHS"];
+const ASSUMPTIONS: readonly AssumptionName[] = ["ELIGIBLE", "TAKE_UP", "INCREMENTAL", "RETENTION", "HORIZON_MONTHS", "EXISTING", "ACCEPTANCE"];
+const REQUIREMENT: Record<string, PriceChangeRequirement> = { consent: "CONSENT", notice: "NOTICE" };
+const AFTER_WINDOW: Record<string, AfterWindow> = {
+  move_to_free: "MOVE_TO_FREE", end_at_period_end: "END_AT_PERIOD_END", keep_old_price: "KEEP_OLD_PRICE", new_price: "NEW_PRICE",
+};
 
 function lookup<T>(table: Readonly<Record<string, T>>, key: string, what: string): T {
   const found = Object.hasOwn(table, key) ? table[key] : undefined;
@@ -206,6 +245,18 @@ export const internalResolvers: Resolvers = {
       if (answer.outcome.case === "refusal") return { $typeName: "gateway.Refusal", refusal: answer.outcome.value, changeId: about };
       throw contractBroken("SimulateOffer answered with neither a result nor a refusal");
     },
+    simulateMigration: async (_root, { changeId: id, version: versionNumber, overrides }, context) => {
+      const about = changeId(id);
+      const answer = await context.engine(actorFor(context, METHOD_ROLES.SimulateMigration)).simulation.simulateMigration({
+        changeId: about,
+        // 0: the current version.
+        version: versionNumber === null || versionNumber === undefined ? 0 : version(versionNumber, "version"),
+        overrides: (overrides ?? []).map((override) => ({ name: override.name.toLowerCase(), value: BigInt(override.value) })),
+      });
+      if (answer.outcome.case === "result") return answer.outcome.value;
+      if (answer.outcome.case === "refusal") return { $typeName: "gateway.Refusal", refusal: answer.outcome.value, changeId: about };
+      throw contractBroken("SimulateMigration answered with neither a result nor a refusal");
+    },
     auditEvents: async (_root, { filter, first, after }, context) => {
       const answer = await context.engine(actorFor(context, METHOD_ROLES.ListEvents)).audit.listEvents({
         actor: filter?.actor ?? "",
@@ -257,6 +308,32 @@ export const internalResolvers: Resolvers = {
       const engine = context.engine(actorFor(context, METHOD_ROLES.CreateChange.listPrice));
       const created = await engine.changes.createChange({ content: { case: "listPrice", value: listPriceContent(listPrice) } });
       return answer(created.outcome, null, context);
+    },
+    createPriceMigration: async (_root, { migration }, context) => {
+      const engine = context.engine(actorFor(context, METHOD_ROLES.CreateChange.priceMigration));
+      const created = await engine.changes.createChange({ content: { case: "priceMigration", value: priceMigrationContent(migration) } });
+      return answer(created.outcome, null, context);
+    },
+    savePriceMigrationVersion: async (_root, { changeId: id, baseVersion, migration }, context) => {
+      const about = changeId(id);
+      const engine = context.engine(actorFor(context, METHOD_ROLES.SaveVersion.priceMigration));
+      const saved = await engine.changes.saveVersion({
+        changeId: about, baseVersion: version(baseVersion, "baseVersion"), content: { case: "priceMigration", value: priceMigrationContent(migration) },
+      });
+      return answer(saved.outcome, about, context);
+    },
+    createPrepaidPass: async (_root, { pass }, context) => {
+      const engine = context.engine(actorFor(context, METHOD_ROLES.CreateChange.prepaid));
+      const created = await engine.changes.createChange({ content: { case: "prepaid", value: prepaidPassContent(pass) } });
+      return answer(created.outcome, null, context);
+    },
+    savePrepaidPassVersion: async (_root, { changeId: id, baseVersion, pass }, context) => {
+      const about = changeId(id);
+      const engine = context.engine(actorFor(context, METHOD_ROLES.SaveVersion.prepaid));
+      const saved = await engine.changes.saveVersion({
+        changeId: about, baseVersion: version(baseVersion, "baseVersion"), content: { case: "prepaid", value: prepaidPassContent(pass) },
+      });
+      return answer(saved.outcome, about, context);
     },
     saveOfferVersion: async (_root, { changeId: id, baseVersion, offer }, context) => {
       const about = changeId(id);
@@ -356,6 +433,24 @@ export const internalResolvers: Resolvers = {
     vatBasisPoints: (market) => market.vatBp,
     artistsMinimum: (market) => money(market.artistsMinimum, `market ${market.code}'s artists' minimum`),
     floor: (market) => money(market.floor, `market ${market.code}'s floor`),
+    priceChangePolicy: (market) => market.priceChangePolicy ?? null,
+  },
+  // The policy's two parts, never mixed (§8.1): the law reads the legal fields of the message, the choice the commercial ones.
+  PriceChangePolicy: {
+    law: (policy) => policy,
+    choice: (policy) => policy,
+  },
+  PriceChangeLaw: {
+    requirement: (policy) => lookup(REQUIREMENT, policy.legalRequirement, "legal requirement"),
+    basis: (policy) => policy.legalBasis,
+    sources: (policy) => policy.legalSources,
+  },
+  PriceChangeChoice: {
+    windowDays: (policy) => policy.windowDays,
+    afterWindow: (policy) => lookup(AFTER_WINDOW, policy.afterWindow, "choice after the window"),
+    words: (policy) => policy.commercialChoice,
+    alternatives: (policy) => policy.alternatives,
+    label: (policy) => policy.label,
   },
   Entitlements: {
     skipsPerHour: (entitlements) => (entitlements.skipsPerHour === 0 ? null : entitlements.skipsPerHour),
@@ -429,17 +524,26 @@ export const internalResolvers: Resolvers = {
     requiredSignatures: (change) => change.requiredSignatures,
     sentence: (change) => orNull(change.sentence),
     authorReason: (change) => orNull(change.authorReason),
+    migration: (change) => change.migration ?? null,
   },
   ChangeVersion: {
     version: (changeVersion) => changeVersion.version,
     author: (changeVersion, _args, context) => person(context, changeVersion.author),
     createdAt: (changeVersion) => changeVersion.createdAt,
     fingerprint: (changeVersion) => hex(changeVersion.contentHash),
-    content: (changeVersion) => changeVersion.content.value ?? breach(`version ${changeVersion.version} has no content`),
+    content: (changeVersion) => {
+      const content = changeVersion.content;
+      if (content.case === "offer" || content.case === "listPrice" || content.case === "priceMigration" || content.case === "prepaid") {
+        return content.value;
+      }
+      return breach(`version ${changeVersion.version} has no content the console's schema shows (${content.case ?? "none"})`);
+    },
   },
   ChangeContent: {
-    __resolveType: (content: OfferContent | ListPriceContent) =>
-      content.$typeName === "commerce.v1.OfferContent" ? "OfferContent" : "ListPriceContent",
+    __resolveType: (content: OfferContent | ListPriceContent | PriceMigrationContent | PrepaidPassContent) => ({
+      "commerce.v1.OfferContent": "OfferContent", "commerce.v1.ListPriceContent": "ListPriceContent",
+      "commerce.v1.PriceMigrationContent": "PriceMigrationContent", "commerce.v1.PrepaidPassContent": "PrepaidPassContent",
+    } as const)[content.$typeName],
   },
   OfferContent: {
     title: (offer) => offer.title,
@@ -458,6 +562,40 @@ export const internalResolvers: Resolvers = {
     market: (content) => content.market,
     amount: (content) => money(content.amount, "a list price change"),
     startsLocal: (content) => content.startsLocal,
+  },
+  PriceMigrationContent: {
+    title: (content) => content.title,
+    plan: (content) => content.plan,
+    market: (content) => content.market,
+    amount: (content) => money(content.amount, "a price migration"),
+    noticesLocal: (content) => content.noticesLocal,
+    startsLocal: (content) => content.startsLocal,
+  },
+  PrepaidPassContent: {
+    title: (pass) => pass.title,
+    plan: (pass) => pass.plan,
+    months: (pass) => pass.months,
+    prices: (pass) => pass.prices,
+    periods: (pass) => pass.periods,
+    codeValidMonths: (pass) => pass.codeValidMonths,
+    pages: (pass) => pass.pages,
+  },
+  // A pass's price is fixed (§9.1): a percentage would break the contract.
+  PrepaidPassPrice: {
+    market: (price) => price.market,
+    amount: (price) => (price.price.case === "fixed" ? money(price.price.value, `a prepaid pass's price in ${price.market}`)
+      : breach(`a prepaid pass's price in ${price.market} is not a fixed price`)),
+  },
+  MigrationProgress: {
+    requirement: (progress) => lookup(REQUIREMENT, progress.requirement, "migration requirement"),
+    windowEnds: (progress) => progress.windowEnds ?? breach("a migration's progress has no window"),
+    asked: (progress) => count(progress.asked, "asked"),
+    waiting: (progress) => count(progress.waiting, "waiting"),
+    accepted: (progress) => count(progress.accepted, "accepted"),
+    declined: (progress) => count(progress.declined, "declined"),
+    lapsed: (progress) => count(progress.lapsed, "lapsed"),
+    newPrice: (progress) => count(progress.newPrice, "on the new price"),
+    left: (progress) => count(progress.left, "left"),
   },
   Audience: {
     segment: (audience) => enumName(SegmentSchema, audience.segment, "segment"),
@@ -536,6 +674,16 @@ export const internalResolvers: Resolvers = {
     monthlyRevenueEur: (overview) => optionalMoney(overview.monthlyRevenueEur),
     monthlyTopUps: (overview) => optionalMoney(overview.monthlyTopUps),
     exchangeRateNote: (overview) => overview.exchangeRateNote,
+    prepaid: (overview) => overview.prepaid,
+    prepaidUnearnedEur: (overview) => optionalMoney(overview.prepaidUnearnedEur),
+  },
+  PrepaidValue: {
+    market: (row) => row.market,
+    sold: (row) => count(row.sold, `prepaid codes sold in ${row.market}`),
+    activated: (row) => count(row.activated, `prepaid codes activated in ${row.market}`),
+    expired: (row) => count(row.expired, `prepaid codes expired in ${row.market}`),
+    unearned: (row) => money(row.unearned, `prepaid value not yet earned in ${row.market}`),
+    unearnedEur: (row) => money(row.unearnedEur, `prepaid value not yet earned in ${row.market}, in euros`),
   },
   MarketTime: {
     market: (time) => time.market,
@@ -637,6 +785,38 @@ export const internalResolvers: Resolvers = {
     rule: (condition) => condition.rule,
     met: (condition) => condition.met,
     detail: (condition) => condition.detail,
+  },
+  PriceStep: {
+    price: (step) => money(step.price, "a price step's price"),
+    net: (step) => money(step.net, "a price step's net amount"),
+    artists: (step) => money(step.artists, "a price step's artists"),
+    paymentCosts: (step) => money(step.paymentCosts, "a price step's payment costs"),
+    contribution: (step) => money(step.contribution, "a price step's contribution"),
+  },
+  MigrationSimulation: {
+    before: (result) => result.before ?? breach("a migration's simulation came without the price before"),
+    after: (result) => result.after ?? breach("a migration's simulation came without the price after"),
+    newSubscribersFrom: (result) => result.newSubscribersFrom ?? breach("a migration's simulation came without the new subscribers' start"),
+    noticesFrom: (result) => result.noticesFrom ?? breach("a migration's simulation came without the notices' start"),
+    windowEnds: (result) => result.windowEnds ?? breach("a migration's simulation came without its window"),
+    existingFrom: (result) => result.existingFrom,
+    existing: (result) => count(result.existing, "existing"),
+    accepting: (result) => count(result.accepting, "accepting"),
+    notAccepting: (result) => count(result.notAccepting, "not accepting"),
+    movingToFree: (result) => count(result.movingToFree, "moving to free"),
+    monthlyRevenueChange: (result) => money(result.monthlyRevenueChange, "monthly revenue change"),
+    monthlyContributionChange: (result) => money(result.monthlyContributionChange, "monthly contribution change"),
+    revenueAtRiskMonthly: (result) => money(result.revenueAtRiskMonthly, "revenue at risk"),
+    // Below zero from the engine: no acceptance keeps it from falling.
+    breakEvenAcceptanceRevenueBasisPoints: (result) => (result.breakEvenAcceptanceRevenueBp < 0 ? null : result.breakEvenAcceptanceRevenueBp),
+    breakEvenAcceptanceContributionBasisPoints: (result) =>
+      (result.breakEvenAcceptanceContributionBp < 0 ? null : result.breakEvenAcceptanceContributionBp),
+    prepaidPassesUntouched: (result) => count(result.prepaidPassesUntouched, "prepaid passes untouched"),
+    assumptions: (result) => result.assumptions,
+    financeConditions: (result) => result.financeConditions,
+  },
+  MigrationSimulationOutcome: {
+    __resolveType: (outcome) => (outcome.$typeName === "gateway.Refusal" ? "Refusal" : "MigrationSimulation"),
   },
   Simulation: {
     eligible: (result) => count(result.eligible, "eligible"),

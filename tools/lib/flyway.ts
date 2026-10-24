@@ -45,7 +45,12 @@ export function flywayHome(): { java: string; lib: string; from: string } {
 
 export type FlywayTarget = { port: number; database: string; user: string; password: string };
 
-export async function flyway(verb: "info" | "migrate" | "validate", target: FlywayTarget, locations = migrationsDir): Promise<Ran> {
+/**
+ * Runs Flyway on a database. upTo stops a migrate at that version (FLYWAY_TARGET), as
+ * the compatibility check does to stand where an earlier version of the schema stood.
+ */
+export async function flyway(verb: "info" | "migrate" | "validate", target: FlywayTarget, locations = migrationsDir,
+  upTo?: string): Promise<Ran> {
   const home = flywayHome();
   if (!existsSync(home.java)) throw new Error(`no Java runtime at ${home.java}: run npm run setup`);
   // Java expands a classpath entry ending in * to the jars of that folder itself,
@@ -64,6 +69,7 @@ export async function flyway(verb: "info" | "migrate" | "validate", target: Flyw
       FLYWAY_PLACEHOLDER_REPLACEMENT: "false",
       FLYWAY_VALIDATE_MIGRATION_NAMING: "true",
       FLYWAY_CONNECT_RETRIES: "0",
+      ...(upTo ? { FLYWAY_TARGET: upTo } : {}),
     },
   });
 }

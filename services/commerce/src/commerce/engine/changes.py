@@ -23,7 +23,9 @@ from commerce.domain import policy
 from commerce.domain.economics import Book
 from commerce.domain.localtime import AmbiguousLocalTime, format_instant, format_local, to_instant, to_local
 from commerce.domain.money import Money
-from commerce.domain.offers import Content, ListPrice, Offer, from_json, local_times, shape_problems, to_json
+from commerce.domain.offers import (
+    Content, ListPrice, Offer, PrepaidPass, PriceMigration, from_json, local_times, shape_problems, to_json,
+)
 from commerce.domain.validation import (
     BLOCKING, PENDING_OR_LIVE, Context, MarketFacts, Neighbour, report_to_json, validate,
 )
@@ -221,7 +223,7 @@ class Changes:
             market = ref.market(code)
             local_now = to_local(now, market.zone)
             starts = None
-            if isinstance(content, Offer):
+            if isinstance(content, (Offer, PrepaidPass)):
                 period = content.period_in(code)
                 starts = period.starts if period is not None else None
             else:
@@ -236,14 +238,21 @@ class Changes:
             today = market.today(now)
             if isinstance(content, Offer):
                 people = await eligibility.count(tx, audience, code, today) if audience.segment is not None else 0
+            elif isinstance(content, PrepaidPass):
+                people = 0  # a pass is sold to anyone, and given: nobody is counted
             else:
-                people = await eligibility.current_subscribers(tx, code, plan_id, today) if plan_id else 0
+                people = await eligibility.current_subscribers(
+                    tx, code, plan_id, today, by_the_month=isinstance(content, PriceMigration)) if plan_id else 0
             facts[code] = MarketFacts(code, market.name, market.currency, market.zone, market.vat_bp, list_price, people)
+        # A list price and a price migration both set the list price: each is the other's neighbour.
+        kinds = (["offer"] if isinstance(content, Offer) else ["prepaid"] if isinstance(content, PrepaidPass)
+                 else ["list_price", "price_migration"])
         rows = await tx.fetch(
             "select c.id, c.title, c.state, v.content::text as content from change c "
             "join change_version v on v.change_id = c.id and v.version = c.current_version "
-            "where c.kind = $1 and c.id <> $2 and c.state in (select jsonb_array_elements_text($3::text::jsonb))",
-            change.kind, change.id, json.dumps(list(PENDING_OR_LIVE)))
+            "where c.kind in (select jsonb_array_elements_text($1::text::jsonb)) and c.id <> $2 "
+            "and c.state in (select jsonb_array_elements_text($3::text::jsonb))",
+            json.dumps(kinds), change.id, json.dumps(list(PENDING_OR_LIVE)))
         neighbours = []
         days = clashes.market_days(ref, content, now) if isinstance(content, Offer) else {}
         for r in rows:
@@ -252,7 +261,7 @@ class Changes:
                       if isinstance(content, Offer) and isinstance(other, Offer) else {})
             neighbours.append(Neighbour(r["id"], r["title"], r["state"], other, shared))
         later: tuple = ()
-        if isinstance(content, ListPrice) and content.plan and content.market and content.starts:
+        if isinstance(content, (ListPrice, PriceMigration)) and content.plan and content.market and content.starts:
             market = ref.markets[content.market]
             later = tuple(
                 (datetime.fromisoformat(r["starts"]), Money(r["amount_minor"], market.currency))
@@ -261,8 +270,10 @@ class Changes:
                     "where plan_id = $1 and market = $2 and lower(valid) >= $3::text::timestamp order by lower(valid)",
                     content.plan, content.market, format_local(content.starts)))
         artist_ids = {content.audience.listening.artist_id} if isinstance(content, Offer) and content.audience.listening else set()
+        rules = (await reference.policies(tx)).get(content.market) if isinstance(content, PriceMigration) else None
         return Context(now=now, book=self.book, markets=facts, plans=ref.plans,
-                       artists=await reference.artist_names(tx, artist_ids), neighbours=tuple(neighbours), later_prices=later)
+                       artists=await reference.artist_names(tx, artist_ids), neighbours=tuple(neighbours), later_prices=later,
+                       policy=rules)
 
     async def validate(self, tx: Connection, call: Call, request: changes_pb2.ValidateChangeRequest) -> changes_pb2.ValidateChangeResponse:
         change = await records.lock_change(tx, request.change_id)
@@ -426,7 +437,7 @@ class Changes:
             zone = ref.markets[market].zone
             starts.append({"market": market, "local": format_local(moment), "utc": format_instant(to_instant(moment, zone))})
         await clashes.lock_neighbourhood(tx, content)
-        if isinstance(content, ListPrice):
+        if isinstance(content, (ListPrice, PriceMigration)):
             later = await tx.fetchval(
                 "select to_char(lower(valid), 'YYYY-MM-DD\"T\"HH24:MI') from list_price where plan_id = $1 and market = $2 "
                 "and lower(valid) >= $3::text::timestamp order by lower(valid) limit 1",
@@ -477,6 +488,11 @@ class Changes:
         if change.kind == "list_price":
             raise Refused("WRONG_STATE", "A list price in force is never edited (§4.2): to go back, the commercial lead creates "
                                          "a new list price and finance signs it.", {"kind": change.kind})
+        if change.kind == "price_migration":
+            raise Refused("WRONG_STATE", "A price migration in force is not suspended: its price is in the price list, which is "
+                                         "never edited (§4.2), and the existing subscribers were asked or told already (§8). To "
+                                         "go back for new subscribers, the commercial lead creates a new list price and finance "
+                                         "signs it.", {"kind": change.kind})
         reason = reason_text(request.reason, "you suspend it")
         now = self.clock.now()
         await self._move(tx, change, "suspended", now, reason)

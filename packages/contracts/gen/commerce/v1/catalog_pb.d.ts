@@ -62,6 +62,13 @@ export declare type Market = Message<"commerce.v1.Market"> & {
    * @generated from field: commerce.v1.Money floor = 8;
    */
   floor?: Money | undefined;
+
+  /**
+   * What happens before an existing subscriber pays more (§8).
+   *
+   * @generated from field: commerce.v1.PriceChangePolicy price_change_policy = 9;
+   */
+  priceChangePolicy?: PriceChangePolicy | undefined;
 };
 
 /**
@@ -69,6 +76,83 @@ export declare type Market = Message<"commerce.v1.Market"> & {
  * Use `create(MarketSchema)` to create a new message.
  */
 export declare const MarketSchema: GenMessage<Market>;
+
+/**
+ * Two questions never mixed (§8.1): what the law of the market requires before
+ * an existing subscriber pays a higher price, with its sources; and what the
+ * music service chose to do, a setting of the market and never law (§8.6).
+ *
+ * @generated from message commerce.v1.PriceChangePolicy
+ */
+export declare type PriceChangePolicy = Message<"commerce.v1.PriceChangePolicy"> & {
+  /**
+   * @generated from field: string market = 1;
+   */
+  market: string;
+
+  /**
+   * The law. consent: the subscriber must say yes, and silence is no (§8.2);
+   * notice: the subscriber is told in advance and may leave before the new
+   * price applies (§8.3 to §8.5).
+   *
+   * @generated from field: string legal_requirement = 2;
+   */
+  legalRequirement: string;
+
+  /**
+   * @generated from field: string legal_basis = 3;
+   */
+  legalBasis: string;
+
+  /**
+   * @generated from field: repeated string legal_sources = 4;
+   */
+  legalSources: string[];
+
+  /**
+   * The choices. How long the subscriber has: to consent, or before the new
+   * price applies after the notice.
+   *
+   * @generated from field: int32 window_days = 5;
+   */
+  windowDays: number;
+
+  /**
+   * What happens at the end of the window to those who did not consent
+   * (consent markets): move_to_free, end_at_period_end or keep_old_price; to
+   * those who did not leave (notice markets): new_price.
+   *
+   * @generated from field: string after_window = 6;
+   */
+  afterWindow: string;
+
+  /**
+   * The same choice in words, as the subscriber reads it.
+   *
+   * @generated from field: string commercial_choice = 7;
+   */
+  commercialChoice: string;
+
+  /**
+   * The other choices the market could make.
+   *
+   * @generated from field: repeated string alternatives = 8;
+   */
+  alternatives: string[];
+
+  /**
+   * "Rione's choice, configurable per market. Not a legal requirement."
+   *
+   * @generated from field: string label = 9;
+   */
+  label: string;
+};
+
+/**
+ * Describes the message commerce.v1.PriceChangePolicy.
+ * Use `create(PriceChangePolicySchema)` to create a new message.
+ */
+export declare const PriceChangePolicySchema: GenMessage<PriceChangePolicy>;
 
 /**
  * @generated from message commerce.v1.ListMarketsRequest
@@ -506,6 +590,101 @@ export declare type ListOffersResponse = Message<"commerce.v1.ListOffersResponse
 export declare const ListOffersResponseSchema: GenMessage<ListOffersResponse>;
 
 /**
+ * @generated from message commerce.v1.ListPrepaidPassesRequest
+ */
+export declare type ListPrepaidPassesRequest = Message<"commerce.v1.ListPrepaidPassesRequest"> & {
+  /**
+   * @generated from field: string market = 1;
+   */
+  market: string;
+};
+
+/**
+ * Describes the message commerce.v1.ListPrepaidPassesRequest.
+ * Use `create(ListPrepaidPassesRequestSchema)` to create a new message.
+ */
+export declare const ListPrepaidPassesRequestSchema: GenMessage<ListPrepaidPassesRequest>;
+
+/**
+ * A prepaid pass the site sells (§9.1): its price is paid once, VAT included,
+ * for its months of the plan.
+ *
+ * @generated from message commerce.v1.PrepaidPassOnSale
+ */
+export declare type PrepaidPassOnSale = Message<"commerce.v1.PrepaidPassOnSale"> & {
+  /**
+   * The change that put it on sale.
+   *
+   * @generated from field: int64 pass_id = 1 [jstype = JS_STRING];
+   */
+  passId: string;
+
+  /**
+   * @generated from field: string market = 2;
+   */
+  market: string;
+
+  /**
+   * @generated from field: string title = 3;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string plan = 4;
+   */
+  plan: string;
+
+  /**
+   * @generated from field: int32 months = 5;
+   */
+  months: number;
+
+  /**
+   * @generated from field: commerce.v1.Money price = 6;
+   */
+  price?: Money | undefined;
+
+  /**
+   * How long a code sold today can be activated, in months.
+   *
+   * @generated from field: int32 code_valid_months = 7;
+   */
+  codeValidMonths: number;
+
+  /**
+   * @generated from field: string text = 8;
+   */
+  text: string;
+
+  /**
+   * @generated from field: string terms = 9;
+   */
+  terms: string;
+};
+
+/**
+ * Describes the message commerce.v1.PrepaidPassOnSale.
+ * Use `create(PrepaidPassOnSaleSchema)` to create a new message.
+ */
+export declare const PrepaidPassOnSaleSchema: GenMessage<PrepaidPassOnSale>;
+
+/**
+ * @generated from message commerce.v1.ListPrepaidPassesResponse
+ */
+export declare type ListPrepaidPassesResponse = Message<"commerce.v1.ListPrepaidPassesResponse"> & {
+  /**
+   * @generated from field: repeated commerce.v1.PrepaidPassOnSale passes = 1;
+   */
+  passes: PrepaidPassOnSale[];
+};
+
+/**
+ * Describes the message commerce.v1.ListPrepaidPassesResponse.
+ * Use `create(ListPrepaidPassesResponseSchema)` to create a new message.
+ */
+export declare const ListPrepaidPassesResponseSchema: GenMessage<ListPrepaidPassesResponse>;
+
+/**
  * @generated from service commerce.v1.CatalogService
  */
 export declare const CatalogService: GenService<{
@@ -545,6 +724,17 @@ export declare const CatalogService: GenService<{
     methodKind: "unary";
     input: typeof ListOffersRequestSchema;
     output: typeof ListOffersResponseSchema;
+  },
+  /**
+   * The prepaid passes on sale in a market now (§9): those whose change is
+   * active and whose period in the market holds the instant.
+   *
+   * @generated from rpc commerce.v1.CatalogService.ListPrepaidPasses
+   */
+  listPrepaidPasses: {
+    methodKind: "unary";
+    input: typeof ListPrepaidPassesRequestSchema;
+    output: typeof ListPrepaidPassesResponseSchema;
   },
 }>;
 

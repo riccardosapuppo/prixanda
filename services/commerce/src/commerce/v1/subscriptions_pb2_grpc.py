@@ -54,6 +54,21 @@ class SubscriberServiceStub(object):
                 request_serializer=commerce_dot_v1_dot_subscriptions__pb2.GetAccountRequest.SerializeToString,
                 response_deserializer=commerce_dot_v1_dot_subscriptions__pb2.GetAccountResponse.FromString,
                 _registered_method=True)
+        self.AnswerPriceChange = channel.unary_unary(
+                '/commerce.v1.SubscriberService/AnswerPriceChange',
+                request_serializer=commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeRequest.SerializeToString,
+                response_deserializer=commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeResponse.FromString,
+                _registered_method=True)
+        self.BuyPrepaidPass = channel.unary_unary(
+                '/commerce.v1.SubscriberService/BuyPrepaidPass',
+                request_serializer=commerce_dot_v1_dot_subscriptions__pb2.BuyPrepaidPassRequest.SerializeToString,
+                response_deserializer=commerce_dot_v1_dot_subscriptions__pb2.BuyPrepaidPassResponse.FromString,
+                _registered_method=True)
+        self.ActivatePrepaidPass = channel.unary_unary(
+                '/commerce.v1.SubscriberService/ActivatePrepaidPass',
+                request_serializer=commerce_dot_v1_dot_subscriptions__pb2.ActivatePrepaidPassRequest.SerializeToString,
+                response_deserializer=commerce_dot_v1_dot_subscriptions__pb2.ActivatePrepaidPassResponse.FromString,
+                _registered_method=True)
 
 
 class SubscriberServiceServicer(object):
@@ -100,6 +115,42 @@ class SubscriberServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def AnswerPriceChange(self, request, context):
+        """The listener's answer to a price change (§8): in a consent market, yes or
+        no; in a notice market, no means leaving before the new price applies, and
+        yes only says they read it. Once answered, the same answer comes back; an
+        answer after the window, or a different answer, is refused with
+        REFUSAL_CODE_WRONG_STATE.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def BuyPrepaidPass(self, request, context):
+        """A prepaid pass bought, to keep or give (§9): the engine takes the pass's
+        price as it is on sale in the buyer's market, writes the code and its
+        payment, PENDING, and asks the simulated provider through the outbox, as
+        for a confirmation. The code can be activated once the payment succeeded,
+        until its valid_until; unused, it expires. A pass not on sale in the
+        buyer's market is refused with REFUSAL_CODE_NOT_ELIGIBLE.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ActivatePrepaidPass(self, request, context):
+        """A code activated by a listener of the pass's market with no paid
+        subscription running: the pass's plan from that day for its months,
+        never charged and never renewed, then the free plan. A code of another
+        market is refused with REFUSAL_CODE_NOT_ELIGIBLE, a listener already
+        paying with REFUSAL_CODE_ALREADY_SUBSCRIBED, a code that is not ready
+        (payment pending or declined, used, expired) with REFUSAL_CODE_WRONG_STATE.
+        The same listener activating the same code again gets the same answer.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_SubscriberServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -122,6 +173,21 @@ def add_SubscriberServiceServicer_to_server(servicer, server):
                     servicer.GetAccount,
                     request_deserializer=commerce_dot_v1_dot_subscriptions__pb2.GetAccountRequest.FromString,
                     response_serializer=commerce_dot_v1_dot_subscriptions__pb2.GetAccountResponse.SerializeToString,
+            ),
+            'AnswerPriceChange': grpc.unary_unary_rpc_method_handler(
+                    servicer.AnswerPriceChange,
+                    request_deserializer=commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeRequest.FromString,
+                    response_serializer=commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeResponse.SerializeToString,
+            ),
+            'BuyPrepaidPass': grpc.unary_unary_rpc_method_handler(
+                    servicer.BuyPrepaidPass,
+                    request_deserializer=commerce_dot_v1_dot_subscriptions__pb2.BuyPrepaidPassRequest.FromString,
+                    response_serializer=commerce_dot_v1_dot_subscriptions__pb2.BuyPrepaidPassResponse.SerializeToString,
+            ),
+            'ActivatePrepaidPass': grpc.unary_unary_rpc_method_handler(
+                    servicer.ActivatePrepaidPass,
+                    request_deserializer=commerce_dot_v1_dot_subscriptions__pb2.ActivatePrepaidPassRequest.FromString,
+                    response_serializer=commerce_dot_v1_dot_subscriptions__pb2.ActivatePrepaidPassResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -232,6 +298,87 @@ class SubscriberService(object):
             '/commerce.v1.SubscriberService/GetAccount',
             commerce_dot_v1_dot_subscriptions__pb2.GetAccountRequest.SerializeToString,
             commerce_dot_v1_dot_subscriptions__pb2.GetAccountResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AnswerPriceChange(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/commerce.v1.SubscriberService/AnswerPriceChange',
+            commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeRequest.SerializeToString,
+            commerce_dot_v1_dot_subscriptions__pb2.AnswerPriceChangeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def BuyPrepaidPass(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/commerce.v1.SubscriberService/BuyPrepaidPass',
+            commerce_dot_v1_dot_subscriptions__pb2.BuyPrepaidPassRequest.SerializeToString,
+            commerce_dot_v1_dot_subscriptions__pb2.BuyPrepaidPassResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ActivatePrepaidPass(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/commerce.v1.SubscriberService/ActivatePrepaidPass',
+            commerce_dot_v1_dot_subscriptions__pb2.ActivatePrepaidPassRequest.SerializeToString,
+            commerce_dot_v1_dot_subscriptions__pb2.ActivatePrepaidPassResponse.FromString,
             options,
             channel_credentials,
             insecure,

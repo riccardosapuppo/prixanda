@@ -74,7 +74,7 @@ class VerifyStudentResponse(_message.Message):
     def __init__(self, verification: _Optional[_Union[StudentVerification, _Mapping]] = ..., refusal: _Optional[_Union[_common_pb2.Refusal, _Mapping]] = ...) -> None: ...
 
 class Subscription(_message.Message):
-    __slots__ = ("subscription_id", "plan", "market", "paid", "price", "started_on", "billing_day", "offer_id", "offer_title", "offer_months", "offer_months_left", "full_price_from", "full_price", "next_billing_on", "next_charge")
+    __slots__ = ("subscription_id", "plan", "market", "paid", "price", "started_on", "billing_day", "offer_id", "offer_title", "offer_months", "offer_months_left", "full_price_from", "full_price", "next_billing_on", "next_charge", "ends_on", "prepaid_code", "prepaid_price")
     SUBSCRIPTION_ID_FIELD_NUMBER: _ClassVar[int]
     PLAN_FIELD_NUMBER: _ClassVar[int]
     MARKET_FIELD_NUMBER: _ClassVar[int]
@@ -90,6 +90,9 @@ class Subscription(_message.Message):
     FULL_PRICE_FIELD_NUMBER: _ClassVar[int]
     NEXT_BILLING_ON_FIELD_NUMBER: _ClassVar[int]
     NEXT_CHARGE_FIELD_NUMBER: _ClassVar[int]
+    ENDS_ON_FIELD_NUMBER: _ClassVar[int]
+    PREPAID_CODE_FIELD_NUMBER: _ClassVar[int]
+    PREPAID_PRICE_FIELD_NUMBER: _ClassVar[int]
     subscription_id: int
     plan: str
     market: str
@@ -105,7 +108,10 @@ class Subscription(_message.Message):
     full_price: _common_pb2.Money
     next_billing_on: str
     next_charge: _common_pb2.Money
-    def __init__(self, subscription_id: _Optional[int] = ..., plan: _Optional[str] = ..., market: _Optional[str] = ..., paid: bool = ..., price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., started_on: _Optional[str] = ..., billing_day: _Optional[int] = ..., offer_id: _Optional[int] = ..., offer_title: _Optional[str] = ..., offer_months: _Optional[int] = ..., offer_months_left: _Optional[int] = ..., full_price_from: _Optional[str] = ..., full_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., next_billing_on: _Optional[str] = ..., next_charge: _Optional[_Union[_common_pb2.Money, _Mapping]] = ...) -> None: ...
+    ends_on: str
+    prepaid_code: str
+    prepaid_price: _common_pb2.Money
+    def __init__(self, subscription_id: _Optional[int] = ..., plan: _Optional[str] = ..., market: _Optional[str] = ..., paid: bool = ..., price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., started_on: _Optional[str] = ..., billing_day: _Optional[int] = ..., offer_id: _Optional[int] = ..., offer_title: _Optional[str] = ..., offer_months: _Optional[int] = ..., offer_months_left: _Optional[int] = ..., full_price_from: _Optional[str] = ..., full_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., next_billing_on: _Optional[str] = ..., next_charge: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., ends_on: _Optional[str] = ..., prepaid_code: _Optional[str] = ..., prepaid_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ...) -> None: ...
 
 class Receipt(_message.Message):
     __slots__ = ("receipt_id", "amount", "issued_at", "provider", "provider_reference", "demonstration", "note")
@@ -172,18 +178,76 @@ class ConfirmQuoteResponse(_message.Message):
     def __init__(self, confirmation: _Optional[_Union[Confirmation, _Mapping]] = ..., refusal: _Optional[_Union[_common_pb2.Refusal, _Mapping]] = ...) -> None: ...
 
 class Account(_message.Message):
-    __slots__ = ("subscriber_id", "market", "subscription", "student_verification", "payment")
+    __slots__ = ("subscriber_id", "market", "subscription", "student_verification", "payment", "price_changes", "prepaid_codes")
     SUBSCRIBER_ID_FIELD_NUMBER: _ClassVar[int]
     MARKET_FIELD_NUMBER: _ClassVar[int]
     SUBSCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STUDENT_VERIFICATION_FIELD_NUMBER: _ClassVar[int]
     PAYMENT_FIELD_NUMBER: _ClassVar[int]
+    PRICE_CHANGES_FIELD_NUMBER: _ClassVar[int]
+    PREPAID_CODES_FIELD_NUMBER: _ClassVar[int]
     subscriber_id: int
     market: str
     subscription: Subscription
     student_verification: StudentVerification
     payment: Payment
-    def __init__(self, subscriber_id: _Optional[int] = ..., market: _Optional[str] = ..., subscription: _Optional[_Union[Subscription, _Mapping]] = ..., student_verification: _Optional[_Union[StudentVerification, _Mapping]] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ...) -> None: ...
+    price_changes: _containers.RepeatedCompositeFieldContainer[PriceChange]
+    prepaid_codes: _containers.RepeatedCompositeFieldContainer[PrepaidCode]
+    def __init__(self, subscriber_id: _Optional[int] = ..., market: _Optional[str] = ..., subscription: _Optional[_Union[Subscription, _Mapping]] = ..., student_verification: _Optional[_Union[StudentVerification, _Mapping]] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ..., price_changes: _Optional[_Iterable[_Union[PriceChange, _Mapping]]] = ..., prepaid_codes: _Optional[_Iterable[_Union[PrepaidCode, _Mapping]]] = ...) -> None: ...
+
+class PriceChange(_message.Message):
+    __slots__ = ("price_change_id", "change_id", "plan", "old_price", "new_price", "kind", "sent_at", "window_ends", "state", "new_price_from", "if_no_answer", "legal_basis", "new_subscribers_from", "applies_from", "if_no_leaves_on", "leaves_on")
+    PRICE_CHANGE_ID_FIELD_NUMBER: _ClassVar[int]
+    CHANGE_ID_FIELD_NUMBER: _ClassVar[int]
+    PLAN_FIELD_NUMBER: _ClassVar[int]
+    OLD_PRICE_FIELD_NUMBER: _ClassVar[int]
+    NEW_PRICE_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    SENT_AT_FIELD_NUMBER: _ClassVar[int]
+    WINDOW_ENDS_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    NEW_PRICE_FROM_FIELD_NUMBER: _ClassVar[int]
+    IF_NO_ANSWER_FIELD_NUMBER: _ClassVar[int]
+    LEGAL_BASIS_FIELD_NUMBER: _ClassVar[int]
+    NEW_SUBSCRIBERS_FROM_FIELD_NUMBER: _ClassVar[int]
+    APPLIES_FROM_FIELD_NUMBER: _ClassVar[int]
+    IF_NO_LEAVES_ON_FIELD_NUMBER: _ClassVar[int]
+    LEAVES_ON_FIELD_NUMBER: _ClassVar[int]
+    price_change_id: int
+    change_id: int
+    plan: str
+    old_price: _common_pb2.Money
+    new_price: _common_pb2.Money
+    kind: str
+    sent_at: str
+    window_ends: _common_pb2.LocalTime
+    state: str
+    new_price_from: str
+    if_no_answer: str
+    legal_basis: str
+    new_subscribers_from: _common_pb2.LocalTime
+    applies_from: str
+    if_no_leaves_on: str
+    leaves_on: str
+    def __init__(self, price_change_id: _Optional[int] = ..., change_id: _Optional[int] = ..., plan: _Optional[str] = ..., old_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., new_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., kind: _Optional[str] = ..., sent_at: _Optional[str] = ..., window_ends: _Optional[_Union[_common_pb2.LocalTime, _Mapping]] = ..., state: _Optional[str] = ..., new_price_from: _Optional[str] = ..., if_no_answer: _Optional[str] = ..., legal_basis: _Optional[str] = ..., new_subscribers_from: _Optional[_Union[_common_pb2.LocalTime, _Mapping]] = ..., applies_from: _Optional[str] = ..., if_no_leaves_on: _Optional[str] = ..., leaves_on: _Optional[str] = ...) -> None: ...
+
+class AnswerPriceChangeRequest(_message.Message):
+    __slots__ = ("subscriber_id", "price_change_id", "accept")
+    SUBSCRIBER_ID_FIELD_NUMBER: _ClassVar[int]
+    PRICE_CHANGE_ID_FIELD_NUMBER: _ClassVar[int]
+    ACCEPT_FIELD_NUMBER: _ClassVar[int]
+    subscriber_id: int
+    price_change_id: int
+    accept: bool
+    def __init__(self, subscriber_id: _Optional[int] = ..., price_change_id: _Optional[int] = ..., accept: bool = ...) -> None: ...
+
+class AnswerPriceChangeResponse(_message.Message):
+    __slots__ = ("price_change", "refusal")
+    PRICE_CHANGE_FIELD_NUMBER: _ClassVar[int]
+    REFUSAL_FIELD_NUMBER: _ClassVar[int]
+    price_change: PriceChange
+    refusal: _common_pb2.Refusal
+    def __init__(self, price_change: _Optional[_Union[PriceChange, _Mapping]] = ..., refusal: _Optional[_Union[_common_pb2.Refusal, _Mapping]] = ...) -> None: ...
 
 class GetAccountRequest(_message.Message):
     __slots__ = ("subscriber_id",)
@@ -196,3 +260,65 @@ class GetAccountResponse(_message.Message):
     ACCOUNT_FIELD_NUMBER: _ClassVar[int]
     account: Account
     def __init__(self, account: _Optional[_Union[Account, _Mapping]] = ...) -> None: ...
+
+class PrepaidCode(_message.Message):
+    __slots__ = ("code", "pass_id", "title", "plan", "market", "months", "price", "sold_at", "valid_until", "state", "payment", "activated_by", "activated_on")
+    CODE_FIELD_NUMBER: _ClassVar[int]
+    PASS_ID_FIELD_NUMBER: _ClassVar[int]
+    TITLE_FIELD_NUMBER: _ClassVar[int]
+    PLAN_FIELD_NUMBER: _ClassVar[int]
+    MARKET_FIELD_NUMBER: _ClassVar[int]
+    MONTHS_FIELD_NUMBER: _ClassVar[int]
+    PRICE_FIELD_NUMBER: _ClassVar[int]
+    SOLD_AT_FIELD_NUMBER: _ClassVar[int]
+    VALID_UNTIL_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    PAYMENT_FIELD_NUMBER: _ClassVar[int]
+    ACTIVATED_BY_FIELD_NUMBER: _ClassVar[int]
+    ACTIVATED_ON_FIELD_NUMBER: _ClassVar[int]
+    code: str
+    pass_id: int
+    title: str
+    plan: str
+    market: str
+    months: int
+    price: _common_pb2.Money
+    sold_at: str
+    valid_until: str
+    state: str
+    payment: Payment
+    activated_by: int
+    activated_on: str
+    def __init__(self, code: _Optional[str] = ..., pass_id: _Optional[int] = ..., title: _Optional[str] = ..., plan: _Optional[str] = ..., market: _Optional[str] = ..., months: _Optional[int] = ..., price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., sold_at: _Optional[str] = ..., valid_until: _Optional[str] = ..., state: _Optional[str] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ..., activated_by: _Optional[int] = ..., activated_on: _Optional[str] = ...) -> None: ...
+
+class BuyPrepaidPassRequest(_message.Message):
+    __slots__ = ("subscriber_id", "pass_id")
+    SUBSCRIBER_ID_FIELD_NUMBER: _ClassVar[int]
+    PASS_ID_FIELD_NUMBER: _ClassVar[int]
+    subscriber_id: int
+    pass_id: int
+    def __init__(self, subscriber_id: _Optional[int] = ..., pass_id: _Optional[int] = ...) -> None: ...
+
+class BuyPrepaidPassResponse(_message.Message):
+    __slots__ = ("code", "refusal")
+    CODE_FIELD_NUMBER: _ClassVar[int]
+    REFUSAL_FIELD_NUMBER: _ClassVar[int]
+    code: PrepaidCode
+    refusal: _common_pb2.Refusal
+    def __init__(self, code: _Optional[_Union[PrepaidCode, _Mapping]] = ..., refusal: _Optional[_Union[_common_pb2.Refusal, _Mapping]] = ...) -> None: ...
+
+class ActivatePrepaidPassRequest(_message.Message):
+    __slots__ = ("subscriber_id", "code")
+    SUBSCRIBER_ID_FIELD_NUMBER: _ClassVar[int]
+    CODE_FIELD_NUMBER: _ClassVar[int]
+    subscriber_id: int
+    code: str
+    def __init__(self, subscriber_id: _Optional[int] = ..., code: _Optional[str] = ...) -> None: ...
+
+class ActivatePrepaidPassResponse(_message.Message):
+    __slots__ = ("subscription", "refusal")
+    SUBSCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    REFUSAL_FIELD_NUMBER: _ClassVar[int]
+    subscription: Subscription
+    refusal: _common_pb2.Refusal
+    def __init__(self, subscription: _Optional[_Union[Subscription, _Mapping]] = ..., refusal: _Optional[_Union[_common_pb2.Refusal, _Mapping]] = ...) -> None: ...

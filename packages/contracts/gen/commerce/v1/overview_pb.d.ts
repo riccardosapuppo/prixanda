@@ -211,6 +211,56 @@ export declare type MarketRevenue = Message<"commerce.v1.MarketRevenue"> & {
 export declare const MarketRevenueSchema: GenMessage<MarketRevenue>;
 
 /**
+ * The prepaid passes of a market, and their value sold and not yet earned on
+ * the day (§9.2): each pass's net amount is earned in equal monthly parts from
+ * its activation, the last taking the remainder; a code not activated stays
+ * unearned until it expires.
+ *
+ * @generated from message commerce.v1.PrepaidValue
+ */
+export declare type PrepaidValue = Message<"commerce.v1.PrepaidValue"> & {
+  /**
+   * @generated from field: string market = 1;
+   */
+  market: string;
+
+  /**
+   * Codes paid for, of which activated, and expired unused.
+   *
+   * @generated from field: int64 sold = 2;
+   */
+  sold: bigint;
+
+  /**
+   * @generated from field: int64 activated = 3;
+   */
+  activated: bigint;
+
+  /**
+   * @generated from field: int64 expired = 4;
+   */
+  expired: bigint;
+
+  /**
+   * Without VAT, in the market's currency, and in euros at the declared rate.
+   *
+   * @generated from field: commerce.v1.Money unearned = 5;
+   */
+  unearned?: Money | undefined;
+
+  /**
+   * @generated from field: commerce.v1.Money unearned_eur = 6;
+   */
+  unearnedEur?: Money | undefined;
+};
+
+/**
+ * Describes the message commerce.v1.PrepaidValue.
+ * Use `create(PrepaidValueSchema)` to create a new message.
+ */
+export declare const PrepaidValueSchema: GenMessage<PrepaidValue>;
+
+/**
  * @generated from message commerce.v1.GetOverviewResponse
  */
 export declare type GetOverviewResponse = Message<"commerce.v1.GetOverviewResponse"> & {
@@ -265,6 +315,19 @@ export declare type GetOverviewResponse = Message<"commerce.v1.GetOverviewRespon
    * @generated from field: commerce.v1.Money monthly_top_ups = 9;
    */
   monthlyTopUps?: Money | undefined;
+
+  /**
+   * Finance only (§12.2): the value of prepaid passes sold and not yet earned,
+   * by market and in all; empty for the other roles.
+   *
+   * @generated from field: repeated commerce.v1.PrepaidValue prepaid = 10;
+   */
+  prepaid: PrepaidValue[];
+
+  /**
+   * @generated from field: commerce.v1.Money prepaid_unearned_eur = 11;
+   */
+  prepaidUnearnedEur?: Money | undefined;
 };
 
 /**
