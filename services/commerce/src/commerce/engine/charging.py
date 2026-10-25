@@ -60,15 +60,16 @@ async def write_subscription(tx: Connection, market: reference.Market, *, subscr
     return subscription_id
 
 
-async def write_free_subscription(tx: Connection, market: reference.Market, *, subscriber_id: int, started_on: date) -> int:
-    """The subscription of the plan a subscriber is on without paying, from a day: the business's one unpaid plan
-    (migration V17), Free for the music service, whatever its name elsewhere."""
+async def write_free_subscription(tx: Connection, market: reference.Market, *, subscriber_id: int, started_on: date,
+                                  ended_on: date | None = None) -> int:
+    """The subscription of the plan a subscriber is on without paying, from a day (up to another, when one follows it
+    already): the business's one unpaid plan (migration V17), Free for the music service, whatever its name elsewhere."""
     plan = await tx.fetchval("select id from plan where not paid")
     if plan is None:
         raise FailedPrecondition("this business has no plan to be on without paying")
     return await write_subscription(tx, market, subscriber_id=subscriber_id, plan_id=plan, paid=False,
                                     price=Money.zero(market.currency), started_on=started_on,
-                                    billing_day=billing.billing_day_for(started_on))
+                                    billing_day=billing.billing_day_for(started_on), ended_on=ended_on)
 
 
 # The price after an offer of a subscription that a price migration asked: the price before the migration, until the

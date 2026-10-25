@@ -22,7 +22,7 @@ provider never declines; a real one can.
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from commerce.domain.localtime import format_instant
 from commerce.domain.money import Money
@@ -178,19 +178,26 @@ class ProviderEvents:
                                      "event": event.event_id})
             return
         subscription = await tx.fetchrow(
-            "select id, subscriber_id, market from subscription where id = $1 for update",
+            "select id, subscriber_id, market, ended_on::text as ended_on from subscription where id = $1 for update",
             payment["subscription_id"])
         market = (await reference.load(tx, now)).market(subscription["market"].strip())
         back_on_free = market.today(now) + timedelta(days=1)
-        await tx.execute("update subscription set ended_on = $2::text::date where id = $1", subscription["id"],
-                         back_on_free.isoformat())
-        free = await charging.write_free_subscription(tx, market, subscriber_id=subscription["subscriber_id"],
-                                                      started_on=back_on_free)
+        # A no to a price change may have ended the paid plan later already, with the free plan written from that day
+        # (migrations._leave): the listener is on the free plan from tomorrow all the same, up to that one. A paid plan
+        # that ends by tomorrow anyway keeps its end, and what follows it.
+        ends = None if subscription["ended_on"] is None else date.fromisoformat(subscription["ended_on"])
+        free = None
+        if ends is None or ends > back_on_free:
+            await tx.execute("update subscription set ended_on = $2::text::date where id = $1", subscription["id"],
+                             back_on_free.isoformat())
+            free = await charging.write_free_subscription(tx, market, subscriber_id=subscription["subscriber_id"],
+                                                          started_on=back_on_free, ended_on=ends)
+            ends = back_on_free
         await records.record(tx, at=now, actor=ACTOR, role=ROLE, action="payment.failed", subject=f"payment:{payment['id']}",
                              request_id=payment["request_id"], body={
                                  "payment": payment["id"], "subscription": subscription["id"], "subscriber": subscription["subscriber_id"],
                                  "provider": event.provider, "provider_reference": event.reference, "reason": reason,
-                                 "event": event.event_id, "ends_on": back_on_free.isoformat(), "free_subscription": free})
+                                 "event": event.event_id, "ends_on": ends.isoformat(), "free_subscription": free})
 
 
 class Charges:

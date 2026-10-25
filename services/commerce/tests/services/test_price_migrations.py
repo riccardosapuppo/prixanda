@@ -22,6 +22,8 @@ from commerce.engine import migrations, outbox
 from commerce.engine.errors import InvalidArgument, NotFound
 from commerce.server.app import Jobs
 from commerce.engine.logs import JsonLog
+from commerce.engine.providers import FAILED, PENDING, ChargeResult, ProviderEvent
+from commerce.invariants import check
 from helpers import add_subscription
 from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2
 from engine_support import (
@@ -425,6 +427,42 @@ async def test_a_second_rise_leaves_for_later_a_subscription_whose_first_new_pri
     history = await world.owner.fetch("select from_on::text, price_minor from subscription_price where subscription_id = $1 "
                                       "order by from_on", on_offer)
     assert [tuple(r) for r in history] == [("2026-10-31", 299), ("2027-01-28", 649)]
+
+
+async def test_a_first_payment_declined_after_a_no_to_a_price_change_moves_the_listener_to_free_from_tomorrow(world,
+                                                                                                         monkeypatch):
+    """401 takes Individual in France on 24 October, and the provider takes its time; a rise asks 401 on 2 November,
+    401 says no and is to leave on 24 December, its Free plan written from then. The payment is declined on 3 November:
+    401 is on Free from the next day, up to that Free plan, and nothing overlaps (§4.5, §8.8)."""
+    async def slow(charge):
+        event = ProviderEvent("simulated", "evt_slow_0001", PENDING, charge.payment_id, "sim-pay-slow", world.clock.now())
+        return ChargeResult("simulated", "sim-pay-slow", (event,))
+
+    monkeypatch.setattr(world.engine.payments, "charge", slow)
+    quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="individual", market="FR", subscriber_id=401),
+                              PUBLIC)).quote
+    payment = (await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(
+        quote_id=quote.quote_id, subscriber_id=401), PUBLIC)).confirmation.payment.payment_id
+    await world.engine.deliver_outbox()
+    await scheduled(world, family_migration(title="Individual price, France", plan="individual", market="FR",
+                                            amount=eur(1199)), LEAD, FINANCE)
+    world.clock.at = at(2026, 11, 2, 7, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    world.clock.at = at(2026, 11, 2, 10, 0)
+    assert (await answer(world, 401, False)).price_change.leaves_on == "2026-12-24"
+    world.clock.at = at(2026, 11, 3, 9, 0)
+    declined = ProviderEvent("simulated", "evt_declined_0401", FAILED, payment, "sim-pay-slow", world.clock.now(),
+                             "The card was declined.")
+    assert await world.engine.provider_events.receive(declined) == "applied"
+    history = await world.owner.fetch("select plan_id, started_on::text, ended_on::text from subscription "
+                                      "where subscriber_id = 401 order by started_on")
+    assert [tuple(r) for r in history] == [("free", "2026-01-10", "2026-10-24"), ("individual", "2026-10-24", "2026-11-04"),
+                                           ("free", "2026-11-04", "2026-12-24"), ("free", "2026-12-24", None)]
+    [failed] = await world.events("payment.failed")
+    assert json.loads(failed["body"])["ends_on"] == "2026-11-04"
+    report = await check(world.owner)
+    assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
 
 
 # -- the simulation -----------------------------------------------------------------------
