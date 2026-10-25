@@ -182,11 +182,20 @@ flowchart LR
 
 ## Why I built it
 
-GraphQL and gRPC were new to me. This is the project in which I learned
-them, on a domain I wanted to understand: how a subscription business
-decides what it sells, to whom, at what price, from when, and with whose
-signature, and how that decision reaches the public without ever being half
-true.
+I wanted to understand how a subscription business decides what it sells,
+to whom, at what price, from when, and with whose signature, and how that
+decision reaches the public without ever being half true. I also wanted to
+learn GraphQL and gRPC properly, and this is the project in which I did.
+
+### What I knew, and what was new
+
+Before this project I had worked with React, TypeScript, Next.js, Python and
+SQL databases, PostgreSQL among them, though not all to the same depth, and
+with Tailwind CSS, Playwright and GitHub Actions. GraphQL and gRPC are the two
+I set out to learn, and learned here. The project also relies on Apollo
+Server, DataLoader, Protocol Buffers with Buf, Flyway, PGlite and Pyodide,
+Storybook, TanStack Query, asyncpg, pytest, Hypothesis and axe-core. None of
+this is presented as years of professional experience.
 
 ## Before you start
 
@@ -233,7 +242,11 @@ npm run demo:serve
 ```
 
 opens on http://127.0.0.1:4651, with the site at `/` and the console at
-`/console/`.
+`/console/`. `dist/demo` is a static site for the root of a domain: the site
+at `/`, the console at `/console/` and the engine at `/sandbox/`. Any static
+host can serve it if it sends `.wasm` files as `application/wasm`; it needs
+no server and no special headers, and every page of the build is marked
+`noindex`.
 
 ## Checking it
 
@@ -259,7 +272,7 @@ October 2026, on the machine of the measurements below:
 | The console | design, console-types, console-codegen, console-unit, storybook, console-build, console-e2e | 77 design tests; 104 unit tests; 56 stories with axe; 33 end-to-end tests with real launches |
 | `npm start` | start | the whole system starts, every part answers, and it stops in order |
 | The sandbox | sandbox-types, -build, -schema, -services, -node, -browser, -measure, -gateway, -worker | the schema equal to Flyway's (255 relations, 911 constraints, 163 indexes, 86 triggers, 26 functions); 300 of the 306 service tests on PGlite, 6 left to PostgreSQL; 11 tests in Chromium |
-| The demo | demo | the site's 6 tests and the console's 8, the recruiter's path, on the assembled build, with no request leaving it |
+| The demo | demo | the site's 6 tests and the console's 8, the guided path, on the assembled build, with no request leaving it |
 
 The end-to-end suites need Playwright's Chromium (`npx playwright install
 chromium`, a download); without it they are reported as not run, never as

@@ -60,7 +60,7 @@ jobs:
       # the sandbox under /sandbox/) is the one published: kept for the pages
       # job, from the Linux run alone, under the same condition as that job.
       - name: Keep the demo for GitHub Pages
-        if: runner.os == 'Linux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.event.repository.private == false && github.event.repository.visibility == 'public'
+        if: runner.os == 'Linux' && vars.DEMO_ON_PAGES == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.event.repository.private == false && github.event.repository.visibility == 'public'
         uses: actions/upload-pages-artifact@v3.0.1
         with:
           path: dist/demo
@@ -77,13 +77,16 @@ jobs:
   pages:
     name: Publish the demo on GitHub Pages
     needs: check
-    # Only from main, pushed or run by hand, and only while the repository is
-    # public: nothing of a private repository is published. Both fields are
-    # asked, and each must say so: in these expressions a missing field equals
-    # false, and must not let the publication through. The demo wants the root
-    # of its domain, its worker being /sandbox/backend.js, so Pages serves it
-    # under the custom domain set in the repository's settings (README.md).
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.event.repository.private == false && github.event.repository.visibility == 'public'
+    # Only when the repository asks for it, with the variable DEMO_ON_PAGES set
+    # to true: the author's copy of the demo is served from the author's own
+    # host, and a fork can publish its own here. Only from main, pushed or run by hand, and
+    # only while the repository is public: nothing of a private repository is
+    # published. Both fields are asked, and each must say so: in these
+    # expressions a missing field equals false, and must not let the
+    # publication through. The demo wants the root of its domain, its worker
+    # being /sandbox/backend.js, so Pages must serve it under a custom domain,
+    # set in the repository's Pages settings before the variable.
+    if: vars.DEMO_ON_PAGES == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.event.repository.private == false && github.event.repository.visibility == 'public'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Only this job may write to Pages, and ask for the token it needs.
