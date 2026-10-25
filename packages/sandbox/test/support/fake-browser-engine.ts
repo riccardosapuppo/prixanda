@@ -19,6 +19,8 @@ export type FakeBrowserEngine = BrowserEngine & {
   nextChanges: Changed[];
   ticks: number;
   resets: number;
+  /** What the next reset fails with, once: an error named DataNotOpen leaves no data open (src/engine/). */
+  resetFails: Error | null;
   /** When the next launch is due, as the test says. */
   due: Date | null;
   /** What the next skip answers. */
@@ -37,6 +39,7 @@ export function fakeBrowserEngine(options: { now?: string } = {}): FakeBrowserEn
     nextChanges: [],
     ticks: 0,
     resets: 0,
+    resetFails: null,
     due: null,
     skip: null,
     calls: [],
@@ -83,6 +86,9 @@ export function fakeBrowserEngine(options: { now?: string } = {}): FakeBrowserEn
     },
     async reset() {
       engine.resets += 1;
+      const failure = engine.resetFails;
+      engine.resetFails = null;
+      if (failure !== null) throw failure;
     },
   };
   return engine;

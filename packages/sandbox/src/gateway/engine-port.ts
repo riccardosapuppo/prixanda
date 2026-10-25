@@ -36,7 +36,15 @@ export type BrowserEngine = {
    * `changed` holds the jobs of the days skipped too.
    */
   skipToNextLaunch(): Promise<{ readonly from: Date; readonly to: Date; readonly changed: readonly Changed[] } | null>;
-  /** Back to the build's snapshot: IndexedDB cleared, the database opened again; calls that arrive meanwhile wait. */
+  /**
+   * Back to the build's snapshot: IndexedDB cleared, the database opened
+   * again; calls that arrive meanwhile wait. A start over that fails before
+   * it closes the data (the snapshot not downloaded) leaves the engine as it
+   * was. One that fails after rejects with an error named DataNotOpen: no
+   * data is open, calls answer UNAVAILABLE, the jobs have nothing to run, and
+   * another start over tries again; the worker starts the engine again at the
+   * next hello.
+   */
   reset(): Promise<void>;
 };
 

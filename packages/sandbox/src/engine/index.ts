@@ -144,6 +144,21 @@ export type EngineDeps = {
   readonly onLog?: (line: string) => void;
 };
 
+/**
+ * A start over that failed once the data in use was closed (IndexedDB that refused, a snapshot PGlite could not
+ * open): no data is open until a start over succeeds. Calls answer UNAVAILABLE and say so, the jobs have nothing to
+ * run, and the next reset tries again; the worker, which knows the engine by its shape only, knows this by the name
+ * and starts the engine again at the next hello (gateway/engine-port.ts).
+ */
+export class DataNotOpen extends Error {
+  override readonly name = "DataNotOpen";
+
+  constructor(cause: unknown) {
+    super(`The demo's data could not be opened again after the start over (${cause instanceof Error ? cause.message : String(cause)}): `
+      + "start over again, or reload the page.", { cause });
+  }
+}
+
 type PySandbox = {
   call(fullName: string, metadata: string, request: Uint8Array): Promise<PyProxyLike>;
   tick(): Promise<string>;
@@ -214,10 +229,11 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
   const migrations = deps.migrations();
   migrations.catch(() => {});
 
-  const open = async (fresh: boolean): Promise<Opened> => {
+  /** The database, from IndexedDB or the build's snapshot; fresh, from the snapshot given, already downloaded. */
+  const open = async (fresh: boolean, snapshot?: Blob): Promise<Opened> => {
     const options = {
       modules: deps.modules,
-      snapshot: deps.snapshot,
+      snapshot: snapshot ? async () => snapshot : deps.snapshot,
       migrations,
       progress: say,
       mark,
@@ -255,6 +271,8 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
   const gate = new Gate();
   // One pass of the jobs at a time: a tick asked during another runs after it, on what that one left.
   let ticking: Promise<unknown> = Promise.resolve();
+  /** Set while no data is open: a start over failed after it closed the data in use. */
+  let notOpen: DataNotOpen | null = null;
 
   const engine: SandboxEngine = {
     info: {
@@ -265,6 +283,8 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
       steps,
     },
     call: (service, method, metadata, request) => gate.shared(async (): Promise<EngineReply> => {
+      // No data open: UNAVAILABLE, as the server answers when its database is gone, with what to do.
+      if (notOpen !== null) return { ok: false, code: 14, message: notOpen.message };
       // An answer always: what the engine could not serve comes back with gRPC's INTERNAL, as from the server.
       let pending: PyProxyLike | Promise<PyProxyLike> | null = null;
       try {
@@ -285,7 +305,8 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
     }),
     tick: () => {
       // The clock's last jump saved first: what a pass does at the new time is never kept without the time itself.
-      const pass = ticking.then(() => clock.saved()).then(() => gate.shared(async () => JSON.parse(await sandbox.tick()) as { ran: number; changed: Changed[] }));
+      const pass = ticking.then(() => clock.saved()).then(() => gate.shared(async () => (notOpen !== null ? { ran: 0, changed: [] }
+        : JSON.parse(await sandbox.tick()) as { ran: number; changed: Changed[] })));
       ticking = pass.catch(() => {});
       return pass;
     },
@@ -293,11 +314,13 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
       now: () => clock.now(),
       advanceTo: (instant) => clock.advanceTo(instant),
       nextDue: () => gate.shared(async () => {
+        if (notOpen !== null) return null;
         const due = await sandbox.next_due();
         return typeof due === "string" ? new Date(due) : null;
       }),
     },
     skipToNextLaunch: async () => {
+      if (notOpen !== null) throw notOpen;
       type Due = { at: string; change: number; starts: string };
       const due = async (change?: number) => gate.shared(async () => JSON.parse(await sandbox.launches_due(change)) as Due[]);
       const [first] = await due();
@@ -331,20 +354,33 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
       armed: () => (sandbox.armed_fault() ?? null) as LaunchStep | null,
     },
     reset: () => gate.exclusive(async () => {
-      await clock.saved();
-      await db.saved.catch(() => {});
-      await db.session.pg.close();
-      if (deps.remove) await deps.remove();
-      db = await open(true);
+      // The snapshot first, while the data in use is still open: a network that fails leaves the demo as it was.
+      const snapshot = await deps.snapshot();
+      if (notOpen === null) {
+        await clock.saved();
+        await db.saved.catch(() => {});
+      }
+      try {
+        // From here the data in use is closed: a failure leaves none open, and the next start over tries again.
+        if (notOpen === null) await db.session.pg.close();
+        if (deps.remove) await deps.remove();
+        db = await open(true, snapshot);
+      } catch (error) {
+        notOpen = error instanceof DataNotOpen ? error : new DataNotOpen(error);
+        throw notOpen;
+      }
+      notOpen = null;
       clock = startClock(db);
       settle(sandbox);
       sandbox = sandboxOn(db);
     }),
     close: () => gate.exclusive(async () => {
-      await clock.saved();
-      await db.saved.catch(() => {});
+      if (notOpen === null) {
+        await clock.saved();
+        await db.saved.catch(() => {});
+      }
       settle(sandbox);
-      await db.session.pg.close();
+      if (notOpen === null) await db.session.pg.close();  // otherwise closed already, by the start over that failed
     }),
   };
   return engine;
