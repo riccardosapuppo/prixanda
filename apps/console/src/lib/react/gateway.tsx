@@ -5,7 +5,7 @@
 import {
   type InfiniteData, keepPreviousData, type UseInfiniteQueryResult, type UseQueryResult, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient,
 } from "@tanstack/react-query";
-import { createContext, type ReactNode, useContext, useRef } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useRef } from "react";
 import { type Operation, queryKeyOf } from "../../graphql/operation.ts";
 import { ActionKey, runAction } from "../action-key.ts";
 import type { GatewayClient } from "../gateway.ts";
@@ -71,29 +71,74 @@ export function useGatewayQueries<TData, TVariables>(
   });
 }
 
+/** The pages of a list, as they were read last. */
+export type Pages<TData> = InfiniteData<TData, string | null>;
+
+export type PagesOptions<TData> = {
+  readonly enabled?: boolean;
+  /** Milliseconds between readings of the pages, or false; a function decides from the pages read last (a list with a launch that runs). */
+  readonly refetchInterval?: number | false | ((data: Pages<TData> | undefined) => number | false);
+  /** Read again when the tab comes back to the front (a page that watches the platform, lib/react/watch.tsx). */
+  readonly refetchOnWindowFocus?: boolean;
+};
+
 /**
  * A list read a page at a time with the engine's keyset cursors: the first
  * page, then each next one on demand (fetchNextPage), kept together under the
  * operation's name so that what invalidates the operation invalidates its
  * pages too. hasNextPage says whether the engine has more.
+ *
+ * Read again (at a page's pace, or when what it shows moved), the pages are
+ * read in order from the first, each with the cursor the page before it
+ * gives now: when a row comes in at the top, every page's edge moves with
+ * it, and the row at an old edge stays on the list. One query per cursor
+ * would keep the old edges, and that row would fall between two pages.
  */
 export function useGatewayPages<TData, TVariables>(
   operation: Operation<TData, TVariables>,
   variablesFor: (after: string | null) => TVariables,
   nextOf: (page: TData) => string | null,
-  options: { readonly enabled?: boolean; readonly refetchInterval?: number; readonly refetchOnWindowFocus?: boolean } = {},
-): UseInfiniteQueryResult<InfiniteData<TData, string | null>, Error> {
+  options: PagesOptions<TData> = {},
+): UseInfiniteQueryResult<Pages<TData>, Error> {
   const gateway = useGateway();
-  return useInfiniteQuery<TData, Error, InfiniteData<TData, string | null>, readonly unknown[], string | null>({
+  const every = options.refetchInterval;
+  return useInfiniteQuery<TData, Error, Pages<TData>, readonly unknown[], string | null>({
     queryKey: [operation.name, "pages", variablesFor(null)],
     queryFn: ({ pageParam, signal }) => gateway.run(operation, variablesFor(pageParam), { signal }),
     initialPageParam: null,
     getNextPageParam: (last) => nextOf(last) ?? undefined,
     enabled: options.enabled ?? true,
     // A list that watches reads its pages again together (lib/react/watch.tsx).
-    ...(options.refetchInterval !== undefined ? { refetchInterval: options.refetchInterval } : {}),
+    ...(every !== undefined ? { refetchInterval: typeof every === "function" ? (query: { state: { data: Pages<TData> | undefined } }) => every(query.state.data) : every } : {}),
     ...(options.refetchOnWindowFocus !== undefined ? { refetchOnWindowFocus: options.refetchOnWindowFocus } : {}),
   });
+}
+
+/**
+ * Every page of a list, read one after another up to a declared limit, for a
+ * view that needs the whole list at once and has no button for more (the
+ * week's lanes, what is scheduled or live). complete: every page the limit
+ * allows is in. beyond: the engine has more than the limit, and the view
+ * says so. A next page is asked only when nothing is being read, so a list
+ * read again is never cut short by its own next page.
+ */
+export function useGatewayEveryPage<TData, TVariables>(
+  operation: Operation<TData, TVariables>,
+  variablesFor: (after: string | null) => TVariables,
+  nextOf: (page: TData) => string | null,
+  limit: number,
+  options: PagesOptions<TData> = {},
+): { readonly pages: UseInfiniteQueryResult<Pages<TData>, Error>; readonly complete: boolean; readonly beyond: boolean } {
+  const pages = useGatewayPages(operation, variablesFor, nextOf, options);
+  const read = pages.data?.pages.length ?? 0;
+  const following = pages.hasNextPage && read < limit;
+  const { isFetching, isError, fetchNextPage, dataUpdatedAt } = pages;
+  // Asked again after every answer (a page that came in, or the pages read again): an answer can come so quickly
+  // that the page never shows it was reading.
+  useEffect(() => {
+    if (following && !isFetching && !isError) void fetchNextPage();
+  }, [following, isFetching, isError, fetchNextPage, read, dataUpdatedAt]);
+  return { pages, complete: pages.data !== undefined && !following, beyond: pages.hasNextPage && !following };
 }
 
 /**

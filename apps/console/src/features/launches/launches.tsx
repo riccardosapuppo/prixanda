@@ -3,6 +3,7 @@
 // newest first, with where it stands and what stopped it; each run leads to
 // its timeline, step by step. Below, what starts in the next seven days, and
 // what is scheduled or live.
+import { formatCount } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
 import { useId, useState } from "react";
@@ -13,7 +14,7 @@ import { approvalHref } from "../../lib/kinds.ts";
 import { launchHref, launchLook, type LaunchSummary, launchWords, STEP_NAME } from "../../lib/launch.ts";
 import { type MarketInfo, marketName, marketZone } from "../../lib/markets.ts";
 import { whoDoes } from "../../lib/permissions.ts";
-import { useGatewayQuery } from "../../lib/react/gateway.tsx";
+import { useGatewayEveryPage, useGatewayPages, useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useWatch } from "../../lib/react/watch.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
 
@@ -31,6 +32,14 @@ const FILTERS: readonly { readonly id: string; readonly label: string; readonly 
 const PAGE = 20;
 /** A page with a launch that runs is read again this often: its steps move on in seconds. */
 const RUNNING_EVERY_MS = 5_000;
+/**
+ * What is scheduled or live is read fifty at a time, newest change first,
+ * every page up to this many: past them the list says there are more, and
+ * that an older one may be missing from it.
+ */
+const SCHEDULED_PAGES = 10;
+const SCHEDULED_PAGE_SIZE = 50;
+const SCHEDULED_STATES = ["SCHEDULED", "ACTIVE"] as const;
 
 /** A launch's state, as a chip: a word, an icon and an edge. */
 export function LaunchChip({ launch }: { readonly launch: Pick<LaunchSummary, "state" | "retryAt"> }) {
@@ -79,23 +88,24 @@ function RunsTable({ rows, markets, labelledBy }: { readonly rows: readonly Laun
   );
 }
 
-function RunsPage({ state, after, labelledBy, last, onMore }: {
-  readonly state: LaunchState | null;
-  readonly after: string | null;
-  readonly labelledBy: string;
-  readonly last: boolean;
-  readonly onMore: (next: string) => void;
-}) {
+/**
+ * The runs, a page at a time, read again at the pace of a page that watches.
+ * The pages loaded are read again together, in order from the first, each
+ * with the cursor the page before it gives now (useGatewayPages): a launch
+ * that begins moves every page's edge by one, and the run at the old edge,
+ * a failed one perhaps, stays on the list.
+ */
+function Runs({ state, labelledBy }: { readonly state: LaunchState | null; readonly labelledBy: string }) {
   const watch = useWatch();
-  const page = useGatewayQuery(LaunchRunsDocument, { filter: state ? { state } : null, first: PAGE, after }, {
+  const runs = useGatewayPages(LaunchRunsDocument, (after) => ({ filter: state ? { state } : null, first: PAGE, after }), (page) => page.launches.next, {
     ...watch,
-    // A launch that runs moves on in seconds: while one is on the page, the page is read again sooner.
-    ...(watch.refetchInterval ? { refetchInterval: (data) => (data?.launches.nodes.some((run) => run.state === "RUNNING") ? RUNNING_EVERY_MS : watch.refetchInterval ?? false) } : {}),
+    // A launch that runs moves on in seconds: while one is on the list, the list is read again sooner.
+    ...(watch.refetchInterval ? { refetchInterval: (data) => (data?.pages.some((page) => page.launches.nodes.some((run) => run.state === "RUNNING")) ? RUNNING_EVERY_MS : watch.refetchInterval ?? false) } : {}),
   });
-  if (page.isPending) return <Loading what="the launches" lines={5} />;
-  if (page.isError) return <ErrorPanel error={page.error} retry={() => void page.refetch()} />;
-  const rows = page.data.launches.nodes;
-  if (rows.length === 0 && after === null) {
+  if (runs.isPending) return <Loading what="the launches" lines={5} />;
+  if (runs.data === undefined) return <ErrorPanel error={runs.error} retry={() => void runs.refetch()} />;
+  const rows = runs.data.pages.flatMap((page) => page.launches.nodes);
+  if (rows.length === 0) {
     return (
       <Empty icon="rocket-launch">
         No launch here yet. The engine begins one a minute before a scheduled change starts, and runs it step by step.
@@ -104,9 +114,11 @@ function RunsPage({ state, after, labelledBy, last, onMore }: {
   }
   return (
     <>
-      <RunsTable rows={rows} markets={page.data.markets} labelledBy={labelledBy} />
-      {last && page.data.launches.next ? (
-        <Button size="small" icon="arrow-down" onClick={() => onMore(page.data.launches.next ?? "")} className="justify-self-start">
+      <RunsTable rows={rows} markets={runs.data.pages[0]?.markets ?? []} labelledBy={labelledBy} />
+      {runs.isError ? (
+        <ErrorPanel error={runs.error} retry={() => void (runs.isFetchNextPageError ? runs.fetchNextPage() : runs.refetch())} />
+      ) : runs.hasNextPage ? (
+        <Button size="small" icon="arrow-down" busy={runs.isFetchingNextPage} onClick={() => void runs.fetchNextPage()} className="justify-self-start">
           Show {PAGE} more
         </Button>
       ) : null}
@@ -116,10 +128,11 @@ function RunsPage({ state, after, labelledBy, last, onMore }: {
 
 export function LaunchesScreen() {
   const [filter, setFilter] = useState("all");
-  const [pages, setPages] = useState<readonly (string | null)[]>([null]);
   const chosen = FILTERS.find((entry) => entry.id === filter) ?? FILTERS[0];
   const watch = useWatch();
-  const scheduled = useGatewayQuery(ChangesDocument, { filter: { states: ["SCHEDULED", "ACTIVE"] }, first: 50, after: null }, watch);
+  // Every page, up to the limit: a change scheduled long ago, or live for months, can be older than the fifty changed last.
+  const scheduled = useGatewayEveryPage(ChangesDocument, (after) => ({ filter: { states: [...SCHEDULED_STATES] }, first: SCHEDULED_PAGE_SIZE, after }), (page) => page.changes.next, SCHEDULED_PAGES, watch);
+  const listed = scheduled.complete ? scheduled.pages.data?.pages.flatMap((page) => page.changes.nodes) ?? [] : null;
   const markets = useGatewayQuery(MarketsDocument, {}, { staleTime: 5 * 60_000 });
   const upcoming = useGatewayQuery(LaunchesDocument, {}, watch);
   const runsId = useId();
@@ -138,10 +151,7 @@ export function LaunchesScreen() {
                   key={entry.id}
                   type="button"
                   aria-pressed={filter === entry.id}
-                  onClick={() => {
-                    setFilter(entry.id);
-                    setPages([null]);
-                  }}
+                  onClick={() => setFilter(entry.id)}
                   className={`min-h-9 rounded-control border px-3 text-sm font-semibold ${filter === entry.id ? "border-ink bg-ink text-stone-0" : "border-edge bg-stone-0 hover:bg-stone-2"}`}
                 >
                   {entry.label}
@@ -149,9 +159,7 @@ export function LaunchesScreen() {
               ))}
             </div>
           </div>
-          {pages.map((after, index) => (
-            <RunsPage key={`${filter}-${after ?? "first"}`} state={chosen?.state ?? null} after={after} labelledBy={runsId} last={index === pages.length - 1} onMore={(next) => setPages((current) => [...current, next])} />
-          ))}
+          <Runs state={chosen?.state ?? null} labelledBy={runsId} />
           <p className="flex max-w-[72ch] items-baseline gap-2 text-sm text-ink-2">
             <Icon name="info" size={15} className="translate-y-0.5" />
             <span>
@@ -181,20 +189,30 @@ export function LaunchesScreen() {
         </section>
         <section className="grid gap-3" aria-labelledby={headingId}>
           <div className="zone-head"><h2 id={headingId}>Scheduled and live</h2></div>
-          {scheduled.isPending ? <Loading what="the scheduled changes" /> : scheduled.isError ? <ErrorPanel error={scheduled.error} retry={() => void scheduled.refetch()} /> : scheduled.data.changes.nodes.length === 0 ? (
+          {scheduled.pages.isError ? <ErrorPanel error={scheduled.pages.error} retry={() => void scheduled.pages.refetch()} /> : listed === null ? <Loading what="the scheduled changes" /> : listed.length === 0 ? (
             <Empty icon="rocket-launch">Nothing is scheduled or live. An approved offer appears here once {whoDoes("scheduleOffer", { one: "schedules it", many: "schedule it" }, { start: false, either: true })}.</Empty>
           ) : (
-            <ul role="list" className="grid">
-              {scheduled.data.changes.nodes.map((change) => (
-                <li key={change.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-cord py-3">
-                  <span className="grid gap-1">
-                    <Link href={approvalHref(change.kind, change.id)} className="font-bold">{change.title} v{change.currentVersion}</Link>
-                    <span className="text-xs text-ink-2">{change.markets.map((code) => marketName(markets.data?.markets ?? [], code)).join(", ")} · last change {formatInstantIn(change.updatedAt, CONSOLE_ZONE)}</span>
+            <>
+              {scheduled.beyond ? (
+                <p className="flex items-baseline gap-2 text-sm">
+                  <Icon name="info" size={15} className="translate-y-0.5 text-ink-2" />
+                  <span>
+                    More than {formatCount(SCHEDULED_PAGES * SCHEDULED_PAGE_SIZE)} changes are scheduled or live: these are the {formatCount(SCHEDULED_PAGES * SCHEDULED_PAGE_SIZE)} changed last, and an older one may be missing here. The lists of campaigns, price migrations and passes have them all.
                   </span>
-                  <StateChip state={change.state} />
-                </li>
-              ))}
-            </ul>
+                </p>
+              ) : null}
+              <ul role="list" className="grid">
+                {listed.map((change) => (
+                  <li key={change.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-cord py-3">
+                    <span className="grid gap-1">
+                      <Link href={approvalHref(change.kind, change.id)} className="font-bold">{change.title} v{change.currentVersion}</Link>
+                      <span className="text-xs text-ink-2">{change.markets.map((code) => marketName(markets.data?.markets ?? [], code)).join(", ")} · last change {formatInstantIn(change.updatedAt, CONSOLE_ZONE)}</span>
+                    </span>
+                    <StateChip state={change.state} />
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </section>
       </PageBody>
