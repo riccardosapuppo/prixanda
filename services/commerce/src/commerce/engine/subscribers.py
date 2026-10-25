@@ -171,6 +171,9 @@ class Subscribers:
     async def verify_student(self, tx: Connection, call: Call,
                              request: subscriptions_pb2.VerifyStudentRequest) -> subscriptions_pb2.VerifyStudentResponse:
         code = await self._market_of(tx, request.subscriber_id)
+        # One verification of this listener at a time, as its confirmations: a second one, from another tab with its
+        # own key, waits for the first and reads what it wrote, instead of writing the same day's verification again.
+        await tx.execute("select pg_advisory_xact_lock($1, hashtext($2))", LISTENER_LOCK, str(request.subscriber_id))
         now = self.clock.now()
         market = (await reference.load(tx, now)).market(code)
         today = market.today(now)

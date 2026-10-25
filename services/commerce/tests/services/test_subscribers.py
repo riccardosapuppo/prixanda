@@ -84,6 +84,36 @@ async def test_a_verification_still_valid_comes_back_as_it_is(world):
     assert await world.owner.fetchval("select count(*) from student_verification where subscriber_id = 101") == 1
 
 
+async def test_two_verifications_of_one_listener_at_once_write_one_and_answer_it_both(world, monkeypatch):
+    """Two tabs ask at once for 102's verification, each with its own key. The first writes it; the second waits for
+    the first, under the listener's lock, and answers what it wrote, instead of colliding on the key of
+    student_verification and answering INTERNAL."""
+    arrived = asyncio.Event()
+    met = 0
+    verifier = world.engine.subscribers.verifier
+    asking = verifier.verify
+
+    async def meeting(claim):
+        nonlocal met
+        met += 1
+        if met == 2:
+            arrived.set()
+        try:  # the two meet here, past their reads, unless the second waits for the first's lock
+            await asyncio.wait_for(arrived.wait(), 1.0)
+        except TimeoutError:
+            pass
+        return await asking(claim)
+
+    monkeypatch.setattr(verifier, "verify", meeting)
+    answers = await asyncio.gather(verify(world, 102), verify(world, 102), return_exceptions=True)
+    assert all(not isinstance(answer, BaseException) for answer in answers), answers
+    one, two = (answer.verification for answer in answers)
+    assert (one.verified_on, one.valid_until, one.valid) == ("2026-10-24", "2027-10-24", True)
+    assert two == one
+    assert await world.owner.fetchval("select count(*) from student_verification where subscriber_id = 102") == 1
+    assert len(await world.events("student.verified")) == 1
+
+
 async def test_an_expired_verification_is_renewed(world):
     v = (await verify(world, 105)).verification  # 105's verification ended on 1 September
     assert (v.verified_on, v.valid) == ("2026-10-24", True)

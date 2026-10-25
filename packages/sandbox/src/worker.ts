@@ -13,9 +13,13 @@
 //   - the jobs run on a timer and after every request, and when they change
 //     something every tab is told what to read again;
 //   - the demo's commands: where it stands, start over, arm or clear the
-//     simulated fault, skip to the next launch; a start over that leaves the
-//     engine with no data open stops the jobs, and the next hello starts the
-//     demo again, unless another start over opened the data first.
+//     simulated fault, skip to the next launch. A start over and a skip run
+//     one at a time, with no jobs beside them, each on the engine of the
+//     moment it begins. A start over that leaves the engine with no data open
+//     stops the jobs; the next hello waits for any start over or skip under
+//     way, then, if the data is still not open, lets that engine go and
+//     starts the demo again: a start over tried again meanwhile that opened
+//     the data keeps the engine, and no second one starts beside it.
 // The engine's data in IndexedDB is one worker's at a time: before the engine
 // starts, the worker takes the origin's lock on it (Web Locks) and keeps it
 // while it lives. The one SharedWorker waits for it only a moment, after a
@@ -133,6 +137,8 @@ export function createBackend(options: BackendOptions): Backend {
   const token = options.token ?? randomToken();
   const tabs = new Set<Port>();
   let booting: Promise<Booted> | null = null;
+  /** What the last start gave, once ready, until a restart lets it go: the jobs read it with no pause before a tick. */
+  let current: Booted | null = null;
   let holding: Promise<void> | null = null;
   /** Aborted by close: the lock on the data goes (a worker that ends lets it go by ending). */
   const ending = new AbortController();
@@ -186,7 +192,9 @@ export function createBackend(options: BackendOptions): Backend {
         ...(options.clock ? { clock: options.clock } : {}),
       });
       timer = setInterval(() => void runJobs(), options.tickEveryMs ?? 1_000);
-      return { engine, gateway, info: { bootMs: Math.round(monotonic() - started), build: options.build } };
+      const booted = { engine, gateway, info: { bootMs: Math.round(monotonic() - started), build: options.build } };
+      current = booted;
+      return booted;
     })();
     booting = starting;
     starting.then(() => {
@@ -200,12 +208,16 @@ export function createBackend(options: BackendOptions): Backend {
   }
 
   /**
-   * Lets the engine a start over left with no data open go, so that the next boot starts another: its timer stops,
-   * its gateway too. The lock on the data stays the worker's, and the new engine opens the data from the snapshot,
-   * as a first visit does. One at a time, for every tab that says hello meanwhile.
+   * Lets the engine a start over left with no data open go, so that the next boot starts another. It takes the guard
+   * of the start over and the skip (withoutJobs) first: it waits for one under way, and never lets an engine go while
+   * a command still works on it. Then, if a start over tried again meanwhile opened the data, it keeps the engine;
+   * otherwise its timer stops, its gateway too, and the next boot starts a new engine, which opens the data from the
+   * snapshot, as a first visit does. The lock on the data stays the worker's. One at a time, for every tab that says
+   * hello meanwhile.
    */
   function restart(): Promise<void> {
-    restarting ??= (async () => {
+    restarting ??= withoutJobs(async () => {
+      if (!broken) return;
       const old = await booting?.catch(() => null);
       if (timer !== null) {
         clearInterval(timer);
@@ -213,8 +225,9 @@ export function createBackend(options: BackendOptions): Backend {
       }
       await old?.gateway.stop().catch((error: unknown) => log("error", "the gateway did not stop", error));
       booting = null;
+      current = null;
       broken = false;
-    })().finally(() => {
+    }).finally(() => {
       restarting = null;
     });
     return restarting;
@@ -230,9 +243,11 @@ export function createBackend(options: BackendOptions): Backend {
     jobs = (async () => {
       do {
         again = false;
-        const { engine } = await booting;
+        await booting?.catch(() => null);  // a start under way, or one a restart began
         while (held !== null) await held;
-        const tick = engine.tick();
+        // The engine of now, read with no pause before its tick: not one a restart let go while the jobs waited.
+        if (current === null || failed || broken) break;
+        const tick = current.engine.tick();
         ticking = tick;
         try {
           const { changed } = await tick;
@@ -272,8 +287,8 @@ export function createBackend(options: BackendOptions): Backend {
 
   async function hello(port: Port) {
     // A start that failed (a file that did not load, a browser that refused its storage) is tried again by the next
-    // tab that says hello: a reload is how a visitor tries again, and it finds the same SharedWorker. So is an engine
-    // a start over left with no data open.
+    // tab that says hello: a reload is how a visitor tries again, and it finds the same SharedWorker. An engine a start
+    // over left with no data open is let go first, once no start over or skip works on it (restart).
     if (broken || restarting !== null) await restart();
     else if (failed) booting = null;
     const alreadyRunning = booting !== null;
@@ -305,7 +320,35 @@ export function createBackend(options: BackendOptions): Backend {
   type Answer = readonly [status: number, body: CommandResults[keyof CommandResults] | CommandError];
 
   async function perform(request: Command): Promise<Answer> {
-    const { engine, gateway } = await boot();
+    // The start over and the skip take the engine and the gateway of the moment they begin, under the guard: never
+    // one a restart let go, nor one it lets go while they work.
+    if (request.name === "reset") {
+      return withoutJobs(async () => {
+        const { engine, gateway } = await boot();
+        try {
+          await engine.reset();
+        } catch (error) {
+          // One that failed before it closed the data (the snapshot not downloaded) leaves the engine as it was.
+          if (error instanceof Error && error.name === "DataNotOpen") broken = true;
+          throw error;
+        }
+        broken = false;
+        gateway.reset();
+        broadcast({ kind: "reset" });
+        return [200, { now: engine.clock.now().toISOString() }] as const;
+      });
+    }
+    if (request.name === "skip-to-next-launch") {
+      return withoutJobs(async (): Promise<Answer> => {
+        const { engine } = await boot();
+        const skipped = await engine.skipToNextLaunch();
+        if (skipped === null) return [409, { error: "No launch is due." }];
+        const changed: readonly Changed[] = skipped.changed;
+        if (changed.length > 0) broadcast({ kind: "changed", what: changed });
+        return [200, { from: skipped.from.toISOString(), to: skipped.to.toISOString(), changed }];
+      });
+    }
+    const { engine } = await boot();
     switch (request.name) {
       case "status": {
         const next = await engine.clock.nextDue();
@@ -316,20 +359,6 @@ export function createBackend(options: BackendOptions): Backend {
         };
         return [200, status];
       }
-      case "reset":
-        return withoutJobs(async () => {
-          try {
-            await engine.reset();
-          } catch (error) {
-            // One that failed before it closed the data (the snapshot not downloaded) leaves the engine as it was.
-            if (error instanceof Error && error.name === "DataNotOpen") broken = true;
-            throw error;
-          }
-          broken = false;
-          gateway.reset();
-          broadcast({ kind: "reset" });
-          return [200, { now: engine.clock.now().toISOString() }] as const;
-        });
       case "arm-fault": {
         const args = parseArmFault(request.args);
         if (args === null) return [400, { error: "arm-fault takes { step }, one of check, prepare, publish, notify and verify." }];
@@ -339,14 +368,6 @@ export function createBackend(options: BackendOptions): Backend {
       case "clear-fault":
         engine.faults.clear();
         return [200, { armed: null }];
-      case "skip-to-next-launch":
-        return withoutJobs(async (): Promise<Answer> => {
-          const skipped = await engine.skipToNextLaunch();
-          if (skipped === null) return [409, { error: "No launch is due." }];
-          const changed: readonly Changed[] = skipped.changed;
-          if (changed.length > 0) broadcast({ kind: "changed", what: changed });
-          return [200, { from: skipped.from.toISOString(), to: skipped.to.toISOString(), changed }];
-        });
     }
   }
 
