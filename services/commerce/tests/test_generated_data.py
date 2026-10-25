@@ -28,6 +28,38 @@ def test_the_demo_s_paying_listeners_say_their_month_and_billing_day_for_any_unt
         "1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "28th"]
 
 
+def test_the_demo_s_histories_follow_on_when_the_data_start_later():
+    """Days counted back from --until stop at --start. With --start 2026-01-01 the Family subscriber in Germany joins
+    and begins to pay on that day, and so does the student who paid before: the Free plan of no day goes, so that no
+    subscription ends on the day it started (V5, subscription_dates), and each history follows on from the day its
+    listener joined."""
+    subscribers, subscriptions, _, rows = demo_listeners(5001, 9001, date(2026, 1, 1), date(2026, 10, 24))
+    for subscriber, _, joined in subscribers:
+        history = [(s[4], s[7], s[8]) for s in subscriptions if s[1] == subscriber]
+        assert history[0][1] == joined and history[-1][2] is None, history
+        assert all(ended > began for _, began, ended in history[:-1]), history
+        assert all(before[2] == after[1] for before, after in zip(history, history[1:])), history
+    plans = lambda subscriber: [(s[4], str(s[7])) for s in subscriptions if s[1] == subscriber]  # noqa: E731
+    assert plans(5005) == [("family", "2026-01-01")]
+    assert plans(5003) == [("student", "2026-01-01"), ("free", "2026-06-26")]
+    assert "since January 2026, billed on the 1st:" in rows[4][3]
+
+
+async def test_the_data_can_start_later_in_the_story():
+    """--start 2026-01-01: the generator writes the shorter history, and every invariant holds on it."""
+    name = await fresh_database()
+    try:
+        await generate(on_database(ADMIN_URL, name), "small", 7, date(2026, 1, 1), date(2026, 10, 24))
+        conn = await asyncpg.connect(on_database(ADMIN_URL, name))
+        try:
+            report = await check(conn)
+        finally:
+            await conn.close()
+        assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
+    finally:
+        await admin(f"drop database {name} with (force)")
+
+
 async def test_the_small_size_has_what_it_declares(generated):
     _, summary = generated
     counts = summary["counts"]

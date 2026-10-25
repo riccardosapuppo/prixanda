@@ -259,6 +259,9 @@ def demo_listeners(first_subscriber: int, first_subscription: int, start: date, 
             began = back(days)
             history = [("free", False, 0, joined), (plan, True, PRICES[market][plan], began)]
             billing_day = min(began.day, 28)
+        # A later --start can bring two days of the story onto one: the plan that begins last on that day is the one
+        # the listener is on, so that every subscription that ends lasts a day at least (V5, subscription_dates).
+        history = [entry for n, entry in enumerate(history) if n + 1 == len(history) or history[n + 1][3] != entry[3]]
         for n, (plan, paid, price, began) in enumerate(history):
             ended = history[n + 1][3] if n + 1 < len(history) else None
             subscriptions.append((subscription_id, subscriber_id, market, CURRENCY[market], plan, paid, price, began, ended,
