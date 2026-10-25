@@ -59,7 +59,7 @@ const IDEMPOTENT = new Set([
   "BuyPrepaidPass", "ActivatePrepaidPass",
 ]);
 /** Reads without an outcome: a role that may not call them gets PERMISSION_DENIED instead of a refusal. */
-const READS = new Set(["GetChange", "BatchGetChanges", "ListChanges", "GetOverview", "ListEvents", "VerifyChain", "ListLaunches", "GetLaunch"]);
+const READS = new Set(["GetChange", "BatchGetChanges", "ListChanges", "GetOverview", "ListEvents", "VerifyChain", "ListLaunches", "GetLaunch", "ListArtists"]);
 
 type Kind = "offer" | "listPrice" | "priceMigration" | "prepaid";
 
@@ -96,6 +96,8 @@ const MAY: Record<string, (role: string, kind: Kind | null) => boolean> = {
   GetLaunch: () => true,
   RetryLaunch: (role) => role === "on_call",
   CancelLaunch: (role) => role === "on_call",
+  // Stage 7, the album release (§14.2): whoever writes an offer and whoever signs one reads the artists.
+  ListArtists: (role) => ["marketing", "commercial_lead", "finance"].includes(role),
 };
 
 const ROLE_NUMBER: Record<string, Role> = {
@@ -138,6 +140,35 @@ const PLANS = [
   { id: "family", name: "Family", paid: true, skips: 0, audio: "lossless", offline: true, seats: 5, student: false },
   { id: "student", name: "Student", paid: true, skips: 0, audio: "lossless", offline: true, seats: 1, student: true },
 ] as const;
+
+// The catalog's artists (§14.2), as the engine's ListArtists gives them: the
+// data generator's named ones, with their label and latest record.
+const ARTISTS = [
+  { id: 1, name: "Velluto Basso", label: "Casa Lenta", country: "IT", latestRelease: "Stanze al piano terra", latestReleaseOn: "2026-05-15" },
+  { id: 2, name: "Ottoline Marr", label: "Coldframe Records", country: "GB", latestRelease: "Low Tide Hymns", latestReleaseOn: "2026-03-20" },
+  { id: 3, name: "Ciel Fendu", label: "Disques Pareil", country: "FR", latestRelease: "Lumière de service", latestReleaseOn: "2026-09-04" },
+  { id: 4, name: "Doppelfenster", label: "Kellerlicht", country: "DE", latestRelease: "Nordflur", latestReleaseOn: "2026-11-06" },
+  { id: 5, name: "Pinewire", label: "Coldframe Records", country: "GB", latestRelease: "Signal Fires", latestReleaseOn: "2025-11-14" },
+  { id: 6, name: "Corale Ferrovia", label: "Casa Lenta", country: "IT", latestRelease: "Binario Morto", latestReleaseOn: "2026-02-06" },
+  { id: 7, name: "Halde", label: "Kellerlicht", country: "DE", latestRelease: "", latestReleaseOn: "" },
+] as const;
+
+/** The engine's page of artists: by name then id, a part of the name in any case, only the ids named, a cursor of its own. */
+function artistsPage(search: string, ids: readonly number[], size: number, after: string): { artists: (typeof ARTISTS)[number][]; page: { next: string } } {
+  if (search.trim().length > 80) throw new ConnectError("search holds at most 80 characters, the longest name", Code.InvalidArgument);
+  if (ids.length > 100) throw new ConnectError("ids names at most 100 artists", Code.InvalidArgument);
+  if (size < 0) throw new ConnectError("page.size is a positive number", Code.InvalidArgument);
+  if (after !== "" && !/^artist:\d+$/.test(after)) throw new ConnectError("page.after is not a cursor this engine gave", Code.InvalidArgument);
+  const wanted = search.trim().toLowerCase();
+  const found = [...ARTISTS]
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id))
+    .filter((artist) => artist.name.toLowerCase().includes(wanted) && (ids.length === 0 || ids.includes(artist.id)));
+  const start = after === "" ? 0 : found.findIndex((artist) => artist.id === Number(after.slice("artist:".length))) + 1;
+  const limit = Math.min(size || 20, 100);
+  const page = found.slice(start, start + limit);
+  const last = page.at(-1);
+  return { artists: page, page: { next: start + limit < found.length && last ? `artist:${last.id}` : "" } };
+}
 
 type StoredChange = {
   id: string;
@@ -1569,6 +1600,8 @@ export class FakeEngine {
             planted ? create(PublishedOfferSchema, { ...offer, version: 987_654 }) : offer),
         };
       },
+      // The album release (§14.2): the catalog's artists, for whoever writes or signs an offer (READS and MAY above).
+      listArtists: (request) => artistsPage(request.search, request.ids, request.page?.size ?? 0, request.page?.after ?? ""),
     });
     router.service(QuoteService, {
       getQuote: (request) => {

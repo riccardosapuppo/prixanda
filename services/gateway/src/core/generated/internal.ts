@@ -7,7 +7,7 @@ import type { MarketCodeValue } from '../scalars.ts';
 import type { PlanCodeValue } from '../scalars.ts';
 import type { Sha256Value } from '../scalars.ts';
 import type { GraphQLResolveInfo, GraphQLScalarType, GraphQLScalarTypeConfig } from 'graphql';
-import type { PersonModel, SessionModel, MarketModel, EntitlementsModel, PriceBreakdownModel, PlanModel, PriceListEntryModel, ChangePageModel, ChangeSummaryModel, ChangeModel, ChangeVersionModel, OfferContentModel, ListPriceContentModel, AudienceModel, ListeningRuleModel, OfferPriceModel, OfferPeriodModel, OfferPageModel, ApprovalModel, RequiredSignatureModel, FactModel, ValidationFindingModel, ValidationReportModel, RefusalModel, OverviewModel, MarketTimeModel, LaunchModel, IncidentModel, SubscriberCountModel, MarketRevenueModel, AssumptionModel, TotalsModel, FinanceConditionModel, SimulationModel, AuditEventModel, AuditPageModel, ChainHeadModel, ChainVerificationModel, LaunchPageModel, LaunchRunModel, LaunchStepModel, LaunchIncidentModel, PriceChangePolicyModel, PriceChangeLawModel, PriceChangeChoiceModel, MigrationProgressModel, PriceMigrationContentModel, PriceStepModel, MigrationSimulationModel, PrepaidPassContentModel, PrepaidPassPriceModel, PrepaidValueModel } from '../models.ts';
+import type { PersonModel, SessionModel, MarketModel, EntitlementsModel, PriceBreakdownModel, PlanModel, PriceListEntryModel, ChangePageModel, ChangeSummaryModel, ChangeModel, ChangeVersionModel, OfferContentModel, ListPriceContentModel, AudienceModel, ListeningRuleModel, OfferPriceModel, OfferPeriodModel, OfferPageModel, ApprovalModel, RequiredSignatureModel, FactModel, ValidationFindingModel, ValidationReportModel, RefusalModel, OverviewModel, MarketTimeModel, LaunchModel, IncidentModel, SubscriberCountModel, MarketRevenueModel, AssumptionModel, TotalsModel, FinanceConditionModel, SimulationModel, AuditEventModel, AuditPageModel, ChainHeadModel, ChainVerificationModel, LaunchPageModel, LaunchRunModel, LaunchStepModel, LaunchIncidentModel, PriceChangePolicyModel, PriceChangeLawModel, PriceChangeChoiceModel, MigrationProgressModel, PriceMigrationContentModel, PriceStepModel, MigrationSimulationModel, PrepaidPassContentModel, PrepaidPassPriceModel, PrepaidValueModel, ArtistPageModel, ArtistModel, ReleaseModel } from '../models.ts';
 import type { InternalContext } from '../context.ts';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
@@ -69,6 +69,14 @@ export type Query = {
   readonly launches: LaunchPage;
   /** One launch, step by step, with its incidents and the audit events it wrote; null when there is none. */
   readonly launch?: Maybe<LaunchRun>;
+  /**
+   * The catalog's artists by name, a page at a time (first: 1 to 100): a
+   * campaign for an album release aims at the listeners of one of them (§14.2).
+   * search finds a part of the name, in any case (at most 80 characters); ids
+   * names the artists a saved version aims at (at most 100). Marketing, the
+   * commercial lead and finance: whoever writes an offer and whoever signs one.
+   */
+  readonly artists: ArtistPage;
 };
 
 
@@ -137,6 +145,14 @@ export type QueryLaunchesArgs = {
 
 export type QueryLaunchArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryArtistsArgs = {
+  search?: InputMaybe<Scalars['String']['input']>;
+  ids?: InputMaybe<ReadonlyArray<Scalars['Int']['input']>>;
+  first?: Scalars['Int']['input'];
+  after?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type Mutation = {
@@ -1257,6 +1273,33 @@ export type ChainVerification = {
 
 export type ExportHeadResult = ChainHead | Refusal;
 
+/** An artist of the catalog (§14.2), with the label that releases them and their latest record. */
+export type Artist = {
+  readonly __typename?: 'Artist';
+  readonly id: Scalars['Int']['output'];
+  readonly name: Scalars['String']['output'];
+  readonly label: Scalars['String']['output'];
+  /** The artist's country: IT, FR, DE or GB. */
+  readonly country: Scalars['String']['output'];
+  /** Null when the catalog holds no record of theirs. */
+  readonly latestRelease?: Maybe<Release>;
+};
+
+/** A record, and the day it comes out. */
+export type Release = {
+  readonly __typename?: 'Release';
+  readonly title: Scalars['String']['output'];
+  /** The day, ISO 8601: 2026-11-06. */
+  readonly releasedOn: Scalars['String']['output'];
+};
+
+export type ArtistPage = {
+  readonly __typename?: 'ArtistPage';
+  readonly nodes: ReadonlyArray<Artist>;
+  /** The cursor of the next page; null on the last one. */
+  readonly next?: Maybe<Scalars['String']['output']>;
+};
+
 
 
 export type ResolverTypeWrapper<T> = Promise<T> | T;
@@ -1460,6 +1503,9 @@ export type ResolversTypes = {
   ChainHead: ResolverTypeWrapper<ChainHeadModel>;
   ChainVerification: ResolverTypeWrapper<ChainVerificationModel>;
   ExportHeadResult: ResolverTypeWrapper<ResolversUnionTypes<ResolversTypes>['ExportHeadResult']>;
+  Artist: ResolverTypeWrapper<ArtistModel>;
+  Release: ResolverTypeWrapper<ReleaseModel>;
+  ArtistPage: ResolverTypeWrapper<ArtistPageModel>;
 };
 
 /** Mapping between all available schema types and the resolvers parents */
@@ -1549,6 +1595,9 @@ export type ResolversParentTypes = {
   ChainHead: ChainHeadModel;
   ChainVerification: ChainVerificationModel;
   ExportHeadResult: ResolversUnionTypes<ResolversParentTypes>['ExportHeadResult'];
+  Artist: ArtistModel;
+  Release: ReleaseModel;
+  ArtistPage: ArtistPageModel;
 };
 
 export interface MoneyScalarConfig extends GraphQLScalarTypeConfig<ResolversTypes['Money'], any> {
@@ -1590,6 +1639,7 @@ export type QueryResolvers<ContextType = InternalContext, ParentType extends Res
   verifyAuditChain: Resolver<ResolversTypes['ChainVerification'], ParentType, ContextType, Partial<QueryVerifyAuditChainArgs>>;
   launches: Resolver<ResolversTypes['LaunchPage'], ParentType, ContextType, RequireFields<QueryLaunchesArgs, 'first'>>;
   launch: Resolver<Maybe<ResolversTypes['LaunchRun']>, ParentType, ContextType, RequireFields<QueryLaunchArgs, 'id'>>;
+  artists: Resolver<ResolversTypes['ArtistPage'], ParentType, ContextType, RequireFields<QueryArtistsArgs, 'first'>>;
 };
 
 export type MutationResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['Mutation'] = ResolversParentTypes['Mutation']> = {
@@ -2119,6 +2169,24 @@ export type ExportHeadResultResolvers<ContextType = InternalContext, ParentType 
   __resolveType: TypeResolveFn<'ChainHead' | 'Refusal', ParentType, ContextType>;
 };
 
+export type ArtistResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['Artist'] = ResolversParentTypes['Artist']> = {
+  id: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  name: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  label: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  country: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  latestRelease: Resolver<Maybe<ResolversTypes['Release']>, ParentType, ContextType>;
+};
+
+export type ReleaseResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['Release'] = ResolversParentTypes['Release']> = {
+  title: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  releasedOn: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+};
+
+export type ArtistPageResolvers<ContextType = InternalContext, ParentType extends ResolversParentTypes['ArtistPage'] = ResolversParentTypes['ArtistPage']> = {
+  nodes: Resolver<ReadonlyArray<ResolversTypes['Artist']>, ParentType, ContextType>;
+  next: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+};
+
 export type Resolvers<ContextType = InternalContext> = {
   Money: GraphQLScalarType;
   LocalDateTime: GraphQLScalarType;
@@ -2186,5 +2254,8 @@ export type Resolvers<ContextType = InternalContext> = {
   ChainHead: ChainHeadResolvers<ContextType>;
   ChainVerification: ChainVerificationResolvers<ContextType>;
   ExportHeadResult: ExportHeadResultResolvers<ContextType>;
+  Artist: ArtistResolvers<ContextType>;
+  Release: ReleaseResolvers<ContextType>;
+  ArtistPage: ArtistPageResolvers<ContextType>;
 };
 

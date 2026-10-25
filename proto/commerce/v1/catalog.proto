@@ -18,6 +18,10 @@ service CatalogService {
   // The prepaid passes on sale in a market now (§9): those whose change is
   // active and whose period in the market holds the instant.
   rpc ListPrepaidPasses(ListPrepaidPassesRequest) returns (ListPrepaidPassesResponse);
+  // The artists of the catalog, by name (§14.2): a campaign for an album
+  // release aims at the listeners of one of them. Whoever writes an offer and
+  // whoever signs one reads them: marketing, the commercial lead and finance.
+  rpc ListArtists(ListArtistsRequest) returns (ListArtistsResponse);
 }
 
 message Market {
@@ -212,4 +216,34 @@ message PrepaidPassOnSale {
 
 message ListPrepaidPassesResponse {
   repeated PrepaidPassOnSale passes = 1;
+}
+
+// An artist of the catalog, with the label that releases them and their
+// latest record (§14.2).
+message Artist {
+  int32 id = 1;
+  string name = 2;
+  string label = 3;
+  // The country of the artist: IT, FR, DE or GB.
+  string country = 4;
+  // The latest record and the day it comes out, ISO 8601; both empty when
+  // the catalog holds none.
+  string latest_release = 5;
+  string latest_release_on = 6;
+}
+
+message ListArtistsRequest {
+  // A part of the name, in any case: "doppel" finds Doppelfenster. Empty:
+  // every artist. At most 80 characters, the longest name.
+  string search = 1;
+  // Only these artists, to name the ones a saved version aims at: at most
+  // 100. Empty: no restriction.
+  repeated int32 ids = 2;
+  // By name, then by id; a page holds 20 artists unless it asks for 1 to 100.
+  PageRequest page = 3;
+}
+
+message ListArtistsResponse {
+  repeated Artist artists = 1;
+  PageInfo page = 2;
 }

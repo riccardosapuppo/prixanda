@@ -43,6 +43,7 @@ import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
 import { ChangeTabs } from "../campaigns/tabs.tsx";
 import { MigrationInShort } from "../migration/in-short.tsx";
 import { MarketPolicy } from "../migration/policy.tsx";
+import { useArtistNames } from "../wizard/artists.tsx";
 
 type Change = NonNullable<ChangeQuery["change"]>;
 type Event = AuditEventsQuery["auditEvents"]["nodes"][number];
@@ -111,7 +112,11 @@ function Block({ title, children, id }: { readonly title: string; readonly child
 function Evidence({ change, events, markets }: { readonly change: Change; readonly events: readonly Event[]; readonly markets: readonly { readonly code: string; readonly name: string; readonly timeZone: string; readonly currency: string }[] }) {
   const viewer = useViewer();
   const previous = change.versions.find((version) => version.version === change.currentVersion - 1) ?? null;
-  const differences = previous ? describeChanges(previous.content, change.current.content, markets) : [];
+  // The artists of a fans' campaign (§14.2), by name for the roles that read the catalog's artists.
+  const fansOf = [previous?.content, change.current.content].flatMap((version) =>
+    version?.__typename === "OfferContent" && version.audience.listening ? [version.audience.listening.artistId] : []);
+  const artistNames = useArtistNames(fansOf);
+  const differences = previous ? describeChanges(previous.content, change.current.content, markets, artistNames) : [];
   const sentBack = events.filter((event) => event.action === "change.rejected");
   const lastSentBack = sentBack[0] ?? null;
   const content = change.current.content;

@@ -1,6 +1,7 @@
 """ListMarkets, ListPlans, GetPriceList and ListOffers (business book §2 to
 §6.2, §6.8): what is sold, at what price, where each price goes, and who is
-shown an offer for an artist's listeners."""
+shown an offer for an artist's listeners; and ListArtists (§14.2), the
+artists a campaign for an album release aims at."""
 
 from __future__ import annotations
 
@@ -8,9 +9,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from commerce.engine.errors import InvalidArgument, NotFound
-from commerce.v1 import catalog_pb2, changes_pb2
-from engine_support import FINANCE, LEAD, MARKETING, PUBLIC, family_rise, nordflur, scheduled, student_autumn
+from commerce.engine.errors import InvalidArgument, NotFound, PermissionDenied
+from commerce.v1 import catalog_pb2, changes_pb2, common_pb2
+from engine_support import (
+    AUDITOR, CATALOG, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, family_rise, nordflur, scheduled, student_autumn,
+)
 
 
 async def test_the_markets_with_their_vat_minimum_and_floor(world):
@@ -154,3 +157,80 @@ async def test_an_offer_says_where_its_price_goes_with_the_top_up_below_the_floo
     assert b.price == offer.price and b.artists.currency == "EUR"
     plans = {p.id: p for p in (await world.call("ListPlans", catalog_pb2.ListPlansRequest(market="IT"), PUBLIC)).plans}
     assert plans["student"].breakdown.price.amount_minor == 579  # the list price's own breakdown, as before
+
+
+# -- the artists (§14.2) ---------------------------------------------------------
+
+BY_NAME = ["Ciel Fendu", "Corale Ferrovia", "Doppelfenster", "Halde", "Ottoline Marr", "Pinewire", "Velluto Basso"]
+
+
+async def artists(world, who=MARKETING, **fields) -> catalog_pb2.ListArtistsResponse:
+    return await world.call("ListArtists", catalog_pb2.ListArtistsRequest(**fields), who)
+
+
+async def test_the_artists_by_name_with_their_label_country_and_latest_record(world):
+    listed = await artists(world)
+    assert [a.name for a in listed.artists] == BY_NAME and listed.page.next == ""
+    doppelfenster = listed.artists[2]
+    assert (doppelfenster.id, doppelfenster.label, doppelfenster.country) == (4, "Kellerlicht", "DE")
+    assert (doppelfenster.latest_release, doppelfenster.latest_release_on) == ("Nordflur", "2026-11-06")
+    # The latest record is the newest one; an artist without any has none.
+    await world.owner.execute("insert into release (id, artist_id, title, released_on) values (8, 4, 'Kellerband', '2025-03-07')")
+    await world.owner.execute("insert into label (id, name, country) values (9, 'Treppenhaus', 'DE')")
+    await world.owner.execute("insert into artist (id, name, label_id, country) values (9, 'Zinnober', 9, 'DE')")
+    listed = await artists(world)
+    assert listed.artists[2].latest_release == "Nordflur"
+    assert (listed.artists[-1].name, listed.artists[-1].latest_release, listed.artists[-1].latest_release_on) == ("Zinnober", "", "")
+
+
+async def test_a_search_finds_a_part_of_the_name_in_any_case_and_ids_name_the_chosen_ones(world):
+    assert [a.name for a in (await artists(world, search="DOPPEL")).artists] == ["Doppelfenster"]
+    assert [a.name for a in (await artists(world, search=" fe ")).artists] == ["Ciel Fendu", "Corale Ferrovia", "Doppelfenster"]
+    assert list((await artists(world, search="Nobody of that name")).artists) == []
+    # A saved version names its artist by id: the console asks for that one.
+    assert [a.name for a in (await artists(world, ids=[7, 4])).artists] == ["Doppelfenster", "Halde"]
+    assert [a.name for a in (await artists(world, ids=[7, 4], search="halde")).artists] == ["Halde"]
+    assert list((await artists(world, ids=[999])).artists) == []
+
+
+async def test_the_artists_a_page_at_a_time_by_name_then_id(world):
+    seen, after, pages = [], "", 0
+    while True:
+        page = await artists(world, page=common_pb2.PageRequest(size=3, after=after))
+        seen += [a.name for a in page.artists]
+        pages += 1
+        if not page.page.next:
+            break
+        after = page.page.next
+    assert seen == BY_NAME and pages == 3
+    # Two artists may share a name's start; the page goes on after the last one it gave, whatever comes next.
+    searched = await artists(world, search="e", page=common_pb2.PageRequest(size=2))
+    rest = await artists(world, search="e", page=common_pb2.PageRequest(size=100, after=searched.page.next))
+    assert [a.name for a in [*searched.artists, *rest.artists]] == [n for n in BY_NAME if "e" in n.lower()]
+
+
+@pytest.mark.parametrize("who", [MARKETING, LEAD, FINANCE])
+async def test_whoever_writes_or_signs_an_offer_reads_the_artists(world, who):
+    assert len((await artists(world, who)).artists) == 7
+
+
+@pytest.mark.parametrize("who", [CATALOG, ON_CALL, AUDITOR, PUBLIC])
+async def test_the_other_roles_do_not_read_the_artists(world, who):
+    with pytest.raises(PermissionDenied):
+        await artists(world, who)
+
+
+@pytest.mark.parametrize("fields", [
+    {"search": "x" * 81}, {"ids": list(range(101))}, {"page": common_pb2.PageRequest(size=-1)},
+    {"page": common_pb2.PageRequest(after="not-a-cursor")}, {"page": common_pb2.PageRequest(after="WyJIYWxkZSIsICI0Il0")},
+])
+async def test_artist_errors(world, fields):
+    with pytest.raises(InvalidArgument):
+        await artists(world, **fields)
+
+
+async def test_a_page_of_artists_holds_at_most_a_hundred(world):
+    for n in range(100, 230):
+        await world.owner.execute("insert into artist (id, name, label_id, country) values ($1, $2, 3, 'DE')", n, f"Act {n}")
+    page = await artists(world, page=common_pb2.PageRequest(size=500))
+    assert len(page.artists) == 100 and page.page.next != ""

@@ -85,3 +85,26 @@ query PriceList {
     }
   }
 }
+
+# The catalog's artists (§14.2): found by a part of the name for a campaign
+# for an album release, or named by id for the one a saved version aims at.
+# Marketing, the commercial lead and finance read them.
+fragment ArtistFields on Artist {
+  id
+  name
+  label
+  country
+  latestRelease {
+    title
+    releasedOn
+  }
+}
+
+query Artists($search: String, $ids: [Int!], $first: Int! = 8) {
+  artists(search: $search, ids: $ids, first: $first) {
+    nodes {
+      ...ArtistFields
+    }
+    next
+  }
+}

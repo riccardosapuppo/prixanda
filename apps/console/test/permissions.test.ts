@@ -75,6 +75,7 @@ describe("the team's table", () => {
       exportHead: METHOD_ROLES.ExportHead,
       readRevenue: FIELD_ROLES["Overview.monthlyRevenue"],
       readUnearnedValue: FIELD_ROLES["Overview.prepaid"],
+      readArtists: METHOD_ROLES.ListArtists,
     };
     for (const [right, roles] of Object.entries(TEAM.rights) as [Right, readonly Role[]][]) {
       assert.deepEqual([...roles].map((role) => role.toLowerCase()).sort(), [...gateway[right]].sort(), right);

@@ -318,6 +318,17 @@ export type PriceListQueryVariables = Exact<{ [key: string]: never; }>;
 
 export type PriceListQuery = { readonly markets: ReadonlyArray<{ readonly code: string, readonly name: string, readonly currency: string, readonly minorUnits: number, readonly timeZone: string, readonly vatBasisPoints: number, readonly artistsMinimum: { readonly amountMinor: string; readonly currency: string }, readonly floor: { readonly amountMinor: string; readonly currency: string } }>, readonly priceList: ReadonlyArray<{ readonly id: string, readonly plan: string, readonly market: string, readonly amount: { readonly amountMinor: string; readonly currency: string }, readonly validFrom: string, readonly validUntil: string | null, readonly belowFloor: boolean, readonly topUp: { readonly amountMinor: string; readonly currency: string }, readonly change: { readonly id: string, readonly title: string, readonly currentVersion: number } | null }> };
 
+export type ArtistFieldsFragment = { readonly id: number, readonly name: string, readonly label: string, readonly country: string, readonly latestRelease: { readonly title: string, readonly releasedOn: string } | null };
+
+export type ArtistsQueryVariables = Exact<{
+  search?: string | null | undefined;
+  ids?: ReadonlyArray<number> | null | undefined;
+  first?: number;
+}>;
+
+
+export type ArtistsQuery = { readonly artists: { readonly next: string | null, readonly nodes: ReadonlyArray<{ readonly id: number, readonly name: string, readonly label: string, readonly country: string, readonly latestRelease: { readonly title: string, readonly releasedOn: string } | null }> } };
+
 export type PersonRefFragment = { readonly id: string, readonly label: string };
 
 export type SignatureFieldsFragment = { readonly role: Role, readonly conditions: ReadonlyArray<number>, readonly why: string, readonly signed: boolean };
@@ -994,6 +1005,12 @@ export const PriceListDocument: Operation<PriceListQuery, PriceListQueryVariable
   name: "PriceList",
   kind: "query",
   text: "query PriceList {\n  markets {\n    ...MarketFields\n  }\n  priceList {\n    id\n    plan\n    market\n    amount\n    validFrom\n    validUntil\n    belowFloor\n    topUp\n    change {\n      id\n      title\n      currentVersion\n    }\n  }\n}\n\nfragment MarketFields on Market {\n  code\n  name\n  currency\n  minorUnits\n  timeZone\n  vatBasisPoints\n  artistsMinimum\n  floor\n}",
+};
+
+export const ArtistsDocument: Operation<ArtistsQuery, ArtistsQueryVariables> = {
+  name: "Artists",
+  kind: "query",
+  text: "query Artists($search: String, $ids: [Int!], $first: Int! = 8) {\n  artists(search: $search, ids: $ids, first: $first) {\n    nodes {\n      ...ArtistFields\n    }\n    next\n  }\n}\n\nfragment ArtistFields on Artist {\n  id\n  name\n  label\n  country\n  latestRelease {\n    title\n    releasedOn\n  }\n}",
 };
 
 export const ChangeDocument: Operation<ChangeQuery, ChangeQueryVariables> = {

@@ -66,7 +66,7 @@ const COMPAT = { before: "11", expansion: "12" };
 // Hypothesis generates cases for (properties), the faults injected in a
 // launch with the engine's real process (faults), and the engine's package for
 // the browser: its imports, its adapter, its simulated fault (browser).
-const AREA_FLOOR: Record<string, number> = { database: 111, domain: 235, golden: 44, services: 280, e2e: 30, properties: 10, faults: 14, browser: 58 };
+const AREA_FLOOR: Record<string, number> = { database: 112, domain: 235, golden: 44, services: 297, e2e: 31, properties: 10, faults: 14, browser: 58 };
 // What tests/faults writes: every fault injected in a launch, and what it left.
 type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 
@@ -715,7 +715,7 @@ const SUITES: Suite[] = [
   },
   {
     name: "console-e2e",
-    what: "the console's static build on the whole system: the Student Autumn Pass from draft to launch, refusals by the server, the audit log, conflicts, axe on every screen, the keyboard alone, five widths",
+    what: "the console's static build on the whole system: the Student Autumn Pass from draft to launch, the album release for an artist's fans through a real launch, the prices, refusals by the server, the audit log, conflicts, axe on every screen, the keyboard alone, five widths",
     needsDatabase: true,
     async run({ cluster }) {
       if (!cluster) return notRun("no database");
@@ -1160,7 +1160,7 @@ function sandboxAssets(): ReturnType<typeof buildEngineAssets> {
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 55, coreFiles: 22, generated: 3, schemaTests: 23, tests: 253, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
+  files: 55, coreFiles: 22, generated: 3, schemaTests: 26, tests: 253, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
 };
 // The sandbox's gateway side (stage 8): what its suites must at least have
 // checked, and what the worker's bundle may hold: the gateway's part of it,
@@ -1270,7 +1270,7 @@ async function siteNodeTests(suite: string, files: string[], floor: number): Pro
 const designDir = join(repoRoot, "packages", "design");
 const consoleDir = join(repoRoot, "apps", "console");
 const CONSOLE_FLOOR = {
-  designFiles: 4, designTests: 77, files: 117, operations: 35, unitTests: 87, stories: 42, pages: 23, e2eTests: 32,
+  designFiles: 4, designTests: 77, files: 121, operations: 36, unitTests: 91, stories: 46, pages: 23, e2eTests: 33,
 };
 /** The gateway the console is built for: the one its end-to-end tests start. */
 const CONSOLE_GATEWAY_URL = E2E_GATEWAY_URL;

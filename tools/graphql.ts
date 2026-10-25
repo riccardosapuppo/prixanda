@@ -39,6 +39,7 @@ const SCHEMAS = {
       "LaunchPage", "LaunchRun", "LaunchStep", "LaunchIncident",
       "PriceChangePolicy", "PriceChangeLaw", "PriceChangeChoice", "MigrationProgress", "PriceMigrationContent", "PriceStep", "MigrationSimulation",
       "PrepaidPassContent", "PrepaidPassPrice", "PrepaidValue",
+      "ArtistPage", "Artist", "Release",
     ],
     scalars: ["Money", "LocalDateTime", "DateTime", "MarketCode", "PlanCode", "Sha256"],
   },

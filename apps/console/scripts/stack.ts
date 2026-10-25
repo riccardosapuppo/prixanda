@@ -12,6 +12,11 @@
 //                                and the console's static build served as it
 //                                would be in production.
 //
+// The data are generated up to the day they are loaded (loadDay): the engine
+// works on the real day, and counts the fans of an artist in the listening of
+// the days before it (§14.2), so data that ended weeks ago would have none.
+// The generator's own tests keep its fixed period.
+//
 // Ports come from the environment, as for the other tools: DEV_POSTGRES_PORT,
 // ENGINE_URL, GATEWAY_INTERNAL_PORT, GATEWAY_PUBLIC_PORT, CONSOLE_PORT. Each
 // is asked to the system before use (rule 132).
@@ -45,6 +50,14 @@ export type Stack = {
   readonly logs: () => string;
   stop(): Promise<void>;
 };
+
+/**
+ * The day the generated data run up to: today in Rome, which is never behind
+ * the calendar of any of the four markets (London is an hour behind it).
+ */
+export function loadDay(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
 
 /** Waits until a check passes, or fails with what it last saw. */
 async function waitFor(what: string, check: () => Promise<boolean>, timeoutMs: number): Promise<void> {
@@ -145,7 +158,7 @@ export type StackOptions = {
   /** The database: a running cluster and the name of a database in it that has the migrations. */
   readonly cluster: Cluster;
   readonly database: string;
-  /** Load the small generated data (seed 7) when the database has no people. */
+  /** Load the small generated data (seed 7), up to the day it is loaded, when the database has no people. */
   readonly seed: boolean;
   readonly enginePort: number;
   /** "static": serve apps/console/out (built beforehand); "dev": run next dev. */
@@ -183,8 +196,9 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     const people = await options.cluster.sql<{ n: number }>(options.database, "select count(*)::int as n from person");
     if (people[0]?.n === 0) {
       if (!options.seed) throw new Error(`the database ${options.database} has no data`);
-      say("loading the small generated data, seed 7");
-      const generated = await run(venvPython, ["-m", "commerce.generate", "--url", options.cluster.url(options.database, "owner"), "--size", "small", "--seed", "7"], {
+      const until = loadDay();
+      say(`loading the small generated data, seed 7, up to ${until}`);
+      const generated = await run(venvPython, ["-m", "commerce.generate", "--url", options.cluster.url(options.database, "owner"), "--size", "small", "--seed", "7", "--until", until], {
         cwd: commerceDir, env: { ...process.env, PYTHONPATH: join(commerceDir, "src") },
       });
       if (generated.code !== 0) throw new Error(`the data generator failed:\n${generated.output.slice(-2000)}`);

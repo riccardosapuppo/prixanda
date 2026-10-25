@@ -1,7 +1,11 @@
 "use client";
 // The guided creation of a campaign, in five steps: who can take it, the
 // price, the dates, the page, then the check and the submission (business
-// book §6). Beside the form, the page as the site would show it.
+// book §6). Beside the form, the page as the site would show it. Who can
+// take it may be narrowed to the fans of an artist (§14.2): the artist from
+// the catalog, more than a number of hours of their music in a window of
+// days; the engine counts them in the listening data when the version is
+// checked.
 //
 // What a step checks before Continue is only what cannot mean anything (an
 // empty name, a price that is not a price, a time the clocks skip). The
@@ -28,8 +32,8 @@ import {
 } from "../../graphql/generated.ts";
 import { MARKET_ORDER, planName } from "../../lib/markets.ts";
 import {
-  cannotCarry, checkStep, differsFrom, emptyForm, emptyMarket, formFromContent, LIMITS, type MarketFacts, type MarketForm, marketField,
-  type OfferContent, type OfferForm, type Problem, type Segment, STEPS, type StepIndex, toInput,
+  cannotCarry, checkStep, differsFrom, emptyForm, emptyMarket, FANS_WINDOW_DAYS, formFromContent, LIMITS, type MarketFacts, type MarketForm,
+  marketField, type OfferContent, type OfferForm, parseHours, type Problem, type Segment, STEPS, type StepIndex, stepOfField, toInput,
 } from "../../lib/offer-form.ts";
 import { listeningWords } from "../../lib/diff.ts";
 import { approvalHref } from "../../lib/kinds.ts";
@@ -39,6 +43,7 @@ import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/g
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatLocalValue, formatLocalWithUtc, nextWeekday, parseLocal, partsIn, zoneCity } from "../../lib/time.ts";
 import { CampaignTabs } from "../campaigns/tabs.tsx";
+import { ArtistPicker, useArtistNames } from "./artists.tsx";
 import { ChoiceGroup, SelectField, TextAreaField, TextField } from "./fields.tsx";
 import { type PreviewPlan, SitePreview } from "./preview.tsx";
 
@@ -82,13 +87,47 @@ export function autumnExample(now: Date): OfferForm {
     group: "student-offers",
     cap: "",
     months: "3",
-    listening: null,
+    fans: false,
+    artist: "",
+    hours: "",
+    days: String(FANS_WINDOW_DAYS),
     markets: [{
       ...emptyMarket("IT", formatLocalValue(monday)),
       fixed: "2.99",
       pageTitle: "Student Autumn Pass",
       pageText: "Three months of Student for 2,99 € a month. Then 5,79 €, the usual Student price.",
       pageTerms: "For verified students in Italy who have never paid for a plan. Three months at 2,99 €, then the Student list price in force. Not combinable with other student offers.",
+    }],
+  };
+}
+
+/**
+ * The album release of the business book (§14.2): two months of Individual
+ * at €1.99 for the fans of Doppelfenster on Free in Germany (the catalog's
+ * artist 4 in the generated data), from the next Friday at midnight in
+ * Berlin, when records come out.
+ */
+export function releaseExample(now: Date): OfferForm {
+  const friday = nextWeekday({ ...partsIn(now, "Europe/Berlin"), second: 0 }, 5, 0);
+  return {
+    title: "Nordflur release",
+    plan: "individual",
+    segment: "FREE_LISTENERS",
+    currentPlan: "",
+    needsStudentCheck: false,
+    group: "release-offers",
+    cap: "1500",
+    months: "2",
+    fans: true,
+    artist: "4",
+    hours: "3",
+    days: String(FANS_WINDOW_DAYS),
+    markets: [{
+      ...emptyMarket("DE", formatLocalValue(friday)),
+      fixed: "1.99",
+      pageTitle: "Nordflur is out",
+      pageText: "Two months of Individual for 1,99 € a month, for the listeners who kept Doppelfenster on repeat. Then 10,99 €, the usual Individual price.",
+      pageTerms: "For listeners on Free in Germany who played Doppelfenster for more than 3 hours in the last 30 days. Two months at 1,99 €, then the Individual list price in force. At most 1,500 redemptions. Not combinable with other release offers.",
     }],
   };
 }
@@ -352,6 +391,7 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
               canEdit={canEdit}
               busy={busy}
               problems={checkStep(form, 4, facts, now)}
+              fansDays={form.fans ? Number(form.days) : null}
               reason={reason}
               reasonError={reasonTouched && change !== null && change.requiredSignatures.some((signature) => signature.conditions.includes(4)) && reason.trim() === "" ? `Write why the campaign is worth running: the contribution over 12 months is negative, and ${conditionSigner()} reads this next to the numbers (§7.3, condition 4).` : null}
               onReason={setReason}
@@ -397,8 +437,9 @@ function StepAudience({ form, markets, disabled, shown, touch, update, now }: St
       {!disabled && form.title === "" && form.markets.length === 0 ? (
         <p className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
           <Icon name="info" size={15} />
-          Starting from scratch, or from the example of the business book:
+          Starting from scratch, or from an example of the business book:
           <Button size="small" weight="quiet" icon="student" onClick={() => update(autumnExample(now))}>Fill in the Student Autumn Pass</Button>
+          <Button size="small" weight="quiet" icon="vinyl-record" onClick={() => update(releaseExample(now))}>Fill in the Nordflur release</Button>
         </p>
       ) : null}
       <TextField id="title" label="Campaign name" hint="How the team finds it; the page has its own title in step 4." value={form.title} disabled={disabled} maxLength={LIMITS.title} error={shown("title")} onChange={(value) => update({ title: value })} onBlur={() => touch("title")} />
@@ -432,13 +473,8 @@ function StepAudience({ form, markets, disabled, shown, touch, update, now }: St
       {form.segment === "SUBSCRIBERS_OF_PLAN" ? (
         <SelectField id="currentPlan" label="Their plan now" value={form.currentPlan} disabled={disabled} placeholder="Choose a plan" error={shown("currentPlan")} options={PAID_PLANS.map((plan) => ({ value: plan, label: planName(plan) }))} onChange={(value) => update({ currentPlan: value })} onBlur={() => touch("currentPlan")} />
       ) : null}
-      {form.listening ? (
-        <p className="flex items-baseline gap-2 border border-cord bg-stone-0 px-3 py-2.5 text-sm">
-          <Icon name="headphones" size={16} className="translate-y-0.5 text-indigo" />
-          <span>
-            <b>Listening rule</b>: only people {listeningWords(form.listening)} (§14.2). It is kept as it was saved: this console does not change it.
-          </span>
-        </p>
+      {form.segment === "NEVER_PAID" || form.segment === "FREE_LISTENERS" || form.fans ? (
+        <FansFields form={form} markets={markets} disabled={disabled} shown={shown} touch={touch} update={update} />
       ) : null}
       <label className="choice-card">
         <input type="checkbox" checked={form.needsStudentCheck} disabled={disabled || form.plan === "student"} onChange={(event) => update({ needsStudentCheck: event.target.checked })} />
@@ -450,8 +486,48 @@ function StepAudience({ form, markets, disabled, shown, touch, update, now }: St
       </div>
       <p className="flex items-baseline gap-2 text-sm text-ink-2">
         <Icon name="users" size={15} className="translate-y-0.5" />
-        How many people this reaches is counted in the data by the engine when the campaign is checked, in step 5: nobody types it (§6.5).
+        How many people this reaches, the engine counts in the data once the version is saved and checked, in step 5: nobody types it (§6.5).
       </p>
+    </div>
+  );
+}
+
+/** Who the fans are, in words, once the rule is complete: "Listeners on Free in Germany who played Doppelfenster for more than 3 hours in the last 30 days." */
+function fansWords(form: OfferForm, markets: readonly Market[], artist: string | undefined): string | null {
+  const seconds = parseHours(form.hours);
+  const days = Number(form.days);
+  if (form.artist === "" || seconds === null || !Number.isInteger(days) || days < 1) return null;
+  const where = form.markets.map((entry) => markets.find((market) => market.code === entry.market)?.name ?? entry.market).join(", ") || "the markets of step 1";
+  const who = form.segment === "NEVER_PAID" ? `People in ${where} who have never paid,` : form.segment === "FREE_LISTENERS" ? `Listeners on Free in ${where}` : `People in ${where}`;
+  const rule = listeningWords({ artistId: Number(form.artist), minSeconds: seconds, withinDays: days }, new Map(artist ? [[Number(form.artist), artist]] : []));
+  return `${who} ${rule}.`;
+}
+
+function FansFields({ form, markets, disabled, shown, touch, update }: StepProps & { readonly update: (patch: Partial<OfferForm>) => void }) {
+  const names = useArtistNames(form.artist === "" ? [] : [Number(form.artist)]);
+  const words = fansWords(form, markets, names.get(Number(form.artist)));
+  return (
+    <div className="grid gap-3">
+      <label className="choice-card">
+        <input type="checkbox" id="fans" checked={form.fans} disabled={disabled} onChange={(event) => update({ fans: event.target.checked })} />
+        <span>
+          Only the fans of an artist
+          <small className="block text-xs text-ink-2">For an album release: the people who played the artist for more than a set time lately, read from the listening data (§14.2).</small>
+        </span>
+      </label>
+      {form.fans ? (
+        <div className="ml-2.5 grid gap-5 border-l border-cord pl-5">
+          <ArtistPicker value={form.artist} disabled={disabled} error={shown("artist")} markets={markets} onChange={(id) => update({ artist: id })} onBlur={() => touch("artist")} />
+          <div className="grid gap-5 sm:grid-cols-2">
+            <TextField id="hours" label="Hours played" hint="A fan played the artist for more than this in the window: 3, or 1.5." value={form.hours} disabled={disabled} inputMode="decimal" suffix="h" error={shown("hours")} onChange={(value) => update({ hours: value })} onBlur={() => touch("hours")} />
+            <TextField id="days" label="Window" hint={`The days before the day it is counted, from 1 to ${LIMITS.listeningDaysMax}: the book counts the last ${FANS_WINDOW_DAYS} (§14.2).`} value={form.days} disabled={disabled} inputMode="numeric" suffix="days" error={shown("days")} onChange={(value) => update({ days: value })} onBlur={() => touch("days")} />
+          </div>
+          <p className="flex items-baseline gap-2 text-sm">
+            <Icon name="headphones" size={16} className="translate-y-0.5 text-indigo" />
+            <span>{words ?? "Choose the artist, the hours and the window: the rule reads back here in words."}</span>
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -582,12 +658,14 @@ function StepPage({ form, markets, disabled, shown, touch, updateMarket }: StepP
   );
 }
 
-function StepCheck({ change, dirty, canEdit, busy, problems, reason, reasonError, onReason, onCheck, onSubmit, onGoTo, outcome }: {
+function StepCheck({ change, dirty, canEdit, busy, problems, fansDays, reason, reasonError, onReason, onCheck, onSubmit, onGoTo, outcome }: {
   readonly change: Change | null;
   readonly dirty: boolean;
   readonly canEdit: boolean;
   readonly busy: boolean;
   readonly problems: readonly Problem[];
+  /** The window of a fans' campaign, in days; null when it is for everyone in its segment. */
+  readonly fansDays: number | null;
   readonly reason: string;
   readonly reasonError: string | null;
   readonly onReason: (value: string) => void;
@@ -602,7 +680,7 @@ function StepCheck({ change, dirty, canEdit, busy, problems, reason, reasonError
   const nextVersion = change === null ? 1 : dirty ? change.currentVersion + 1 : change.currentVersion;
 
   if (problems.length) {
-    const steps = [...new Set(problems.map((problem) => (problem.field === "title" || problem.field === "plan" || problem.field === "segment" || problem.field === "group" || problem.field === "cap" || problem.field === "markets" || problem.field === "currentPlan" ? 0 : problem.field === "months" || problem.field.endsWith("-fixed") || problem.field.endsWith("-percent") ? 1 : problem.field.includes("Local") ? 2 : 3)))].sort();
+    const steps = [...new Set(problems.map((problem) => stepOfField(problem.field)))].sort();
     return (
       <Callout tone="error" icon="warning-circle">
         <p className="font-bold">Some steps are not finished.</p>
@@ -644,7 +722,10 @@ function StepCheck({ change, dirty, canEdit, busy, problems, reason, reasonError
             onGoTo={(next) => onGoTo(next as StepIndex)}
             none={`No finding: nothing blocks it and no condition asks for ${conditionSigner()}.`}
           />
-          <p className="text-sm text-ink-2"><b className="text-ink">{validation.eligible.toLocaleString("en-GB")}</b> people eligible right now, counted in the simulated data by the engine.</p>
+          <p className="text-sm text-ink-2">
+            <b className="text-ink">{validation.eligible.toLocaleString("en-GB")}</b> people eligible right now, counted in the simulated data by the engine
+            {fansDays !== null ? `: their listening of the ${fansDays} full ${fansDays === 1 ? "day" : "days"} before today, in each market's calendar.` : "."}
+          </p>
           {validation.valid && change ? (
             <section className="grid gap-3" aria-labelledby="signs-heading">
               <h3 id="signs-heading" className="text-base font-bold">Who has to sign</h3>

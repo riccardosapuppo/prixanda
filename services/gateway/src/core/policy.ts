@@ -54,6 +54,7 @@ export const INTERNAL_ACCESS: { readonly Query: Record<string, Access>; readonly
     verifyAuditChain: method("VerifyChain"),
     launches: method("ListLaunches"),
     launch: method("GetLaunch"),
+    artists: method("ListArtists"),
   },
   Mutation: {
     signIn: ANYONE,

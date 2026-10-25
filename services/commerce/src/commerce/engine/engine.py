@@ -77,6 +77,7 @@ METHODS: dict[str, Method] = {m.full_name: m for m in [
     _m("CatalogService", "GetPriceList", catalog_pb2, public=True),
     _m("CatalogService", "ListOffers", catalog_pb2, public=True),
     _m("CatalogService", "ListPrepaidPasses", catalog_pb2, public=True),
+    _m("CatalogService", "ListArtists", catalog_pb2),
     _m("QuoteService", "GetQuote", quotes_pb2, public=True, writes=True),
     _m("ChangeService", "CreateChange", changes_pb2, writes=True),
     _m("ChangeService", "SaveVersion", changes_pb2, writes=True),
@@ -143,7 +144,7 @@ class Engine:
         self.handlers: dict[str, Handler] = {
             "ListMarkets": self.catalog.list_markets, "ListPlans": self.catalog.list_plans,
             "GetPriceList": self.catalog.get_price_list, "ListOffers": self.catalog.list_offers,
-            "ListPrepaidPasses": self.prepaid_catalog.list_passes,
+            "ListPrepaidPasses": self.prepaid_catalog.list_passes, "ListArtists": self.catalog.list_artists,
             "GetQuote": self.quotes.get_quote,
             "CreateChange": self.changes.create, "SaveVersion": self.changes.save_version, "GetChange": self.changes.get,
             "BatchGetChanges": self.changes.batch_get, "ListChanges": self.changes.list,
