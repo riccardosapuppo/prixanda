@@ -22,7 +22,7 @@ from commerce.engine import migrations, outbox
 from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound
 from commerce.server.app import Jobs
 from commerce.engine.logs import JsonLog
-from commerce.engine.providers import FAILED, PENDING, ChargeResult, ProviderEvent
+from commerce.engine.providers import FAILED, PENDING, SUCCEEDED, ChargeResult, ProviderEvent
 from commerce.invariants import check
 from helpers import add_subscription
 from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2
@@ -433,15 +433,17 @@ async def test_a_second_rise_leaves_for_later_a_subscription_whose_first_new_pri
     assert [tuple(r) for r in history] == [("2026-10-31", 299), ("2027-01-28", 649)]
 
 
-async def confirmed_pending(world, monkeypatch, subscriber: int, market: str) -> str:
-    """A listener takes Individual on 24 October, and the provider takes its time: the first payment stays pending."""
+async def confirmed_pending(world, monkeypatch, subscriber: int, market: str, *, plan: str = "individual",
+                            offer_id: int = 0) -> str:
+    """A listener takes a plan (Individual unless told), and the provider takes its time: the first payment stays
+    pending."""
     async def slow(charge):
         event = ProviderEvent("simulated", f"evt_slow_{subscriber}", PENDING, charge.payment_id, "sim-pay-slow",
                               world.clock.now())
         return ChargeResult("simulated", "sim-pay-slow", (event,))
 
     monkeypatch.setattr(world.engine.payments, "charge", slow)
-    quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="individual", market=market,
+    quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan=plan, market=market, offer_id=offer_id,
                                                                      subscriber_id=subscriber), PUBLIC)).quote
     payment = (await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(
         quote_id=quote.quote_id, subscriber_id=subscriber), PUBLIC)).confirmation.payment.payment_id
@@ -489,6 +491,36 @@ async def test_a_rise_leaves_for_later_a_subscription_whose_first_payment_is_pen
                                            ("free", "2026-11-04", "2026-11-05"), ("individual", "2026-11-05", None)]
     report = await check(world.owner)
     assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
+
+
+async def test_a_subscription_left_for_later_keeps_the_price_its_quote_named_after_its_offer(world, monkeypatch):
+    """§4.5, §8.9: 101 takes the Student Autumn Pass on 31 October, €2.99 for three months and then €5.79, as its quote
+    says. Its first payment is still pending when the Student price in Italy rises to €6.49 on 2 November, so the rise
+    leaves it for later, and the payment is taken right after: from 28 January 101 pays €5.79, the price it was quoted,
+    until a migration reaches it with notice. 105, on Individual at the list price, keeps its €10.49 the same."""
+    autumn = await scheduled(world, student_autumn(), MARKETING, FINANCE)
+    world.clock.at = at(2026, 10, 26, 7, 59, 30)
+    await world.engine.run_launches()
+    world.clock.at = at(2026, 10, 31, 9, 0)
+    payments = {101: await confirmed_pending(world, monkeypatch, 101, "IT", plan="student", offer_id=autumn.id),
+                105: await confirmed_pending(world, monkeypatch, 105, "IT")}
+    for plan, amount in (("student", 649), ("individual", 1199)):
+        await scheduled(world, family_migration(title=f"{plan.capitalize()} price, Italy", plan=plan, market="IT",
+                                                amount=eur(amount)), LEAD, FINANCE)
+    world.clock.at = at(2026, 11, 2, 7, 59, 30)
+    assert [o.action for o in await world.engine.activate_due()] == ["activated", "activated"]
+    assert (await account(world, 101)).price_changes == [] and (await account(world, 105)).price_changes == []
+    world.clock.at = at(2026, 11, 2, 10, 0)
+    for subscriber, payment in payments.items():
+        taken = ProviderEvent("simulated", f"evt_taken_{subscriber}", SUCCEEDED, payment, "sim-pay-slow", world.clock.now())
+        assert await world.engine.provider_events.receive(taken) == "applied"
+    world.clock.at = at(2027, 1, 27, 9, 0)
+    on_offer = (await account(world, 101)).subscription
+    assert (on_offer.price, on_offer.next_billing_on, on_offer.next_charge, on_offer.full_price) == (
+        eur(299), "2027-01-28", eur(579), eur(579))
+    world.clock.at = at(2027, 1, 28, 9, 0)
+    assert (await account(world, 101)).subscription.price == eur(579)
+    assert (await account(world, 105)).subscription.price == eur(1049)
 
 
 async def test_a_listener_whose_first_payment_was_declined_during_a_rise_activates_a_pass(world, monkeypatch):
