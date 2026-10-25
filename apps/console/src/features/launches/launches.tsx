@@ -56,7 +56,7 @@ function RunsTable({ rows, markets, labelledBy }: { readonly rows: readonly Laun
               <tr key={row.id}>
                 <th scope="row"><Link href={launchHref(row.id)} className="font-bold">{row.run}</Link></th>
                 <td className="wrap">
-                  {row.change ? <Link href={approvalHref(row.kind, row.change.id)}>{row.title}</Link> : row.title} <span className="text-ink-2">v{row.version}</span>
+                  <Link href={approvalHref(row.kind, row.change.id)}>{row.title}</Link> <span className="text-ink-2">v{row.version}</span>
                 </td>
                 <td className="wrap"><LaunchChip launch={row} /></td>
                 <td className="wrap">{marketName(markets, row.starts.market)}: {formatLocalWithUtc(row.starts.local, zone)}</td>
