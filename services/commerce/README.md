@@ -70,6 +70,12 @@ at the start, which resumes what a stop left halfway, then on the timer, and
 at once after a call that left work for it. The log says each change of
 state once, as one JSON line.
 
+Each job runs whatever the ones before it did. One that fails for a fault
+of its own is logged once, with its name, and holds up neither the others
+nor the next pass; a price migration's window that cannot be settled is
+logged once with its request, and the other windows settle. Only a database
+that cannot be reached ends the pass, since every job needs it.
+
 A launch runs five steps in order (check, prepare, publish, notify, verify),
 each in its own transactions, so that a fault leaves a step done with all
 its work or running with none of it, and the next pass resumes it. A step

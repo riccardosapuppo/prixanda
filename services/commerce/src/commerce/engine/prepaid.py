@@ -182,6 +182,9 @@ class Expiry:
                     "select id from prepaid_code where state = 'ready' and market = $1 and valid_until < $2::text::date "
                     "order by id", code, market.today(now).isoformat())]
         done = []
+        # Each code in a transaction of its own, but not set apart as the price migrations' windows are
+        # (migrations.settle_due): a code that could not expire would hold up the codes after it in the pass, though
+        # not the other jobs (jobs.py). Nothing known makes one fail.
         for code_id in due:
             async with self.db.transaction() as tx:
                 row = await tx.fetchrow("select id, market, valid_until::text as valid_until, state "
