@@ -2,8 +2,11 @@
 // timeline, and a filter by state that the engine applies. The runs are read
 // twenty at a time and read again on their own; when a launch begins, the
 // pages are read again in order, and the run at the edge of two pages stays.
+// What is scheduled or live is read page after page, so a change older than
+// the fifty changed last is listed; past the limit, the list says so.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
+import type { ChangesQuery } from "../../graphql/generated.ts";
 import { MARKETS } from "../../stories/fixtures.ts";
 import { passLaunch } from "../../stories/launches.ts";
 import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
@@ -49,6 +52,37 @@ function fortyAndOneMore() {
     },
   });
 }
+
+/** A campaign scheduled or live; the higher its number, the earlier its last change. */
+function planned(n: number, title: string, state: "SCHEDULED" | "ACTIVE" = "SCHEDULED"): ChangesQuery["changes"]["nodes"][number] {
+  return {
+    id: String(n), kind: "OFFER", title, state, currentVersion: 1, markets: ["IT"],
+    updatedAt: new Date(Date.UTC(2026, 9, 24, 8, 0) - n * 60_000).toISOString(),
+    createdBy: { id: "marketing-1", label: "Marketing" },
+    requiredSignatures: [],
+  };
+}
+
+/** What is scheduled or live, as the engine pages it: changes() answers each page, given its cursor. */
+function scheduledAs(changes: (after: string | null) => ChangesQuery["changes"]) {
+  return fakeGateway({
+    LaunchRuns: () => ({ launches: { nodes: [], next: null }, markets: MARKETS }),
+    Launches: () => ({ overview: { launchesNext7Days: [] }, markets: MARKETS }),
+    Changes: (variables: { after?: string | null }) => ({ changes: changes(variables.after ?? null) }),
+    Markets: () => ({ markets: MARKETS }),
+  });
+}
+
+/** Fifty campaigns for next spring changed last, and before them the family one scheduled for this week: the second page has it. */
+const familyOnThePageAfter = () => scheduledAs((after) => (after === null
+  ? { nodes: Array.from({ length: 50 }, (_, index) => planned(100 + index, `Spring offer ${index + 1}`)), next: "page-2" }
+  : { nodes: [planned(9, "Winter for Family, France")], next: null }));
+
+/** The engine always has more: every page of fifty names another. */
+const moreThanTheListHolds = () => scheduledAs((after) => {
+  const from = after === null ? 0 : Number(after);
+  return { nodes: Array.from({ length: 50 }, (_, index) => planned(from + index + 1, `Spring offer ${from + index + 1}`)), next: String(from + 50) };
+});
 
 function Launches({ viewer, gateway, watchEvery }: { readonly viewer: Viewer; readonly gateway: ReturnType<typeof gatewayFor> & { readonly begin?: () => void }; readonly watchEvery?: number }) {
   return (
@@ -99,5 +133,28 @@ export const ARunAtThePagesEdgeStaysWhenANewOneBegins: Story = {
     await userEvent.click(page.getByRole("button", { name: "Show 20 more" }));
     await expect(await page.findByRole("link", { name: "launch-1" })).toBeInTheDocument();
     await expect(page.getAllByRole("row")).toHaveLength(42);
+  },
+};
+
+export const AChangeScheduledPastTheFiftiethIsListed: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: familyOnThePageAfter() },
+  play: async ({ canvasElement, args }) => {
+    const listed = within(await within(canvasElement).findByRole("region", { name: "Scheduled and live" }));
+    // Older than the fifty changed last, on the second page: the list reads it.
+    await expect(await listed.findByRole("link", { name: "Winter for Family, France v1" })).toBeInTheDocument();
+    await expect(listed.getAllByRole("listitem")).toHaveLength(51);
+    await expect(listed.queryByText(/^More than/)).toBeNull();
+    await expect(args.gateway.calls.filter((call) => call.operation === "Changes")).toHaveLength(2);
+  },
+};
+
+export const MoreScheduledThanTheListHoldsIsSaid: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: moreThanTheListHolds() },
+  play: async ({ canvasElement, args }) => {
+    const listed = within(await within(canvasElement).findByRole("region", { name: "Scheduled and live" }));
+    // Ten pages of fifty, then the list stops, and says that there are more.
+    await expect(await listed.findByText(/^More than 500 changes are scheduled or live: these are the 500 changed last/, {}, { timeout: 5_000 })).toBeInTheDocument();
+    await expect(listed.getAllByRole("listitem")).toHaveLength(500);
+    await expect(args.gateway.calls.filter((call) => call.operation === "Changes")).toHaveLength(10);
   },
 };

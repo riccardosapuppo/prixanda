@@ -3,6 +3,7 @@
 // newest first, with where it stands and what stopped it; each run leads to
 // its timeline, step by step. Below, what starts in the next seven days, and
 // what is scheduled or live.
+import { formatCount } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
 import { useId, useState } from "react";
@@ -13,7 +14,7 @@ import { approvalHref } from "../../lib/kinds.ts";
 import { launchHref, launchLook, type LaunchSummary, launchWords, STEP_NAME } from "../../lib/launch.ts";
 import { type MarketInfo, marketName, marketZone } from "../../lib/markets.ts";
 import { whoDoes } from "../../lib/permissions.ts";
-import { useGatewayPages, useGatewayQuery } from "../../lib/react/gateway.tsx";
+import { useGatewayEveryPage, useGatewayPages, useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useWatch } from "../../lib/react/watch.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
 
@@ -31,6 +32,14 @@ const FILTERS: readonly { readonly id: string; readonly label: string; readonly 
 const PAGE = 20;
 /** A page with a launch that runs is read again this often: its steps move on in seconds. */
 const RUNNING_EVERY_MS = 5_000;
+/**
+ * What is scheduled or live is read fifty at a time, newest change first,
+ * every page up to this many: past them the list says there are more, and
+ * that an older one may be missing from it.
+ */
+const SCHEDULED_PAGES = 10;
+const SCHEDULED_PAGE_SIZE = 50;
+const SCHEDULED_STATES = ["SCHEDULED", "ACTIVE"] as const;
 
 /** A launch's state, as a chip: a word, an icon and an edge. */
 export function LaunchChip({ launch }: { readonly launch: Pick<LaunchSummary, "state" | "retryAt"> }) {
@@ -121,7 +130,9 @@ export function LaunchesScreen() {
   const [filter, setFilter] = useState("all");
   const chosen = FILTERS.find((entry) => entry.id === filter) ?? FILTERS[0];
   const watch = useWatch();
-  const scheduled = useGatewayQuery(ChangesDocument, { filter: { states: ["SCHEDULED", "ACTIVE"] }, first: 50, after: null }, watch);
+  // Every page, up to the limit: a change scheduled long ago, or live for months, can be older than the fifty changed last.
+  const scheduled = useGatewayEveryPage(ChangesDocument, (after) => ({ filter: { states: [...SCHEDULED_STATES] }, first: SCHEDULED_PAGE_SIZE, after }), (page) => page.changes.next, SCHEDULED_PAGES, watch);
+  const listed = scheduled.complete ? scheduled.pages.data?.pages.flatMap((page) => page.changes.nodes) ?? [] : null;
   const markets = useGatewayQuery(MarketsDocument, {}, { staleTime: 5 * 60_000 });
   const upcoming = useGatewayQuery(LaunchesDocument, {}, watch);
   const runsId = useId();
@@ -178,20 +189,30 @@ export function LaunchesScreen() {
         </section>
         <section className="grid gap-3" aria-labelledby={headingId}>
           <div className="zone-head"><h2 id={headingId}>Scheduled and live</h2></div>
-          {scheduled.isPending ? <Loading what="the scheduled changes" /> : scheduled.isError ? <ErrorPanel error={scheduled.error} retry={() => void scheduled.refetch()} /> : scheduled.data.changes.nodes.length === 0 ? (
+          {scheduled.pages.isError ? <ErrorPanel error={scheduled.pages.error} retry={() => void scheduled.pages.refetch()} /> : listed === null ? <Loading what="the scheduled changes" /> : listed.length === 0 ? (
             <Empty icon="rocket-launch">Nothing is scheduled or live. An approved offer appears here once {whoDoes("scheduleOffer", { one: "schedules it", many: "schedule it" }, { start: false, either: true })}.</Empty>
           ) : (
-            <ul role="list" className="grid">
-              {scheduled.data.changes.nodes.map((change) => (
-                <li key={change.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-cord py-3">
-                  <span className="grid gap-1">
-                    <Link href={approvalHref(change.kind, change.id)} className="font-bold">{change.title} v{change.currentVersion}</Link>
-                    <span className="text-xs text-ink-2">{change.markets.map((code) => marketName(markets.data?.markets ?? [], code)).join(", ")} · last change {formatInstantIn(change.updatedAt, CONSOLE_ZONE)}</span>
+            <>
+              {scheduled.beyond ? (
+                <p className="flex items-baseline gap-2 text-sm">
+                  <Icon name="info" size={15} className="translate-y-0.5 text-ink-2" />
+                  <span>
+                    More than {formatCount(SCHEDULED_PAGES * SCHEDULED_PAGE_SIZE)} changes are scheduled or live: these are the {formatCount(SCHEDULED_PAGES * SCHEDULED_PAGE_SIZE)} changed last, and an older one may be missing here. The lists of campaigns, price migrations and passes have them all.
                   </span>
-                  <StateChip state={change.state} />
-                </li>
-              ))}
-            </ul>
+                </p>
+              ) : null}
+              <ul role="list" className="grid">
+                {listed.map((change) => (
+                  <li key={change.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-cord py-3">
+                    <span className="grid gap-1">
+                      <Link href={approvalHref(change.kind, change.id)} className="font-bold">{change.title} v{change.currentVersion}</Link>
+                      <span className="text-xs text-ink-2">{change.markets.map((code) => marketName(markets.data?.markets ?? [], code)).join(", ")} · last change {formatInstantIn(change.updatedAt, CONSOLE_ZONE)}</span>
+                    </span>
+                    <StateChip state={change.state} />
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </section>
       </PageBody>

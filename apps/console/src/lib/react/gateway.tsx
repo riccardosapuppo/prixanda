@@ -5,7 +5,7 @@
 import {
   type InfiniteData, keepPreviousData, type UseInfiniteQueryResult, type UseQueryResult, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient,
 } from "@tanstack/react-query";
-import { createContext, type ReactNode, useContext, useRef } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useRef } from "react";
 import { type Operation, queryKeyOf } from "../../graphql/operation.ts";
 import { ActionKey, runAction } from "../action-key.ts";
 import type { GatewayClient } from "../gateway.ts";
@@ -112,6 +112,33 @@ export function useGatewayPages<TData, TVariables>(
     ...(every !== undefined ? { refetchInterval: typeof every === "function" ? (query: { state: { data: Pages<TData> | undefined } }) => every(query.state.data) : every } : {}),
     ...(options.refetchOnWindowFocus !== undefined ? { refetchOnWindowFocus: options.refetchOnWindowFocus } : {}),
   });
+}
+
+/**
+ * Every page of a list, read one after another up to a declared limit, for a
+ * view that needs the whole list at once and has no button for more (the
+ * week's lanes, what is scheduled or live). complete: every page the limit
+ * allows is in. beyond: the engine has more than the limit, and the view
+ * says so. A next page is asked only when nothing is being read, so a list
+ * read again is never cut short by its own next page.
+ */
+export function useGatewayEveryPage<TData, TVariables>(
+  operation: Operation<TData, TVariables>,
+  variablesFor: (after: string | null) => TVariables,
+  nextOf: (page: TData) => string | null,
+  limit: number,
+  options: PagesOptions<TData> = {},
+): { readonly pages: UseInfiniteQueryResult<Pages<TData>, Error>; readonly complete: boolean; readonly beyond: boolean } {
+  const pages = useGatewayPages(operation, variablesFor, nextOf, options);
+  const read = pages.data?.pages.length ?? 0;
+  const following = pages.hasNextPage && read < limit;
+  const { isFetching, isError, fetchNextPage, dataUpdatedAt } = pages;
+  // Asked again after every answer (a page that came in, or the pages read again): an answer can come so quickly
+  // that the page never shows it was reading.
+  useEffect(() => {
+    if (following && !isFetching && !isError) void fetchNextPage();
+  }, [following, isFetching, isError, fetchNextPage, read, dataUpdatedAt]);
+  return { pages, complete: pages.data !== undefined && !following, beyond: pages.hasNextPage && !following };
 }
 
 /**

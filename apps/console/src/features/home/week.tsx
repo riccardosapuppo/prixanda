@@ -5,13 +5,13 @@
 import { formatCount, formatMoney } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { CONSOLE_ZONE } from "../../components/frame.tsx";
 import { ErrorPanel, Loading } from "../../components/ui.tsx";
 import { type HomeQuery, WeekDocument } from "../../graphql/generated.ts";
 import { PLAN_ORDER } from "../../lib/markets.ts";
 import { useMinute } from "../../lib/react/clock.tsx";
-import { useGatewayPages } from "../../lib/react/gateway.tsx";
+import { useGatewayEveryPage } from "../../lib/react/gateway.tsx";
 import { useWatch } from "../../lib/react/watch.tsx";
 import { type Align, buildWeek, type Lane, laneName, laneWords } from "../../lib/week.ts";
 
@@ -29,18 +29,13 @@ const WEEK_PAGE_SIZE = 50;
 export function WeekZone({ markets }: { readonly markets: HomeQuery["markets"] }) {
   const now = useMinute();
   const [align, setAlign] = useState<Align>("local");
-  const week = useGatewayPages(WeekDocument, (after) => ({ states: [...SHOWN_STATES], after }), (page) => page.changes.next, useWatch());
+  // Every page, up to the limit: an offer live for weeks can be older than the first fifty, and its lane is not free.
+  const { pages: week, complete, beyond } = useGatewayEveryPage(WeekDocument, (after) => ({ states: [...SHOWN_STATES], after }), (page) => page.changes.next, WEEK_PAGES, useWatch());
   const headingId = useId();
   const pages = week.data?.pages ?? [];
-  // Every page, up to the limit: an offer live for weeks can be older than the first fifty, and its lane is not free.
-  const following = week.hasNextPage && pages.length < WEEK_PAGES;
-  useEffect(() => {
-    if (following && !week.isFetchingNextPage && !week.isError) void week.fetchNextPage();
-  }, [following, week]);
-  const beyond = week.hasNextPage && !following;
   const first = pages[0];
 
-  const drawn = first && !following
+  const drawn = first && complete
     ? buildWeek({
       now,
       align,
