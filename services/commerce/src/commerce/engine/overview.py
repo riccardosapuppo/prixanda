@@ -18,6 +18,16 @@ the day (§9.2). It is not accounting (§15).
 Today's incidents are those of the launches (launches.py): the ones open at
 the instant, and those opened or closed on its day in UTC, each in the state
 it was in at the instant.
+
+The home is read at an instant, the engine's clock unless the call names
+one. The subscribers, the revenue and the value of prepaid passes are those
+of each market's day at the instant: the subscriptions running that day, at
+their price that day, and the codes paid for by the instant, each activated
+or expired by its dates (prepaid.value_by_market). What waits for approval,
+and the state of each change about to launch, are read as the changes stand
+now, whatever the instant; only the seven days run from it. They are the
+queues a person acts on, and a change's earlier states are kept only in the
+audit log, which the home does not replay.
 """
 
 from __future__ import annotations
@@ -170,7 +180,7 @@ class Overview:
         if call.role in policy.PREPAID_VALUE_READERS:
             rate = self.book.exchange_rate
             unearned_total = Money.zero(rate.base)
-            for code, value in sorted((await prepaid.value_by_market(tx, days)).items()):
+            for code, value in sorted((await prepaid.value_by_market(tx, at, days)).items()):
                 market = ref.markets[code]
                 amount = Money(value.unearned, market.currency)
                 in_euros = rate.to_base(amount)
