@@ -21,7 +21,7 @@ import pytest
 from commerce.engine import migrations, outbox
 from commerce.engine.errors import InvalidArgument, NotFound
 from commerce.server.app import Jobs
-from commerce.server.logs import JsonLog
+from commerce.engine.logs import JsonLog
 from helpers import add_subscription
 from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2
 from engine_support import (

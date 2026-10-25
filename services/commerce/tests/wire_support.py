@@ -21,7 +21,7 @@ import pytest_asyncio
 from commerce.engine.engine import METHODS
 from commerce.server.app import Running, start
 from commerce.server.config import Config
-from commerce.server.logs import JsonLog
+from commerce.engine.logs import JsonLog
 from commerce.v1 import (
     audit_pb2_grpc, catalog_pb2_grpc, changes_pb2_grpc, launches_pb2_grpc, overview_pb2_grpc, quotes_pb2_grpc,
     simulation_pb2_grpc, subscriptions_pb2_grpc,

@@ -12,3 +12,6 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 addopts = "-ra --strict-markers"
+markers = [
+    "postgresql_only(reason): needs more than PGlite's one session; not run on the browser's database (tests/pglite_world.py)",
+]
