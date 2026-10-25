@@ -76,6 +76,19 @@ const isChanged = (message: FromWorker): message is Extract<FromWorker, { kind: 
 const isReset = (message: FromWorker): message is Extract<FromWorker, { kind: "reset" }> => message.kind === "reset";
 const isProgress = (message: FromWorker): message is Extract<FromWorker, { kind: "progress" }> => message.kind === "progress";
 
+/** What the engine's reset fails with when it closed the data and could not open it again (src/engine/). */
+const dataNotOpen = () => Object.assign(new Error("The demo's data could not be opened again after the start over "
+  + "(IndexedDB did not delete the database): start over again, or reload the page."), { name: "DataNotOpen" });
+
+/** Waits until `holds` is true, a moment at a time, for at most two seconds. */
+async function until(holds: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!holds()) {
+    if (Date.now() > deadline) throw new Error("it did not happen within 2 s");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 let open: Array<{ backend: Backend; tabs: Tab[] }> = [];
 
 function start(engine: FakeBrowserEngine, options: {
@@ -320,8 +333,7 @@ describe("the sandbox's backend", () => {
     const site = tab();
     site.send({ kind: "hello", app: "site", build: "build-0001" });
     await site.next(isReady);
-    engine.resetFails = Object.assign(new Error("The demo's data could not be opened again after the start over "
-      + "(IndexedDB did not delete the database): start over again, or reload the page."), { name: "DataNotOpen" });
+    engine.resetFails = dataNotOpen();
     const ticks = engine.ticks;
     const answer = await site.command("reset");
     assert.equal(answer.status, 503);
@@ -348,6 +360,55 @@ describe("the sandbox's backend", () => {
     assert.equal((await reloaded.next(isReady)).info.alreadyRunning, true);
     assert.equal(starts(), 1);
     assert.equal((await site.command("reset")).status, 200, "and a start over works on it");
+  });
+
+  test("a tab that says hello while a start over is tried again, which opens the data: no second engine, ready on the first", async () => {
+    const engine = fakeBrowserEngine();
+    const { tab, starts } = start(engine);
+    const site = tab();
+    site.send({ kind: "hello", app: "site", build: "build-0001" });
+    await site.next(isReady);
+    engine.resetFails = dataNotOpen();
+    assert.equal((await site.command("reset")).status, 503);
+    let open = () => {};
+    engine.resetWaits = new Promise<void>((resolve) => { open = resolve; });
+    const tried = site.command("reset");
+    await until(() => engine.resets === 2);
+    const late = tab();
+    late.send({ kind: "hello", app: "console", build: "build-0001" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(starts(), 1, "no engine starts while the start over runs");
+    open();
+    assert.equal((await tried).status, 200);
+    const ready = await late.next(isReady);
+    assert.equal(ready.info.alreadyRunning, true, "the engine whose data the start over opened");
+    assert.equal(starts(), 1);
+    assert.equal((await late.graphql("public", "{ markets { code } }")).status, 200);
+  });
+
+  test("a start over tried again that fails again: the new engine starts once it ended, never while it runs", async () => {
+    const engine = fakeBrowserEngine();
+    const { tab, starts } = start(engine);
+    const site = tab();
+    site.send({ kind: "hello", app: "site", build: "build-0001" });
+    await site.next(isReady);
+    engine.resetFails = dataNotOpen();
+    assert.equal((await site.command("reset")).status, 503);
+    let open = () => {};
+    engine.resetWaits = new Promise<void>((resolve) => { open = resolve; });
+    engine.resetFails = dataNotOpen();
+    const tried = site.command("reset");
+    await until(() => engine.resets === 2);
+    const late = tab();
+    late.send({ kind: "hello", app: "console", build: "build-0001" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(starts(), 1, "no engine starts while the start over runs");
+    open();
+    assert.equal((await tried).status, 503);
+    const ready = await late.next(isReady);
+    assert.equal(ready.info.alreadyRunning, false, "a new start, after the start over ended");
+    assert.equal(starts(), 2);
+    assert.equal((await late.graphql("public", "{ markets { code } }")).status, 200);
   });
 
   test("a tab that comes in while the worker starts sees the latest step at once, then ready with the others", async () => {
