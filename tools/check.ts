@@ -45,7 +45,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 17, contractFiles: 47, migrations: 17, pythonTests: 781, invariants: 17, generatedSubscribers: 5_000,
+  typecheckedFiles: 17, contractFiles: 47, migrations: 17, pythonTests: 782, invariants: 17, generatedSubscribers: 5_000,
   faultsInjected: 12, measuredQueries: 7,
   // npm's lockfile lists every platform's packages; the Python environment
   // has one more on Windows (colorama, for pytest).
@@ -61,7 +61,7 @@ const COMPAT = { before: "11", expansion: "12" };
 // Hypothesis generates cases for (properties), the faults injected in a
 // launch with the engine's real process (faults), and the engine's package for
 // the browser: its imports, its adapter, its simulated fault (browser).
-const AREA_FLOOR: Record<string, number> = { database: 111, domain: 235, golden: 44, services: 280, e2e: 30, properties: 10, faults: 14, browser: 57 };
+const AREA_FLOOR: Record<string, number> = { database: 111, domain: 235, golden: 44, services: 280, e2e: 30, properties: 10, faults: 14, browser: 58 };
 // What tests/faults writes: every fault injected in a launch, and what it left.
 type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 

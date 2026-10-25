@@ -136,7 +136,7 @@ export async function buildEngineAssets(outDir: string, options: { wheelsDir?: s
   await put(`engine/${names.migrations}`, migrationsJson);
   await put(`engine/${names.snapshot}`, snapshot.data);
   const build = sha256(Buffer.from(JSON.stringify([names, wheels.map((w) => w.sha256), Object.keys(files).sort()]))).slice(0, 12);
-  const manifest: Manifest = { ...names, fingerprint: snapshot.fingerprint, build };
+  const manifest: Manifest = { ...names, fingerprint: snapshot.fingerprint, story: snapshot.story, build };
   await put("engine/manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
   return { outDir, manifest, snapshot, files, engineFiles: engine.files };
 }

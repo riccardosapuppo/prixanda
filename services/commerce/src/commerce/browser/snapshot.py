@@ -5,6 +5,11 @@ The same generator as the server's (commerce.generate: the small size, seed
 generator writes on the server with the owner's URL. The fingerprint of the
 rows comes back with the summary: the schema check compares it with the
 server's, generated into PostgreSQL 18 by the same command (tools/check.ts).
+
+And the start of the story: the demo's clock (packages/sandbox/src/engine/
+clock.ts) starts there for every visitor, whatever the day, at 08:30 in Rome
+on the morning after the data's last day, so that its weeks of listening and
+the campaigns' dates stay where the story puts them.
 Only the build runs this; generate.py is not part of the browser's package,
 the build hands it to Pyodide beside it.
 """
@@ -14,12 +19,15 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Iterable, Mapping
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from itertools import islice
 from typing import Any
 
 from commerce.browser.pglite import Bridge, PGliteDatabase, _Connection
+from commerce.domain.localtime import format_instant, to_instant
+
+STORY_STARTS = time(8, 30)  # in Rome, on the morning after the data's last day
 
 ROWS_PER_COPY = 50_000
 
@@ -97,7 +105,15 @@ async def build(bridge: Bridge, size: str = "small", seed: int = 7) -> str:
     writer = PGliteWriter(PGliteDatabase(bridge))
     summary = await load(writer, size, seed, START, UNTIL)
     summary["fingerprint"] = await fingerprint(writer)
+    story = format_instant(story_start(UNTIL))
+    await writer.execute("update demo.clock set now_at = $1::text::timestamptz, moved_at = null", story)
+    summary["story"] = story
     return json.dumps(summary, default=str)
+
+
+def story_start(until: date) -> datetime:
+    """The start of the story on the demo's clock: 08:30 in Rome on the day after the data's last one."""
+    return to_instant(datetime.combine(until + timedelta(days=1), STORY_STARTS), "Europe/Rome")
 
 
 async def fingerprint_of(bridge: Bridge) -> str:
