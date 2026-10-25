@@ -27,7 +27,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import { serve, type Served } from "../test/engine/browser/server.ts";
+import { laterVisit, serve, type Served } from "../test/engine/browser/server.ts";
 import { ISOLATED } from "../test/support/serve.ts";
 import { buildSandbox, ENGINE } from "./build.ts";
 
@@ -131,17 +131,11 @@ export async function measureWorker(options: { runs: number; mbps: number; laten
         for (let again = 0; again < 5; again += 1) writes.push(await timed(visit.page, 'mutation { requestQuote(plan: "individual", market: "IT") { __typename } }'));
         seconds.push((await opened(context, served)).readyMs);
         // Every tab closed: the worker ends; the next visit is the first tab to find a new one.
-        for (let tries = 0; ; tries += 1) {
-          for (const page of context.pages()) await page.close();
-          await new Promise((settle) => setTimeout(settle, 500));
+        const back = await laterVisit(context, async () => {
           served.resetBytes();
-          const back = await opened(context, served);
-          if (!back.alreadyRunning) {
-            later.push({ ready: back.readyMs, bytes: served.bytes().total });
-            break;
-          }
-          if (tries >= 10) throw new Error("the worker of the closed tabs never ended");
-        }
+          return opened(context, served);
+        }, (visit) => !visit.alreadyRunning);
+        later.push({ ready: back.opened.readyMs, bytes: served.bytes().total });
       } finally {
         await context.close();
       }

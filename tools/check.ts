@@ -1158,7 +1158,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The sandbox's engine (stage 8): what its suites must at least have checked.
 const sandboxDir = join(repoRoot, "packages", "sandbox");
 const SANDBOX_FLOOR = {
-  browserFiles: 7, nodeFiles: 19, files: 23, modules: 53, nodeTests: 9, browserTests: 6, servicesOnPglite: 274,
+  browserFiles: 7, nodeFiles: 19, files: 23, modules: 53, nodeTests: 9, browserTests: 7, servicesOnPglite: 274,
   servicesLeftToPostgresql: 6,
   schema: { relations: 255, columns: 488, constraints: 911, indexes: 163, triggers: 86, functions: 26, history: 17 } as Record<string, number>,
 };
