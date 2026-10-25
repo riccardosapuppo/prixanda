@@ -1,20 +1,25 @@
 // The whole system the console stands on, started in order and stopped in
 // reverse: PostgreSQL with the migrations and the small generated data, the
-// engine (Python, gRPC), the gateway (GraphQL) and the console itself. Two
-// uses:
+// engine (Python, gRPC), the gateway (GraphQL), the console itself and, for
+// the whole system, the site. Three uses:
 //
-//   npm run console:stack        for working on the console: the development
-//                                database in .data/postgres, the engine, the
-//                                gateway, and `next dev` on 127.0.0.1:4631.
-//                                Ctrl+C stops everything but the database.
+//   npm start                    the whole system on this machine, in one
+//                                command: the development database in
+//                                .data/postgres, the engine, the gateway,
+//                                `next dev` of the console on 127.0.0.1:4631
+//                                and of the site on 127.0.0.1:4632. Ctrl+C
+//                                stops everything, the database too.
+//   npm run console:stack        for working on the console: the same without
+//                                the site. Ctrl+C stops everything but the
+//                                database.
 //   startStack() from e2e/run.ts for the end-to-end tests: a throwaway
 //                                database cloned from the check's template,
 //                                and the console's static build served as it
 //                                would be in production.
 //
 // Ports come from the environment, as for the other tools: DEV_POSTGRES_PORT,
-// ENGINE_URL, GATEWAY_INTERNAL_PORT, GATEWAY_PUBLIC_PORT, CONSOLE_PORT. Each
-// is asked to the system before use (rule 132).
+// ENGINE_URL, GATEWAY_INTERNAL_PORT, GATEWAY_PUBLIC_PORT, CONSOLE_PORT,
+// SITE_PORT. Each is asked to the system before use (rule 132).
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -34,12 +39,15 @@ export const STACK_PORTS = {
   gatewayInternal: Number(process.env["GATEWAY_INTERNAL_PORT"] || 4621),
   gatewayPublic: Number(process.env["GATEWAY_PUBLIC_PORT"] || 4622),
   console: Number(process.env["CONSOLE_PORT"] || 4631),
+  site: Number(process.env["SITE_PORT"] || 4632),
 } as const;
 
 const say = (line: string) => console.log(`[stack] ${line}`);
 
 export type Stack = {
   readonly consoleUrl: string;
+  /** The site's address, when the stack runs it. */
+  readonly siteUrl: string | null;
   readonly gatewayUrl: string;
   readonly engineUrl: string;
   readonly logs: () => string;
@@ -161,18 +169,24 @@ export type StackOptions = {
   readonly launchFault?: { readonly step: "check" | "prepare" | "publish" | "notify" | "verify"; readonly kind: "cut" };
   /** Seconds between the engine's passes of its jobs (launches, outbox); the engine's own default otherwise. */
   readonly activationIntervalSeconds?: number;
+  /** "dev": the site's `next dev` too, its pages calling the gateway's public API, which accepts its origin. */
+  readonly site?: "dev";
 };
 
 export async function startStack(options: StackOptions): Promise<Stack> {
   const logs: string[] = [];
   const echo = options.echo ?? false;
-  const children: { engine: ChildProcess | null; gateway: ChildProcess | null; next: ChildProcess | null } = { engine: null, gateway: null, next: null };
+  const children: { engine: ChildProcess | null; gateway: ChildProcess | null; next: ChildProcess | null; site: ChildProcess | null } = {
+    engine: null, gateway: null, next: null, site: null,
+  };
   let staticServer: { close(): Promise<void> } | null = null;
   const consoleOrigin = `http://127.0.0.1:${STACK_PORTS.console}`;
+  const siteOrigin = `http://127.0.0.1:${STACK_PORTS.site}`;
   const engineUrl = `http://127.0.0.1:${options.enginePort}`;
   const gatewayUrl = `http://127.0.0.1:${STACK_PORTS.gatewayInternal}/graphql`;
 
   const stop = async () => {
+    await stopChild(children.site);
     await stopChild(children.next);
     await staticServer?.close();
     await stopChild(children.gateway);
@@ -191,9 +205,9 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     }
 
     const { token } = await internalToken();
-    for (const [port, what] of [[options.enginePort, "the engine"], [STACK_PORTS.gatewayInternal, "the gateway's console API"], [STACK_PORTS.gatewayPublic, "the gateway's site API"], [STACK_PORTS.console, "the console"]] as const) {
-      await assertFree(port, what);
-    }
+    const ports: [number, string][] = [[options.enginePort, "the engine"], [STACK_PORTS.gatewayInternal, "the gateway's console API"], [STACK_PORTS.gatewayPublic, "the gateway's site API"], [STACK_PORTS.console, "the console"]];
+    if (options.site) ports.push([STACK_PORTS.site, "the site"]);
+    for (const [port, what] of ports) await assertFree(port, what);
 
     const fault = options.launchFault;
     // The fault launcher's clock starts at this whole second and runs with the machine's.
@@ -230,6 +244,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
         GATEWAY_INTERNAL_PORT: String(STACK_PORTS.gatewayInternal),
         GATEWAY_PUBLIC_PORT: String(STACK_PORTS.gatewayPublic),
         GATEWAY_CONSOLE_ORIGINS: `${consoleOrigin},http://localhost:${STACK_PORTS.console}`,
+        // The site's pages send their requests from its own origin, with the listener's cookie.
+        ...(options.site ? { GATEWAY_SITE_ORIGINS: `${siteOrigin},http://localhost:${STACK_PORTS.site}` } : {}),
         GATEWAY_SESSION_SECRET: process.env["GATEWAY_SESSION_SECRET"] ?? randomBytes(32).toString("hex"),
       },
     });
@@ -255,15 +271,28 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       await waitFor("next dev", () => listening(STACK_PORTS.console), 120_000);
       say(`console (next dev) on ${consoleOrigin}`);
     }
-    return { consoleUrl: consoleOrigin, gatewayUrl, engineUrl, logs: () => logs.join("\n"), stop };
+    if (options.site === "dev") {
+      // The site's own launcher: Next.js with its telemetry off, on SITE_PORT; its pages ask the gateway's public API.
+      children.site = spawn(process.execPath, [join(repoRoot, "apps", "site", "scripts", "next.ts"), "dev"], {
+        cwd: join(repoRoot, "apps", "site"),
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        env: { ...process.env, SITE_PORT: String(STACK_PORTS.site), NEXT_PUBLIC_SITE_API: `http://127.0.0.1:${STACK_PORTS.gatewayPublic}/graphql`, NEXT_TELEMETRY_DISABLED: "1" },
+      });
+      collect(children.site, "site", logs, echo);
+      await waitFor("the site's next dev", () => listening(STACK_PORTS.site), 120_000);
+      say(`site (next dev) on ${siteOrigin}`);
+    }
+    return { consoleUrl: consoleOrigin, siteUrl: options.site ? siteOrigin : null, gatewayUrl, engineUrl, logs: () => logs.join("\n"), stop };
   } catch (error) {
     await stop();
     throw new Error(`${error instanceof Error ? error.message : String(error)}\n--- last lines ---\n${logs.slice(-40).join("\n")}`);
   }
 }
 
-// npm run console:stack
+// npm start (--all: the site too, and Ctrl+C stops the database as well), npm run console:stack
 if (process.argv[1] && resolve(process.argv[1]) === resolve(appDir, "scripts", "stack.ts")) {
+  const all = process.argv.includes("--all");
   const DATABASE = "commerce";
   const cluster = await startCluster({ dataDir: join(dataDir, "postgres"), port: PORTS.postgresDev, ephemeral: false });
   const found = await cluster.sql<{ n: number }>("postgres", "select count(*)::int as n from pg_database where datname = $1", [DATABASE]);
@@ -271,10 +300,23 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(appDir, "scripts", "
   const migrated = await flyway("migrate", { port: cluster.port, database: DATABASE, user: cluster.owner.user, password: cluster.owner.password });
   if (migrated.code !== 0) {
     console.log(migrated.output);
+    if (all) await cluster.stop();
     process.exitCode = 1;
   } else {
-    const stack = await startStack({ cluster, database: DATABASE, seed: true, enginePort: PORTS.engine, console: "dev", echo: true });
-    say(`ready: open ${stack.consoleUrl} (Ctrl+C stops the console, the gateway and the engine; npm run db -- stop stops the database)`);
-    process.once("SIGINT", () => void stack.stop().then(() => say("stopped")));
+    let stack: Stack;
+    try {
+      stack = await startStack({ cluster, database: DATABASE, seed: true, enginePort: PORTS.engine, console: "dev", echo: true, ...(all ? { site: "dev" as const } : {}) });
+    } catch (error) {
+      if (all) await cluster.stop();
+      throw error;
+    }
+    say(all
+      ? `ready: the site on ${stack.siteUrl}, the console on ${stack.consoleUrl} (Ctrl+C stops everything, the database too)`
+      : `ready: open ${stack.consoleUrl} (Ctrl+C stops the console, the gateway and the engine; npm run db -- stop stops the database)`);
+    process.once("SIGINT", () => void (async () => {
+      await stack.stop();
+      if (all) await cluster.stop();
+      say("stopped");
+    })());
   }
 }

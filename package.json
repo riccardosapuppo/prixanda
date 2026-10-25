@@ -27,6 +27,7 @@
     "graphql": "node tools/graphql.ts",
     "gateway": "node services/gateway/src/node/main.ts",
     "design": "node packages/design/scripts/generate.ts",
+    "start": "node apps/console/scripts/stack.ts --all",
     "console:stack": "node apps/console/scripts/stack.ts",
     "demo:build": "node tools/demo.ts build",
     "demo:serve": "node tools/demo.ts serve"
