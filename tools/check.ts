@@ -15,6 +15,7 @@
 // Exits 0 when every suite passed, 1 when one failed, and 2 when none failed
 // but one could not run on this machine, which is listed and never reads as
 // passed.
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
@@ -25,7 +26,7 @@ import { licenseInventory, writeReport } from "./licenses.ts";
 import { flyway } from "./lib/flyway.ts";
 import { measure } from "./lib/measure.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
-import { assertFree } from "./lib/ports.ts";
+import { assertFree, listenerOn } from "./lib/ports.ts";
 import { type Cluster, createDatabase, dropDatabase, startCluster } from "./lib/postgres.ts";
 import { run } from "./lib/run.ts";
 
@@ -43,7 +44,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 15, contractFiles: 47, migrations: 17, pythonTests: 721, invariants: 17, generatedSubscribers: 5_000,
+  typecheckedFiles: 16, contractFiles: 47, migrations: 17, pythonTests: 721, invariants: 17, generatedSubscribers: 5_000,
   faultsInjected: 12, measuredQueries: 7,
   // npm's lockfile lists every platform's packages; the Python environment
   // has one more on Windows (colorama, for pytest).
@@ -732,6 +733,90 @@ const SUITES: Suite[] = [
         return passed(counted);
       } finally {
         await cluster.sql("postgres", `drop database if exists ${database} with (force)`);
+      }
+    },
+  },
+  // npm start (tools/start.ts), on the check's own cluster and ports: a
+  // database of its own, which it migrates and fills with the small data up
+  // to today; the engine, the gateway, the console and the site come up; each
+  // address answers a page, and each API a question from its own origin; then
+  // its standard input closes, as Ctrl+C would stop it, and everything stops
+  // in order, the cluster it did not start left running.
+  {
+    name: "start",
+    what: "npm start on the check's database: the engine, the gateway, the console and the site come up, each answers, and everything stops in order",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const ports = {
+        engine: PORTS.engineCheck, internal: PORTS.gatewayCheckInternal, public: PORTS.gatewayCheckPublic,
+        console: Number(process.env["CONSOLE_PORT"] || 4631), site: Number(process.env["CHECK_SITE_PORT"] ?? 4632),
+      };
+      // A port another program holds is this machine's state, not a fault of npm start: not run, and why.
+      for (const [what, port] of Object.entries(ports)) {
+        const holder = await listenerOn(port);
+        if (holder) return notRun(`port ${port}, for the ${what}, is taken by ${holder}`);
+      }
+      const database = "commerce_start";
+      await dropDatabase(cluster, database);
+      await createDatabase(cluster, database, TEMPLATE);
+      const child = spawn(process.execPath, [join(repoRoot, "tools", "start.ts"), "--cluster", cluster.dataDir, "--database", database,
+        "--stop-on-stdin-close"], {
+        cwd: repoRoot,
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+        env: {
+          ...process.env, DEV_POSTGRES_PORT: String(cluster.port), ENGINE_URL: `http://127.0.0.1:${ports.engine}`,
+          GATEWAY_INTERNAL_PORT: String(ports.internal), GATEWAY_PUBLIC_PORT: String(ports.public), CONSOLE_PORT: String(ports.console),
+          SITE_PORT: String(ports.site),
+        },
+      });
+      let output = "";
+      child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
+      child.stderr.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
+      const exited = new Promise<number | null>((resolve) => child.once("exit", (code) => resolve(code)));
+      try {
+        const started = Date.now();
+        // The last line of what it prints when it is ready.
+        const ready = () => output.includes("Ctrl+C stops everything");
+        while (!ready() && child.exitCode === null && Date.now() - started < 300_000) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        if (!ready()) return failed("-", `npm start did not get ready:\n${output.slice(-3000)}`);
+        const consoleUrl = /The console\s+(http:\/\/\S+)/.exec(output)?.[1];
+        const siteUrl = /The site\s+(http:\/\/\S+)/.exec(output)?.[1];
+        if (!consoleUrl || !siteUrl) return failed("-", `npm start did not print the two addresses:\n${output.slice(-2000)}`);
+        // A page from each, as Next.js compiles it, and a question to each API from its own origin.
+        const consolePage = await fetch(consoleUrl);
+        const sitePage = await fetch(siteUrl);
+        const ask = async (port: number, origin: string, query: string) => (await fetch(`http://127.0.0.1:${port}/graphql`, {
+          method: "POST", headers: { "content-type": "application/json", origin }, body: JSON.stringify({ query }),
+        })).json() as Promise<{ data?: Record<string, unknown[]> }>;
+        const people = (await ask(ports.internal, consoleUrl, "{ people { id } }")).data?.["people"]?.length ?? 0;
+        const listeners = (await ask(ports.public, siteUrl, "{ demoListeners { title } }")).data?.["demoListeners"]?.length ?? 0;
+        child.stdin.end();
+        const timer = setTimeout(() => child.kill(), 120_000);
+        const code = await exited;
+        clearTimeout(timer);
+        const counted = `console ${consolePage.status}, site ${sitePage.status}; ${people} people, ${listeners} listeners; exit ${code}`;
+        if (consolePage.status !== 200 || sitePage.status !== 200) return failed(counted, "a page did not answer");
+        if (people < 7 || listeners < 6) return failed(counted, "an API did not answer from its origin");
+        if (code !== 0 || !output.includes("[start] stopped")) return failed(counted, `npm start did not stop in order:\n${output.slice(-2000)}`);
+        for (const [what, port] of Object.entries(ports)) {
+          if (await listenerOn(port)) return failed(counted, `something still listens on ${port}, the ${what}'s port`);
+        }
+        const until = /up to (\d{4}-\d\d-\d\d)/.exec(output)?.[1] ?? "?";
+        return passed(counted, `the data generated up to ${until}`);
+      } finally {
+        // On a failure too, it stops in order, as Ctrl+C would; killed only if it does not.
+        if (child.exitCode === null) {
+          child.stdin.end();
+          const timer = setTimeout(() => child.kill(), 60_000);
+          await exited;
+          clearTimeout(timer);
+        }
+        await dropDatabase(cluster, database);
       }
     },
   },
