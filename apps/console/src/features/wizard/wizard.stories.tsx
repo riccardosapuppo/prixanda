@@ -1,11 +1,13 @@
 // The guided creation: Continue stops on the first field to fix, with its own
 // message; the example fills the form and the page beside it writes the
 // price the Italian way; a role that only reads finds the fields read-only,
-// no Save draft, and, when it reviews, the way to Approvals; and a save
-// refused late, after the person loaded the newer version, does not bring
-// the conflict back.
+// no Save draft, and, when it reviews, the way to Approvals; a save refused
+// late, after the person loaded the newer version, does not bring the
+// conflict back; while a first save creates the campaign, its fields wait
+// for the answer, and the page says so; and a campaign for two markets shows
+// the page of either, with that market's own list price.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { type Change, MARKETS, PLANS_IT, studentPass } from "../../stories/fixtures.ts";
 import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
 import type { Viewer } from "../../lib/react/session.tsx";
@@ -45,6 +47,35 @@ function staleGateway() {
       : new Promise((resolve) => {
         release = () => resolve(refused());
       }),
+  });
+  return Object.assign(gateway, { release: () => release() });
+}
+
+/** France's list prices, §4.4, in the shape of the plans' answer. */
+const PLANS_FR = PLANS_IT.map((plan) => {
+  const amount = ({ individual: "1099", duo: "1499", family: "1849", student: "649" } as Record<string, string>)[plan.code];
+  return { ...plan, listPrice: amount ? { amountMinor: amount, currency: "EUR" } : null };
+});
+
+/** The plans of the market asked for: Italy's, or France's. */
+function twoMarkets() {
+  return fakeGateway({
+    Markets: () => ({ markets: MARKETS }),
+    Plans: (variables: { readonly market: string }) => ({ plans: variables.market === "FR" ? PLANS_FR : PLANS_IT }),
+    Change: () => ({ change: studentPass("DRAFT") }),
+  });
+}
+
+/** A gateway on which creating the campaign takes its time: the answer comes when release() says so. */
+function slowCreation() {
+  let release = () => {};
+  const gateway = fakeGateway({
+    Markets: () => ({ markets: MARKETS }),
+    Plans: () => ({ plans: PLANS_IT }),
+    Change: () => ({ change: studentPass("DRAFT") }),
+    CreateOffer: () => new Promise((resolve) => {
+      release = () => resolve({ createOffer: { __typename: "Change", ...studentPass("DRAFT") } });
+    }),
   });
   return Object.assign(gateway, { release: () => release() });
 }
@@ -124,5 +155,40 @@ export const ALateRefusalDoesNotBringTheConflictBack: Story = {
     args.gateway.release?.();
     await new Promise((resolve) => setTimeout(resolve, 300));
     await expect(page.queryByText(/while you were editing/)).toBeNull();
+  },
+};
+
+export const WhileTheCampaignIsCreatedItsFieldsWait: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: slowCreation(), changeId: null },
+  play: async ({ canvasElement, args }) => {
+    const page = within(canvasElement);
+    await userEvent.click(await page.findByRole("button", { name: "Fill in the Student Autumn Pass" }));
+    await userEvent.click(page.getByRole("button", { name: "Save draft" }));
+    // No answer yet: what is typed now would be lost when the campaign opens on its own page, so the fields wait.
+    await waitFor(() => expect(page.getByLabelText("Campaign name")).toBeDisabled());
+    await expect(page.getByText(/^Saving the new campaign as v1\. The fields wait until it is saved/)).toBeInTheDocument();
+    await expect(page.getByRole("checkbox", { name: /^Italy/ })).toBeDisabled();
+    args.gateway.release?.();
+    await waitFor(() => expect(args.gateway.calls.filter((call) => call.operation === "CreateOffer")).toHaveLength(1));
+    const created = args.gateway.calls.find((call) => call.operation === "CreateOffer")?.variables as { readonly offer: { readonly title: string } };
+    await expect(created.offer.title).toBe("Student Autumn Pass");
+  },
+};
+
+export const ThePageOfEitherMarketWithItsOwnListPrice: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: twoMarkets(), changeId: null },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement);
+    await userEvent.click(await page.findByRole("button", { name: "Fill in the Student Autumn Pass" }));
+    await userEvent.click(page.getByRole("checkbox", { name: /^France/ }));
+    const preview = within(page.getByRole("figure"));
+    await userEvent.click(page.getByRole("button", { name: "FR" }));
+    await expect(page.getByRole("button", { name: "FR" })).toHaveAttribute("aria-pressed", "true");
+    // France's own list price after the offer months: 6,49 € (§4.4), not Italy's 5,79 €, nor none.
+    await expect(await preview.findByText(/then 6,49 € a month/)).toBeInTheDocument();
+    await expect(preview.queryByText(/then the list price a month/)).toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "Before" }));
+    await expect(await preview.findByText(/^6,49 €/)).toBeInTheDocument();
+    await expect(preview.queryByText(/No list price/)).toBeNull();
   },
 };

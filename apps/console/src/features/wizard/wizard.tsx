@@ -41,7 +41,7 @@ import { recordGuide } from "../../lib/react/sandbox.tsx";
 import { SANDBOX_MODE } from "../../lib/sandbox.ts";
 import { asRole, can, conditionSigner, primaryRole, signatureWords, signerWords, whoDoes } from "../../lib/permissions.ts";
 import { useClock } from "../../lib/react/clock.tsx";
-import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
+import { useAction, useGatewayQueries, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatLocalValue, formatLocalWithUtc, nextWeekday, parseLocal, partsIn, zoneCity } from "../../lib/time.ts";
 import { CampaignTabs } from "../campaigns/tabs.tsx";
@@ -217,11 +217,13 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
   const dirty = canEdit && differsFrom(form, saved, facts);
   const role = primaryRole(viewer.roles);
 
-  const plansIt = useGatewayQuery(PlansDocument, { market: form.markets[0]?.market ?? "IT" }, { staleTime: 5 * 60_000 });
+  // The plans of every market the campaign is for: the page beside the form shows any of them.
+  const plansByMarket = useGatewayQueries(PlansDocument, form.markets.map((entry) => ({ market: entry.market })), { staleTime: 5 * 60_000 });
   const previewPlans: Record<string, readonly PreviewPlan[]> = {};
-  if (plansIt.data && form.markets[0]) {
-    previewPlans[form.markets[0].market] = plansIt.data.plans.map((plan) => ({ code: plan.code, name: plan.name, listPrice: plan.listPrice, needsStudentCheck: plan.entitlements.needsStudentCheck }));
-  }
+  form.markets.forEach((entry, index) => {
+    const plans = plansByMarket[index]?.data?.plans;
+    if (plans) previewPlans[entry.market] = plans.map((plan) => ({ code: plan.code, name: plan.name, listPrice: plan.listPrice, needsStudentCheck: plan.entitlements.needsStudentCheck }));
+  });
 
   useEffect(() => {
     if (firstRender.current) {
@@ -249,7 +251,12 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
   const submit = useAction(SubmitChangeDocument, "submit-change");
   // From the click to the check's answer, the version being checked is the only one: no second click creates another.
   const [checking, setChecking] = useState(false);
-  const busy = checking || create.isPending || save.isPending || validate.isPending || submit.isPending;
+  // From the click that creates the change until its own page opens, the
+  // fields wait: that page starts from what was saved, so anything typed
+  // meanwhile would be lost without a word. The page says it is saving.
+  const [creating, setCreating] = useState(false);
+  const busy = checking || creating || create.isPending || save.isPending || validate.isPending || submit.isPending;
+  const locked = !canEdit || creating;
   const failure = create.error ?? save.error ?? validate.error ?? submit.error;
 
   /** Saves the form as a new version when it differs; returns the change and its version, or null when nothing could be saved. */
@@ -261,8 +268,16 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
       return null;
     }
     if (change === null) {
-      const result = (await create.mutateAsync({ offer: typed.input })).createOffer as ResultUnion;
+      setCreating(true);
+      let result: ResultUnion;
+      try {
+        result = (await create.mutateAsync({ offer: typed.input })).createOffer as ResultUnion;
+      } catch (error) {
+        setCreating(false);
+        throw error;
+      }
       if (result.__typename === "Refusal") {
+        setCreating(false);
         setRefusal({ code: result.code, reason: result.reason });
         return null;
       }
@@ -384,10 +399,10 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
             <h2 id="step-heading" ref={headingRef} tabIndex={-1} className="text-4xl font-bold leading-tight focus-visible:outline-none">{STEPS[step]}</h2>
             <p className="text-xs text-ink-2">Step {step + 1} of 5</p>
           </div>
-          {step === 0 ? <StepAudience form={form} markets={markets} disabled={!canEdit} shown={shown} touch={touch} update={update} now={now} /> : null}
-          {step === 1 ? <StepPrice form={form} markets={markets} disabled={!canEdit} shown={shown} touch={touch} update={update} updateMarket={updateMarket} /> : null}
-          {step === 2 ? <StepDates form={form} markets={markets} disabled={!canEdit} shown={shown} touch={touch} updateMarket={updateMarket} /> : null}
-          {step === 3 ? <StepPage form={form} markets={markets} disabled={!canEdit} shown={shown} touch={touch} updateMarket={updateMarket} /> : null}
+          {step === 0 ? <StepAudience form={form} markets={markets} disabled={locked} shown={shown} touch={touch} update={update} now={now} /> : null}
+          {step === 1 ? <StepPrice form={form} markets={markets} disabled={locked} shown={shown} touch={touch} update={update} updateMarket={updateMarket} /> : null}
+          {step === 2 ? <StepDates form={form} markets={markets} disabled={locked} shown={shown} touch={touch} updateMarket={updateMarket} /> : null}
+          {step === 3 ? <StepPage form={form} markets={markets} disabled={locked} shown={shown} touch={touch} updateMarket={updateMarket} /> : null}
           {step === 4 ? (
             <StepCheck
               change={change}
@@ -408,9 +423,14 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
           {refusal ? <Callout tone="error" icon="warning" role="alert"><p className="font-bold">The engine said no ({refusal.code.toLowerCase().replaceAll("_", " ")}).</p><p>{refusal.reason}</p></Callout> : null}
           {failure ? <ErrorPanel error={failure} /> : null}
           {outcome?.kind === "saved" ? <Callout tone="good" icon="check-circle" role="status">Saved as v{outcome.version}.</Callout> : null}
+          {creating ? (
+            <Callout tone="quiet" icon="hourglass-medium" role="status">
+              Saving the new campaign as v1. The fields wait until it is saved, then it opens on its own page, with nothing typed meanwhile lost.
+            </Callout>
+          ) : null}
           <div className="flex flex-wrap items-center gap-3 border-t border-cord pt-4">
             {step > 0 ? <Button icon="arrow-left" onClick={() => onStep((step - 1) as StepIndex)}>Back</Button> : null}
-            {canEdit ? <Button weight="quiet" icon="floppy-disk" busy={create.isPending || save.isPending} onClick={() => void onSave()}>Save draft</Button> : null}
+            {canEdit ? <Button weight="quiet" icon="floppy-disk" busy={creating || save.isPending} onClick={() => void onSave()}>Save draft</Button> : null}
             <span className="flex-1" />
             {step < 4 ? <Button weight="primary" iconAfter="arrow-right" onClick={() => void onContinue()}>Continue</Button> : null}
           </div>

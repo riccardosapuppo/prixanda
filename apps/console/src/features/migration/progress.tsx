@@ -19,6 +19,7 @@ import { useMinute } from "../../lib/react/clock.tsx";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { formatClockIn, formatLocalWithUtc } from "../../lib/time.ts";
 import { ItsLaunches } from "../approval/approval.tsx";
+import { MarketsUnavailable } from "../../components/change-parts.tsx";
 import { ChangeTabs } from "../campaigns/tabs.tsx";
 import { MarketPolicy } from "./policy.tsx";
 
@@ -70,7 +71,9 @@ export function MigrationProgressScreen() {
   if (change.isPending || markets.isPending) return <>{head}<PageBody><Loading what="the progress" lines={8} /></PageBody></>;
   if (change.isError) return <>{head}<PageBody><ErrorPanel error={change.error} retry={() => void change.refetch()} /></PageBody></>;
   if (data === null || migration === null) return <>{head}<PageBody><Callout tone="error" icon="warning">There is no price migration #{id}. <Link href="/price-migrations/">Back to the price migrations</Link>.</Callout></PageBody></>;
-  const names = markets.data?.markets ?? [];
+  // Without the markets, the window's times could not be read in the market's zone.
+  const names = markets.data?.markets;
+  if (names === undefined) return <>{head}<PageBody><MarketsUnavailable error={markets.error} retry={() => void markets.refetch()} /></PageBody></>;
   const zone = marketZone(names, migration.market);
   return (
     <>

@@ -3,7 +3,7 @@
 // operation and its variables, and actions (mutations) that carry one
 // idempotency key per action, kept until the action has an answer.
 import {
-  type InfiniteData, keepPreviousData, type UseInfiniteQueryResult, type UseQueryResult, useInfiniteQuery, useMutation, useQuery, useQueryClient,
+  type InfiniteData, keepPreviousData, type UseInfiniteQueryResult, type UseQueryResult, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient,
 } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useRef } from "react";
 import { type Operation, queryKeyOf } from "../../graphql/operation.ts";
@@ -44,6 +44,27 @@ export function useGatewayQuery<TData, TVariables>(
     ...(options.refetchInterval !== undefined ? { refetchInterval: typeof options.refetchInterval === "function" ? (query: { state: { data: TData | undefined } }) => (options.refetchInterval as (data: TData | undefined) => number | false)(query.state.data) : options.refetchInterval } : {}),
     // The previous page stays on screen while the next one loads (TanStack's own helper; its type is generic over any data).
     ...(options.keepPrevious ? { placeholderData: keepPreviousData as never } : {}),
+  });
+}
+
+/**
+ * The same operation for several sets of variables at once (the plans of
+ * every market a campaign is for), each read and kept as useGatewayQuery
+ * keeps it, under the same key: one request per set, shared with the
+ * components that ask for the same.
+ */
+export function useGatewayQueries<TData, TVariables>(
+  operation: Operation<TData, TVariables>,
+  variablesList: readonly TVariables[],
+  options: { readonly staleTime?: number } = {},
+): UseQueryResult<TData, Error>[] {
+  const gateway = useGateway();
+  return useQueries({
+    queries: variablesList.map((variables) => ({
+      queryKey: queryKeyOf(operation, variables),
+      queryFn: ({ signal }: { readonly signal: AbortSignal }) => gateway.run(operation, variables, { signal }),
+      ...(options.staleTime !== undefined ? { staleTime: options.staleTime } : {}),
+    })),
   });
 }
 

@@ -2,14 +2,33 @@
 // The parts every guided form of a change shares, so that a price migration
 // and a prepaid pass read like the guided creation of a campaign: the steps
 // across the top, the engine's findings with the way back to the step that
-// fixes each one, who has to sign, a refusal said in the engine's words, and
-// the panel that appears when someone else saved a newer version (§6.3).
+// fixes each one, who has to sign, a refusal said in the engine's words, the
+// panel that appears when someone else saved a newer version (§6.3), and what
+// a page of a change says when the markets, and their time zones, did not
+// load.
 import { Icon } from "design/icon";
 import type { ReactNode } from "react";
 import { signerWords } from "../lib/permissions.ts";
 import { formatInstantIn } from "../lib/time.ts";
 import { CONSOLE_ZONE } from "./frame.tsx";
-import { Button, Callout, Chip } from "./ui.tsx";
+import { Button, Callout, Chip, ErrorPanel } from "./ui.tsx";
+
+/**
+ * The markets did not load, and with them their time zones. A page that
+ * shows a change's times, or schedules its launch, waits for them: a local
+ * time read in UTC instead of its market's would be off by an hour or two,
+ * and nothing says so. The page says what is missing, with Try again.
+ */
+export function MarketsUnavailable({ error, retry }: { readonly error: unknown; readonly retry: () => void }) {
+  return (
+    <div className="grid max-w-3xl gap-3">
+      <p className="max-w-[65ch]">
+        The markets did not load, and with them their time zones: this page shows no times, and nothing can be scheduled from it, until they do.
+      </p>
+      <ErrorPanel error={error} retry={retry} />
+    </div>
+  );
+}
 
 /** The steps of a guided form: each a button, the current one marked for assistive technology, the done ones woven. */
 export function Steps({ names, current, done, onStep }: {
