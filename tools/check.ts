@@ -302,7 +302,7 @@ const SUITES: Suite[] = [
   // after asking the system that nobody listens there; they need no database.
   {
     name: "gw-types",
-    what: "tsc over the gateway (strict, erasable), then its core again with a browser's types and none of Node's",
+    what: "tsc over the gateway (strict, erasable), then again with a browser's types and none of Node's what runs in the sandbox's worker: the core, the shells' shared part, the browser's shell",
     needsDatabase: false,
     async run() {
       const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
@@ -312,7 +312,7 @@ const SUITES: Suite[] = [
         const ran = await run(process.execPath, [tsc, "-p", config, "--listFiles"], { cwd: gatewayDir });
         const ours = ran.output.split(/\r?\n/).filter((line) => line.replaceAll("\\", "/").includes("/services/gateway/") && line.endsWith(".ts")
           && !line.includes("node_modules")).length;
-        counted.push(`${ours} ${config === "tsconfig.json" ? "files" : "in the core"}`);
+        counted.push(`${ours} ${config === "tsconfig.json" ? "files" : "for the browser"}`);
         if (ran.code !== 0) return failed(counted.join(", "), ran.output.split(/\r?\n/).filter((line) => /error TS\d+/.test(line)).slice(0, 8).join("\n") || ran.output.slice(0, 2000));
         if (ours < floor) return failed(counted.join(", "), `${config}: fewer than ${floor} files of the gateway were checked`);
       }
@@ -692,7 +692,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 51, coreFiles: 19, generated: 3, schemaTests: 23, tests: 244, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
+  files: 55, coreFiles: 22, generated: 3, schemaTests: 23, tests: 253, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
 };
 
 /**
