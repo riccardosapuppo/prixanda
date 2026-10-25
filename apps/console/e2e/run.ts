@@ -26,7 +26,24 @@ export async function buildConsole(gatewayUrl: string): Promise<Built> {
   return buildStatic({ NEXT_PUBLIC_GATEWAY_URL: gatewayUrl });
 }
 
-export type E2eOutcome = { readonly tests: number; readonly failures: number; readonly skipped: number; readonly code: number | null; readonly output: string };
+/** A test not run for the clocks: on the night a market's clocks change, a launch minutes away cannot be scheduled there (e2e/support.ts). */
+export type NotRun = { readonly test: string; readonly reason: string };
+
+export type E2eOutcome = {
+  readonly tests: number;
+  readonly failures: number;
+  readonly skipped: number;
+  /** The skipped tests that said why: not run for the clocks. */
+  readonly notRun: readonly NotRun[];
+  readonly code: number | null;
+  readonly output: string;
+};
+
+async function notRunIn(reports: string): Promise<NotRun[]> {
+  const file = join(reports, "console-e2e-not-run.jsonl");
+  if (!existsSync(file)) return [];
+  return (await readFile(file, "utf8")).split("\n").filter((line) => line.trim() !== "").map((line) => JSON.parse(line) as NotRun);
+}
 
 /** The stack on a migrated database, then Playwright; the JUnit report goes to reports/console-e2e.xml. */
 export async function runEndToEnd(cluster: Cluster, database: string, reports: string): Promise<E2eOutcome> {
@@ -35,23 +52,27 @@ export async function runEndToEnd(cluster: Cluster, database: string, reports: s
   try {
     const report = join(reports, "console-e2e.xml");
     await rm(report, { force: true });
+    await rm(join(reports, "console-e2e-not-run.jsonl"), { force: true });
     const tested = await run(process.execPath, [join(repoRoot, "node_modules", "@playwright", "test", "cli.js"), "test", "--config", join(appDir, "e2e", "playwright.config.ts")], {
       cwd: appDir,
       env: {
         ...process.env,
         CONSOLE_URL: stack.consoleUrl,
         GATEWAY_URL: stack.gatewayUrl,
+        // The site's API, where the tests answer a price change and buy a prepaid pass as a demo listener.
+        GATEWAY_PUBLIC_URL: `http://127.0.0.1:${STACK_PORTS.gatewayPublic}/graphql`,
         E2E_REPORTS: reports,
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1",
       },
       echo: true,
     });
-    if (!existsSync(report)) return { tests: 0, failures: 0, skipped: 0, code: tested.code, output: `${tested.output}\n${stack.logs()}` };
+    if (!existsSync(report)) return { tests: 0, failures: 0, skipped: 0, notRun: [], code: tested.code, output: `${tested.output}\n${stack.logs()}` };
     const xml = await readFile(report, "utf8");
     const tests = [...xml.matchAll(/<testcase\b/g)].length;
     const failures = [...xml.matchAll(/<failure\b/g)].length + [...xml.matchAll(/<error\b/g)].length;
     const skipped = [...xml.matchAll(/<skipped\b/g)].length;
-    return { tests, failures, skipped, code: tested.code, output: tested.code === 0 ? tested.output : `${tested.output}\n--- the stack's last lines ---\n${stack.logs().split("\n").slice(-60).join("\n")}` };
+    const notRun = await notRunIn(reports);
+    return { tests, failures, skipped, notRun, code: tested.code, output: tested.code === 0 ? tested.output : `${tested.output}\n--- the stack's last lines ---\n${stack.logs().split("\n").slice(-60).join("\n")}` };
   } finally {
     await stack.stop();
   }
@@ -75,6 +96,7 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(appDir, "e2e", "run.
       if (migrated.code !== 0) throw new Error(migrated.output.slice(-2000));
       const outcome = await runEndToEnd(cluster, "console_e2e", reports);
       say(`${outcome.tests} tests, ${outcome.failures} failed, ${outcome.skipped} skipped`);
+      for (const entry of outcome.notRun) say(`not run: ${entry.test}. ${entry.reason}`);
       process.exitCode = outcome.code === 0 && outcome.failures === 0 && outcome.tests > 0 ? 0 : 1;
     } finally {
       await cluster.stop();

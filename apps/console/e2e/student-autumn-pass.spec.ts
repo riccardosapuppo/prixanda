@@ -208,7 +208,9 @@ test("revenue is for Finance and the commercial lead; the others see who reads i
   await switchTo(page, "Finance");
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Revenue this month, without VAT/ })).toContainText("€");
-  await expect(page.getByText("It arrives with the prepaid pass, which is not on sale yet.")).toBeVisible();
+  // Finance reads the value of prepaid passes not yet earned in the same place (§9.2), where the others read who does.
+  await expect(page.getByRole("heading", { name: /Prepaid passes sold, not yet earned/ })).toBeVisible();
+  await expect(page.getByText("Finance reads the value of prepaid passes sold and not yet earned (§9.2).")).toHaveCount(0);
 });
 
 test("the price list reads the same for every role, and the launches page says what is not built yet", async () => {

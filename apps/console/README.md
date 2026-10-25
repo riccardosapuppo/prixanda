@@ -104,6 +104,14 @@ leaving 127.0.0.1 are refused and counted. Telemetry is off: Next.js through
 `NEXT_TELEMETRY_DISABLED`, Storybook through `--disable-telemetry` and
 `core.disableTelemetry`.
 
+Four end-to-end tests schedule a real launch minutes away: an offer in
+France, the Family rise in Germany, a prepaid pass in Italy, and the timeline
+that reads the first of them. On the night a market's clocks go back (or
+forward), its local times repeat (or do not exist) for an hour, and the
+console and the engine rightly refuse a start at such a time (§3.7). Those
+tests then are not run: each says why, and from what time (UTC) it can run
+again, and the `console-e2e` suite reports "not run", never "passed".
+
 ## Next.js 16.4.0, and why not 16.4.1 yet
 
 On 22 October 2026 three security advisories were published for Next.js:
