@@ -3,14 +3,15 @@
 // console makes before it asks the engine anything.
 //
 // The checks here only stop what cannot mean anything (an empty title, a
-// price that is not a price, an end before its start) or what the engine is
-// certain to refuse (a local time the clocks skip). Everything that depends
-// on the business (the floor, conflicts with other offers, who must sign,
-// how many people are eligible) is the engine's validation, shown in step 5.
+// price that is not a price, an end before its start, more hours of
+// listening than a window has) or what the engine is certain to refuse (a
+// local time the clocks skip, a window longer than 90 days). Everything that
+// depends on the business (the floor, conflicts with other offers, who must
+// sign, how many people are eligible, how many fans an artist has) is the
+// engine's validation, shown in step 5.
 //
 // A saved version goes through the form and back without losing anything:
-// what the form does not edit (a listening rule, a page's treatment) is
-// carried as it was. If a version ever holds a field the form does not know,
+// what the form does not edit (a page's treatment) is carried as it was. If a version ever holds a field the form does not know,
 // cannotCarry() names it and the wizard refuses to edit that version, rather
 // than save one without it.
 import { MINOR_UNITS, minorUnits, parseAmount } from "design";
@@ -35,7 +36,7 @@ export type MarketForm = {
   readonly treatment: string;
 };
 
-/** Free listeners who played an artist for more than a time lately (§14.2). The form keeps it; it does not edit it. */
+/** People who played an artist for more than a time lately (§14.2): the fans of a campaign for an album release. */
 export type ListeningRule = { readonly artistId: number; readonly minSeconds: number; readonly withinDays: number };
 
 export type OfferForm = {
@@ -49,8 +50,14 @@ export type OfferForm = {
   readonly cap: string;
   readonly months: string;
   readonly markets: readonly MarketForm[];
-  /** Carried from the saved version as it is: null when the audience has none. */
-  readonly listening: ListeningRule | null;
+  /** Only the fans of an artist (§14.2): those who played them for more than `hours` in the last `days` days. */
+  readonly fans: boolean;
+  /** The artist's id in the catalog, as text ("4"); empty until one is chosen. */
+  readonly artist: string;
+  /** As typed: "3" or "1.5". */
+  readonly hours: string;
+  /** As typed: "30", the book's window. */
+  readonly days: string;
 };
 
 export type Money = { readonly amountMinor: string; readonly currency: string };
@@ -87,7 +94,9 @@ export const STEPS = ["Audience", "Price", "Dates", "Page", "Check and submit"] 
 export type StepIndex = 0 | 1 | 2 | 3 | 4;
 
 // The engine's limits (services/commerce/src/commerce/domain/offers.py).
-export const LIMITS = { title: 200, pageTitle: 120, pageText: 2000, pageTerms: 4000, monthsMax: 36 } as const;
+export const LIMITS = { title: 200, pageTitle: 120, pageText: 2000, pageTerms: 4000, monthsMax: 36, listeningDaysMax: 90 } as const;
+/** The window of a fans' campaign in the business book: the last 30 days (§14.2). */
+export const FANS_WINDOW_DAYS = 30;
 export const GROUP = /^[a-z][a-z0-9-]{0,39}$/;
 export const TREATMENT = "standard";
 
@@ -96,7 +105,10 @@ export function emptyMarket(market: string, startsLocal = ""): MarketForm {
 }
 
 export function emptyForm(): OfferForm {
-  return { title: "", plan: "", segment: "", currentPlan: "", needsStudentCheck: false, group: "", cap: "", months: "3", markets: [], listening: null };
+  return {
+    title: "", plan: "", segment: "", currentPlan: "", needsStudentCheck: false, group: "", cap: "", months: "3", markets: [],
+    fans: false, artist: "", hours: "", days: String(FANS_WINDOW_DAYS),
+  };
 }
 
 /**
@@ -145,6 +157,19 @@ export function plainAmount(money: Money): string {
   return `${negative ? "-" : ""}${units}${digits ? `.${minor}` : ""}`;
 }
 
+/** 10800 seconds as "3", 5400 as "1.5", 5000 as "1.3889": what a person types back, and the same seconds again. */
+export function plainHours(seconds: number): string {
+  return (seconds / 3600).toFixed(4).replace(/\.?0+$/, "");
+}
+
+/** "3", "1.5" or "1,5" hours as whole seconds; null when it is not a number of hours above zero. */
+export function parseHours(text: string): number | null {
+  const match = /^\s*(\d{1,4})(?:[.,](\d{1,4}))?\s*$/.exec(text);
+  if (match === null) return null;
+  const seconds = Math.round(Number(`${match[1]}.${match[2] ?? "0"}`) * 3600);
+  return seconds >= 1 ? seconds : null;
+}
+
 /** 4000 basis points as "40", 1250 as "12.5". */
 export function plainPercent(basisPoints: number): string {
   const whole = Math.trunc(basisPoints / 100);
@@ -172,7 +197,10 @@ export function formFromContent(content: OfferContent): OfferForm {
     group: content.nonCombinabilityGroup,
     cap: content.redemptionCap === null || content.redemptionCap === 0 ? "" : String(content.redemptionCap),
     months: String(content.monthsAtOfferPrice),
-    listening: content.audience.listening ? { ...content.audience.listening } : null,
+    fans: content.audience.listening !== null,
+    artist: content.audience.listening ? String(content.audience.listening.artistId) : "",
+    hours: content.audience.listening ? plainHours(content.audience.listening.minSeconds) : "",
+    days: String(content.audience.listening?.withinDays ?? FANS_WINDOW_DAYS),
     markets: [...markets].map((market) => {
       const price = content.prices.find((p) => p.market === market);
       const period = content.periods.find((p) => p.market === market);
@@ -198,6 +226,32 @@ export type Problem = { readonly field: string; readonly message: string };
 /** The field id of a market's field, as the form and its errors name it. */
 export const marketField = (market: string, name: keyof MarketForm) => `${market}-${name}`;
 
+const AUDIENCE_FIELDS = new Set(["title", "markets", "plan", "segment", "currentPlan", "fans", "artist", "hours", "days", "group", "cap"]);
+
+/** The step a field of the form is in: where a problem with it sends the person back. */
+export function stepOfField(field: string): StepIndex {
+  if (AUDIENCE_FIELDS.has(field)) return 0;
+  if (field === "months" || field.endsWith("-fixed") || field.endsWith("-percent")) return 1;
+  if (field.includes("Local")) return 2;
+  return 3;
+}
+
+function checkFans(form: OfferForm): Problem[] {
+  if (!form.fans) return [];
+  const problems: Problem[] = [];
+  if (form.artist === "") problems.push({ field: "artist", message: "Choose the artist whose fans it is for." });
+  const seconds = parseHours(form.hours);
+  const days = Number(form.days);
+  const daysOk = /^\d{1,2}$/.test(form.days.trim()) && days >= 1 && days <= LIMITS.listeningDaysMax;
+  if (form.hours.trim() === "") problems.push({ field: "hours", message: "Type how many hours of their music a fan has played, like 3." });
+  else if (seconds === null) problems.push({ field: "hours", message: `${form.hours.trim()} is not a number of hours: write it like 3 or 1.5.` });
+  else if (daysOk && seconds >= days * 86_400) {
+    problems.push({ field: "hours", message: `Nobody plays more than 24 hours a day: in ${days} ${days === 1 ? "day" : "days"}, fewer than ${days * 24} hours.` });
+  }
+  if (!daysOk) problems.push({ field: "days", message: `The window is a whole number of days, from 1 to ${LIMITS.listeningDaysMax}.` });
+  return problems;
+}
+
 function checkAudience(form: OfferForm): Problem[] {
   const problems: Problem[] = [];
   const title = form.title.trim();
@@ -207,6 +261,7 @@ function checkAudience(form: OfferForm): Problem[] {
   if (form.plan === "") problems.push({ field: "plan", message: "Choose the plan the offer is for." });
   if (form.segment === "") problems.push({ field: "segment", message: "Choose who can take it." });
   if (form.segment === "SUBSCRIBERS_OF_PLAN" && form.currentPlan === "") problems.push({ field: "currentPlan", message: "Choose the plan its subscribers are on now." });
+  problems.push(...checkFans(form));
   if (!GROUP.test(form.group)) {
     problems.push({ field: "group", message: "Name the group in lower case, with letters, digits and dashes, like student-offers." });
   }
@@ -358,7 +413,7 @@ export function toInput(form: OfferForm, facts: MarketFacts): { input: OfferInpu
         segment,
         ...(segment === "SUBSCRIBERS_OF_PLAN" && form.currentPlan ? { currentPlan: form.currentPlan } : {}),
         needsStudentCheck: form.needsStudentCheck,
-        ...(form.listening ? { listening: { ...form.listening } } : {}),
+        ...(form.fans ? { listening: { artistId: Number(form.artist), minSeconds: parseHours(form.hours) ?? 0, withinDays: Number(form.days) } } : {}),
       },
       prices,
       monthsAtOfferPrice: months,

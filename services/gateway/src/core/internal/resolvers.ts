@@ -55,6 +55,23 @@ function cursor(after: string | null | undefined): string {
   return after;
 }
 
+/** The longest artist's name, and the most artists named at once: the engine's limits, said before it is asked. */
+const ARTIST_SEARCH_MAX = 80;
+const ARTIST_IDS_MAX = 100;
+
+function artistSearch(search: string | null | undefined): string {
+  const text = (search ?? "").trim();
+  if (text.length > ARTIST_SEARCH_MAX) throw gatewayError("BAD_USER_INPUT", `search holds at most ${ARTIST_SEARCH_MAX} characters, the longest name`);
+  return text;
+}
+
+function artistIds(ids: readonly number[] | null | undefined): number[] {
+  const given = ids ?? [];
+  if (given.length > ARTIST_IDS_MAX) throw gatewayError("BAD_USER_INPUT", `ids names at most ${ARTIST_IDS_MAX} artists`);
+  for (const id of given) if (!Number.isInteger(id) || id < 1) throw gatewayError("BAD_USER_INPUT", `${id} is not an artist's id`);
+  return [...given];
+}
+
 /** The engine's 0 means "no cap"; the schema's null says it, so a cap of 0 or less is refused rather than read as none. */
 function redemptionCap(value: number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -285,6 +302,15 @@ export const internalResolvers: Resolvers = {
     launch: async (_root, { id }, context) => {
       const answer = await context.engine(actorFor(context, METHOD_ROLES.GetLaunch)).launches.getLaunch({ launchId: launchId(id) });
       return answer.launch ?? breach("GetLaunch answered without a launch");
+    },
+    // By name, then id: the cursor is the engine's, opaque here.
+    artists: async (_root, { search, ids, first, after }, context) => {
+      const answer = await context.engine(actorFor(context, METHOD_ROLES.ListArtists)).catalog.listArtists({
+        search: artistSearch(search),
+        ids: artistIds(ids),
+        page: { size: pageSize(first, 20), after: cursor(after) },
+      });
+      return { nodes: answer.artists, next: orNull(answer.page?.next ?? "") };
     },
   },
 
@@ -867,5 +893,27 @@ export const internalResolvers: Resolvers = {
   },
   ExportHeadResult: {
     __resolveType: (result) => (result.$typeName === "gateway.Refusal" ? "Refusal" : "ChainHead"),
+  },
+  ArtistPage: {
+    nodes: (page) => page.nodes,
+    next: (page) => page.next,
+  },
+  Artist: {
+    id: (artist) => artist.id,
+    name: (artist) => artist.name,
+    label: (artist) => artist.label,
+    country: (artist) => artist.country,
+    // Both empty when the catalog holds no record of theirs; one without the other breaks the contract.
+    latestRelease: (artist) => {
+      if (artist.latestRelease === "" && artist.latestReleaseOn === "") return null;
+      if (artist.latestRelease === "" || !/^\d{4}-\d{2}-\d{2}$/.test(artist.latestReleaseOn)) {
+        throw contractBroken(`artist ${artist.id}'s latest record ${JSON.stringify(artist.latestRelease)} on ${JSON.stringify(artist.latestReleaseOn)}`);
+      }
+      return { title: artist.latestRelease, releasedOn: artist.latestReleaseOn };
+    },
+  },
+  Release: {
+    title: (release) => release.title,
+    releasedOn: (release) => release.releasedOn,
   },
 };

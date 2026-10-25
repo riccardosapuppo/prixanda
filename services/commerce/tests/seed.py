@@ -1,5 +1,6 @@
 """A small, hand-written world for the engine's tests: the people of the demo,
-what each plan includes, the price list of §4.4, the named artists, and a
+what each plan includes, the price list of §4.4, the named artists with a
+record each (Nordflur, Doppelfenster's, comes out on 6 November), and a
 dozen subscribers chosen so that each audience rule has someone inside it and
 someone just outside it. The clock of the tests is 24 October 2026, 08:42 UTC.
 
@@ -78,6 +79,10 @@ async def seed(conn: asyncpg.Connection) -> None:
     await conn.copy_records_to_table("label", records=LABELS, columns=["id", "name", "country"])
     await conn.copy_records_to_table("artist", records=[(a, n, label, c) for a, n, label, c, _ in NAMED_ARTISTS],
                                      columns=["id", "name", "label_id", "country"])
+    await conn.copy_records_to_table(
+        "release", records=[(a, a, title, date(2026, 11, 6) if a == DOPPELFENSTER else date(2026, 9, 18))
+                            for a, _, _, _, title in NAMED_ARTISTS],
+        columns=["id", "artist_id", "title", "released_on"])
     subscription = 0
     for subscriber, (market, history, checks) in SUBSCRIBERS.items():
         await conn.execute("insert into subscriber (id, market, joined_on) values ($1, $2, $3)", subscriber, market, JOINED)

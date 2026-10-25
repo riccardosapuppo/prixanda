@@ -33,6 +33,8 @@ const OPERATIONS = [
   // Stage 6: the launches, for the console's history of them.
   "Query.launches(filter: LaunchFilter, first: Int!, after: String): LaunchPage!",
   "Query.launch(id: ID!): LaunchRun",
+  // Stage 7: the catalog's artists, for a campaign for an album release (§14.2).
+  "Query.artists(search: String, ids: [Int!], first: Int!, after: String): ArtistPage!",
   "Mutation.signIn(personId: ID!): Session!",
   "Mutation.signOut: Boolean!",
   "Mutation.createOffer(offer: OfferInput!): ChangeResult!",

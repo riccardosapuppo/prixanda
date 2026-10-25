@@ -26,7 +26,11 @@ on a server at request time.
 - **Campaigns.** The list, and a guided creation in five steps with the page
   beside it as the site would show it. Only Marketing creates and submits; the
   other roles read the same steps with the fields read-only, and a role that
-  reviews finds the way to Approvals.
+  reviews finds the way to Approvals. A campaign can be for the fans of an
+  artist (§14.2): the artist found in the catalog by a part of the name, more
+  than a number of hours of their music, in a window of days (30 in the
+  book). The engine counts them in the listening data once the version is
+  saved and checked, and names them in the sentence of step 5.
 - **Simulation.** The verdict first, then the assumptions with their sources,
   the break-even and who signs.
 - **Approval.** What changed between versions, the finance conditions, the
@@ -87,7 +91,7 @@ From the repository's root:
 
 | Command | What |
 |---|---|
-| `npm run console:stack` | the development database, the engine, the gateway and `next dev` on 127.0.0.1:4631 |
+| `npm run console:stack` | the development database (the small generated data, up to the day it is loaded), the engine, the gateway and `next dev` on 127.0.0.1:4631 |
 | `npm run build -w console` | the static export in `apps/console/out` (`scripts/build.ts`) |
 | `npm run codegen -w console` | the typed operations from the gateway's schema and `src/graphql/operations`; `-- --check` compares |
 | `node --test apps/console/test/*.test.ts` | the console's own logic under Node |

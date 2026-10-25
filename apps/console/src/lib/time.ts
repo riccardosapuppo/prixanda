@@ -127,6 +127,13 @@ export function formatClockIn(instant: string | Date, zone: string): string {
   return formatter(zone, { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(date);
 }
 
+/** "6 November 2026", a calendar day of the contract (2026-11-06). */
+export function formatDay(day: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (match === null) return day;
+  return formatter("UTC", { day: "numeric", month: "long", year: "numeric" }).format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))));
+}
+
 /** "Saturday 24 October", the day an instant falls on in a zone. */
 export function dayHeading(instant: Date, zone: string): string {
   return formatter(zone, { weekday: "long", day: "numeric", month: "long" }).format(instant).replace(",", "");

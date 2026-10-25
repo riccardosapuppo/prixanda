@@ -238,3 +238,37 @@ class ListPrepaidPassesResponse(_message.Message):
     PASSES_FIELD_NUMBER: _ClassVar[int]
     passes: _containers.RepeatedCompositeFieldContainer[PrepaidPassOnSale]
     def __init__(self, passes: _Optional[_Iterable[_Union[PrepaidPassOnSale, _Mapping]]] = ...) -> None: ...
+
+class Artist(_message.Message):
+    __slots__ = ("id", "name", "label", "country", "latest_release", "latest_release_on")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    LABEL_FIELD_NUMBER: _ClassVar[int]
+    COUNTRY_FIELD_NUMBER: _ClassVar[int]
+    LATEST_RELEASE_FIELD_NUMBER: _ClassVar[int]
+    LATEST_RELEASE_ON_FIELD_NUMBER: _ClassVar[int]
+    id: int
+    name: str
+    label: str
+    country: str
+    latest_release: str
+    latest_release_on: str
+    def __init__(self, id: _Optional[int] = ..., name: _Optional[str] = ..., label: _Optional[str] = ..., country: _Optional[str] = ..., latest_release: _Optional[str] = ..., latest_release_on: _Optional[str] = ...) -> None: ...
+
+class ListArtistsRequest(_message.Message):
+    __slots__ = ("search", "ids", "page")
+    SEARCH_FIELD_NUMBER: _ClassVar[int]
+    IDS_FIELD_NUMBER: _ClassVar[int]
+    PAGE_FIELD_NUMBER: _ClassVar[int]
+    search: str
+    ids: _containers.RepeatedScalarFieldContainer[int]
+    page: _common_pb2.PageRequest
+    def __init__(self, search: _Optional[str] = ..., ids: _Optional[_Iterable[int]] = ..., page: _Optional[_Union[_common_pb2.PageRequest, _Mapping]] = ...) -> None: ...
+
+class ListArtistsResponse(_message.Message):
+    __slots__ = ("artists", "page")
+    ARTISTS_FIELD_NUMBER: _ClassVar[int]
+    PAGE_FIELD_NUMBER: _ClassVar[int]
+    artists: _containers.RepeatedCompositeFieldContainer[Artist]
+    page: _common_pb2.PageInfo
+    def __init__(self, artists: _Optional[_Iterable[_Union[Artist, _Mapping]]] = ..., page: _Optional[_Union[_common_pb2.PageInfo, _Mapping]] = ...) -> None: ...

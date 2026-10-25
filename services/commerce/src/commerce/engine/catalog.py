@@ -1,5 +1,6 @@
 """What is sold (business book §2 to §6.2): markets, plans with their prices,
-the price list, and the offers the published catalog holds.
+the price list, and the offers the published catalog holds; and the artists
+whose listeners a campaign for an album release aims at (§14.2).
 
 The site shows an offer if and only if its prices are in force (§7.5): an
 offer is listed when it is in the live snapshot, its period in that market
@@ -9,11 +10,14 @@ at that instant (§6.2), is below that list price.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
 
+from commerce.domain import policy
 from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, format_local, parse_local, to_local
 from commerce.domain.money import Money
@@ -23,12 +27,25 @@ from commerce.domain.validation import on_sale, resolve_price
 from commerce.engine import contract, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import Connection, local_text, utc_text
-from commerce.engine.errors import InvalidArgument
+from commerce.engine.errors import InvalidArgument, PermissionDenied
 from commerce.engine.publication import Publisher
 from commerce.v1 import catalog_pb2, common_pb2
 
 CODE = re.compile(r"^[A-Z]{2}$")
 PLAN = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
+# A page of artists, and what a search may hold: the longest name (migration V5) and the most ids named at once.
+ARTISTS_PAGE_DEFAULT, ARTISTS_PAGE_MAX = 20, 100
+ARTIST_SEARCH_MAX, ARTIST_IDS_MAX = 80, 100
+
+ARTISTS = (
+    "select a.id, a.name, l.name as label, a.country, r.title as release, r.released_on::text as released_on "
+    "from artist a join label l on l.id = a.label_id "
+    "left join lateral (select title, released_on from release where artist_id = a.id "
+    "order by released_on desc, id desc limit 1) r on true "
+    "where ($1::text = '' or strpos(lower(a.name), lower($1::text)) > 0) "
+    "and (cardinality($2::int[]) = 0 or a.id = any($2::int[])) "
+    "and ($3::text is null or (a.name, a.id) > ($3::text, $4::int)) "
+    "order by a.name, a.id limit $5")
 
 
 def market_code(text: str, *, required: bool = True) -> str | None:
@@ -99,6 +116,20 @@ def live_offer(row) -> LiveOffer:
                      OfferPrice(row["market"], fixed, row["percent_off_bp"]), row["months"], row["starts_at"],
                      row["ends_at"], row["ends_local"], row["title"], row["body"], row["terms"], json.loads(row["audience"]),
                      row["audience_words"], row["needs_student_check"], row["snapshot_id"])
+
+
+def _artist_cursor(name: str, artist_id: int) -> str:
+    return base64.urlsafe_b64encode(json.dumps([name, artist_id]).encode()).decode().rstrip("=")
+
+
+def _after_artist(cursor: str) -> tuple[str, int]:
+    try:
+        name, artist_id = json.loads(base64.urlsafe_b64decode((cursor + "=" * (-len(cursor) % 4)).encode()))
+        if not isinstance(name, str) or not isinstance(artist_id, int) or isinstance(artist_id, bool):
+            raise ValueError
+        return name, artist_id
+    except (ValueError, TypeError, binascii.Error, json.JSONDecodeError) as error:
+        raise InvalidArgument("page.after is not a cursor this engine gave") from error
 
 
 class Catalog:
@@ -187,6 +218,29 @@ class Catalog:
                 change_id=row["change_id"] or 0, below_floor=amount < terms.floor(),
                 top_up=contract.money(Money(terms.top_up(terms.net(amount)), market.currency))))
         return catalog_pb2.GetPriceListResponse(entries=entries)
+
+    async def list_artists(self, tx: Connection, call: Call, request: catalog_pb2.ListArtistsRequest) -> catalog_pb2.ListArtistsResponse:
+        """The catalog's artists by name, then id, a page at a time: those whose name holds the search, in any case,
+        and only the ids named when there are any (to name the artist a saved version aims at)."""
+        if call.role not in policy.ARTIST_READERS:
+            raise PermissionDenied(f"{policy.who(policy.ARTIST_READERS).capitalize()} read the catalog's artists")
+        search = request.search.strip()
+        if len(search) > ARTIST_SEARCH_MAX:
+            raise InvalidArgument(f"search holds at most {ARTIST_SEARCH_MAX} characters, the longest name")
+        if len(request.ids) > ARTIST_IDS_MAX:
+            raise InvalidArgument(f"ids names at most {ARTIST_IDS_MAX} artists")
+        if request.page.size < 0:
+            raise InvalidArgument("page.size is a positive number")
+        size = min(request.page.size or ARTISTS_PAGE_DEFAULT, ARTISTS_PAGE_MAX)
+        name, artist_id = _after_artist(request.page.after) if request.page.after else (None, None)
+        rows = await tx.fetch(ARTISTS, search, list(request.ids), name, artist_id, size + 1)
+        page, more = rows[:size], len(rows) > size
+        response = catalog_pb2.ListArtistsResponse(artists=[catalog_pb2.Artist(
+            id=row["id"], name=row["name"], label=row["label"], country=row["country"].strip(),
+            latest_release=row["release"] or "", latest_release_on=row["released_on"] or "") for row in page])
+        if more:
+            response.page.next = _artist_cursor(page[-1]["name"], page[-1]["id"])
+        return response
 
     async def live_offers(self, tx: Connection, market: reference.Market, at: datetime) -> list[tuple[LiveOffer, Money, Money]]:
         """The offers the site may show at an instant, each with its price and the list price, both in force."""

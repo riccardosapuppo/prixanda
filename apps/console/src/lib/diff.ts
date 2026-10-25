@@ -50,17 +50,30 @@ export type Difference = { readonly field: string; readonly before: string; read
 
 type Markets = readonly { readonly code: string; readonly name: string; readonly timeZone: string }[];
 
+/** The catalog's artists the console could name, by id; an artist not among them is "artist #4". */
+export type ArtistNames = ReadonlyMap<number, string>;
+
 /** Who can take an offer, in words. */
-export function audienceWords(audience: Offer["audience"], markets: readonly string[], names: Markets): string {
+export function audienceWords(audience: Offer["audience"], markets: readonly string[], names: Markets, artists: ArtistNames = new Map()): string {
   const base = segmentWords(audience, markets, names);
-  return audience.listening ? `${base}, ${listeningWords(audience.listening)}` : base;
+  return audience.listening ? `${base}, ${listeningWords(audience.listening, artists)}` : base;
 }
 
-/** "who played artist #4 for more than 3 hours in the last 30 days" (§14.2). */
-export function listeningWords(rule: { readonly artistId: number; readonly minSeconds: number; readonly withinDays: number }): string {
-  const hours = rule.minSeconds / 3600;
-  const time = Number.isInteger(hours) ? `${hours} hour${hours === 1 ? "" : "s"}` : `${Math.round(rule.minSeconds / 60)} minutes`;
-  return `who played artist #${rule.artistId} for more than ${time} in the last ${rule.withinDays} days`;
+/** 10800 seconds as "3 hours", 5400 as "90 minutes", 45 as "45 seconds": the engine's words for a time (sentence.py). */
+export function durationWords(seconds: number): string {
+  for (const [unit, size] of [["hour", 3600], ["minute", 60]] as const) {
+    if (seconds % size === 0) {
+      const count = seconds / size;
+      return `${count.toLocaleString("en-GB")} ${unit}${count === 1 ? "" : "s"}`;
+    }
+  }
+  return `${seconds.toLocaleString("en-GB")} second${seconds === 1 ? "" : "s"}`;
+}
+
+/** "who played Doppelfenster for more than 3 hours in the last 30 days" (§14.2). */
+export function listeningWords(rule: { readonly artistId: number; readonly minSeconds: number; readonly withinDays: number }, artists: ArtistNames = new Map()): string {
+  const artist = artists.get(rule.artistId) ?? `artist #${rule.artistId}`;
+  return `who played ${artist} for more than ${durationWords(rule.minSeconds)} in the last ${rule.withinDays} ${rule.withinDays === 1 ? "day" : "days"}`;
 }
 
 function segmentWords(audience: Offer["audience"], markets: readonly string[], names: Markets): string {
@@ -94,7 +107,7 @@ function periodWords(period: Offer["periods"][number] | undefined, zone: string)
   return `from ${formatLocal(period.startsLocal, zone)}${period.endsLocal ? ` to ${formatLocal(period.endsLocal, zone)}` : ", no end"}`;
 }
 
-export function describeChanges(before: Content, after: Content, markets: Markets): Difference[] {
+export function describeChanges(before: Content, after: Content, markets: Markets, artists: ArtistNames = new Map()): Difference[] {
   const found: Difference[] = [];
   const add = (field: string, a: string, b: string) => {
     if (a !== b) found.push({ field, before: a, after: b });
@@ -106,7 +119,7 @@ export function describeChanges(before: Content, after: Content, markets: Market
     add("Plan", planName(a.plan), planName(b.plan));
     const marketsA = a.prices.map((price) => price.market);
     const marketsB = b.prices.map((price) => price.market);
-    add("Who can take it", audienceWords(a.audience, marketsA, markets), audienceWords(b.audience, marketsB, markets));
+    add("Who can take it", audienceWords(a.audience, marketsA, markets, artists), audienceWords(b.audience, marketsB, markets, artists));
     const every = [...new Set([...marketsA, ...marketsB, ...a.periods.map((p) => p.market), ...b.periods.map((p) => p.market)])];
     for (const code of every) {
       const market = markets.find((candidate) => candidate.code === code);

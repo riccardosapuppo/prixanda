@@ -38,7 +38,8 @@ export type Right =
   | "verifyChain"
   | "exportHead"
   | "readRevenue"
-  | "readUnearnedValue";
+  | "readUnearnedValue"
+  | "readArtists";
 
 type Row = {
   /** As the menu writes it. */
@@ -106,6 +107,8 @@ export const TEAM = {
     // §12.2: revenue is read by finance and the commercial lead, unearned pass value by finance.
     readRevenue: ["FINANCE", "COMMERCIAL_LEAD"],
     readUnearnedValue: ["FINANCE"],
+    // §14.2: the catalog's artists, for a campaign for an album release: whoever writes an offer and whoever signs one.
+    readArtists: ["MARKETING", "COMMERCIAL_LEAD", "FINANCE"],
   },
   /** §12.2: what every role reads. */
   everyoneReads: "the changes, the home and the audit log",

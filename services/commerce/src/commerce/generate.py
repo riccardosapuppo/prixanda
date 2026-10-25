@@ -186,7 +186,10 @@ def verify_free_students(seed: int, subscribers, subscriptions, until: date):
 # own and dates fixed relative to --until, so the other rows stay as they were;
 # a listener added later comes after the others, for the same reason.
 # student tells the simulated verifier whether this listener has a student
-# record; paid is a paid plan from a day, billed on that day of each month.
+# record; paid is a paid plan from a day, billed on that day of each month,
+# and the label says the month and the day from the dates themselves, so it
+# stays true for any --until (the console's stack loads the data up to the
+# day it starts).
 DEMO_LISTENERS = [
     {"title": "Student in Italy, verified", "market": "IT", "joined": 200, "student": True,
      "label": "Simulated listener. A verified student in Italy who has never paid: the Student Autumn Pass is for them.",
@@ -204,15 +207,25 @@ DEMO_LISTENERS = [
      "verified": []},
     # From 15 June 2025 with the default --until (24 October 2026): billed on the 15th.
     {"title": "Family subscriber in Germany", "market": "DE", "joined": 600, "student": False,
-     "label": "Simulated listener. Pays for Family in Germany since June 2025, billed on the 15th: a price rise there "
+     "label": "Simulated listener. Pays for Family in Germany since {since}, billed on the {billed}: a price rise there "
               "asks for their consent first (§8.2).",
      "verified": [], "paid": ("family", 496)},
     # From 8 May 2026 with the default --until: billed on the 8th.
     {"title": "Individual subscriber in Italy", "market": "IT", "joined": 260, "student": False,
-     "label": "Simulated listener. Pays for Individual in Italy since May 2026, billed on the 8th: a price rise there "
+     "label": "Simulated listener. Pays for Individual in Italy since {since}, billed on the {billed}: a price rise there "
               "comes with notice, and they may leave before it applies (§8.3).",
      "verified": [], "paid": ("individual", 169)},
 ]
+
+
+MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+               "November", "December")
+
+
+def ordinal(day: int) -> str:
+    """1st, 2nd, 3rd, 4th ... 11th, 12th, 13th ... 21st, 22nd, 23rd, 28th."""
+    suffix = "th" if 10 <= day % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix}"
 
 
 def demo_listeners(first_subscriber: int, first_subscription: int, start: date, until: date):
@@ -245,7 +258,10 @@ def demo_listeners(first_subscriber: int, first_subscription: int, start: date, 
         for days in demo["verified"]:
             verified = back(days)
             verifications.append((subscriber_id, verified, add_months(verified, 12), "simulated"))
-        rows.append((subscriber_id, position, demo["title"], demo["label"], demo["student"]))
+        label = demo["label"]
+        if "paid" in demo:
+            label = label.format(since=f"{MONTH_NAMES[began.month - 1]} {began.year}", billed=ordinal(billing_day))
+        rows.append((subscriber_id, position, demo["title"], label, demo["student"]))
     return subscribers, subscriptions, verifications, rows
 
 

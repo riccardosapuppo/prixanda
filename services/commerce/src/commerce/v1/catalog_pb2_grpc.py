@@ -59,6 +59,11 @@ class CatalogServiceStub(object):
                 request_serializer=commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesRequest.SerializeToString,
                 response_deserializer=commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesResponse.FromString,
                 _registered_method=True)
+        self.ListArtists = channel.unary_unary(
+                '/commerce.v1.CatalogService/ListArtists',
+                request_serializer=commerce_dot_v1_dot_catalog__pb2.ListArtistsRequest.SerializeToString,
+                response_deserializer=commerce_dot_v1_dot_catalog__pb2.ListArtistsResponse.FromString,
+                _registered_method=True)
 
 
 class CatalogServiceServicer(object):
@@ -99,6 +104,15 @@ class CatalogServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListArtists(self, request, context):
+        """The artists of the catalog, by name (§14.2): a campaign for an album
+        release aims at the listeners of one of them. Whoever writes an offer and
+        whoever signs one reads them: marketing, the commercial lead and finance.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CatalogServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -126,6 +140,11 @@ def add_CatalogServiceServicer_to_server(servicer, server):
                     servicer.ListPrepaidPasses,
                     request_deserializer=commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesRequest.FromString,
                     response_serializer=commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesResponse.SerializeToString,
+            ),
+            'ListArtists': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListArtists,
+                    request_deserializer=commerce_dot_v1_dot_catalog__pb2.ListArtistsRequest.FromString,
+                    response_serializer=commerce_dot_v1_dot_catalog__pb2.ListArtistsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -263,6 +282,33 @@ class CatalogService(object):
             '/commerce.v1.CatalogService/ListPrepaidPasses',
             commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesRequest.SerializeToString,
             commerce_dot_v1_dot_catalog__pb2.ListPrepaidPassesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListArtists(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/commerce.v1.CatalogService/ListArtists',
+            commerce_dot_v1_dot_catalog__pb2.ListArtistsRequest.SerializeToString,
+            commerce_dot_v1_dot_catalog__pb2.ListArtistsResponse.FromString,
             options,
             channel_credentials,
             insecure,

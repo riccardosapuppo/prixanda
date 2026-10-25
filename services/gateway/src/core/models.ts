@@ -6,6 +6,7 @@ import type { AuditEvent, ChainHead, VerifyChainResponse } from "contracts/comme
 import type {
   Entitlements, Market, Plan, PrepaidPassOnSale, PriceBreakdown, PriceChangePolicy, PriceListEntry, PublishedOffer,
 } from "contracts/commerce/v1/catalog";
+import type { Artist } from "contracts/commerce/v1/catalog";
 import type {
   Approval, Audience, Change, ChangeSummary, ChangeVersion, ListeningRule, ListPriceContent, MigrationProgress, OfferContent, OfferPage,
   OfferPeriod, OfferPrice, PrepaidPassContent, PriceMigrationContent, RequiredSignature, ValidationFinding, ValidationReport,
@@ -84,6 +85,11 @@ export type PrepaidPassContentModel = PrepaidPassContent;
 /** A prepaid pass's price in one market: the contract's OfferPrice, always fixed for a pass. */
 export type PrepaidPassPriceModel = OfferPrice;
 export type PrepaidValueModel = PrepaidValue;
+// The catalog's artists (§14.2).
+export type ArtistPageModel = { readonly nodes: readonly Artist[]; readonly next: string | null };
+export type ArtistModel = Artist;
+/** An artist's latest record: two fields of the contract's Artist, apart. */
+export type ReleaseModel = { readonly title: string; readonly releasedOn: string };
 
 // The site's schema: the same messages, read through fewer fields.
 export type PublicMarketModel = Market;

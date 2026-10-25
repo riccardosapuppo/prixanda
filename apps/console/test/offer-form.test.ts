@@ -7,8 +7,8 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { buildSchema, isInputObjectType, isObjectType } from "graphql";
 import {
-  CARRIED, cannotCarry, checkStep, differsFrom, emptyForm, emptyMarket, formFromContent, type MarketFacts, type OfferContent, parsePercent,
-  plainAmount, toInput,
+  CARRIED, cannotCarry, checkStep, differsFrom, emptyForm, emptyMarket, formFromContent, type MarketFacts, type OfferContent, parseHours,
+  parsePercent, plainAmount, plainHours, stepOfField, toInput,
 } from "../src/lib/offer-form.ts";
 
 const FACTS: MarketFacts = {
@@ -51,8 +51,9 @@ describe("a saved version goes through the form and back whole", () => {
   it("an untouched form says nothing new, an edited one does", () => {
     assert.equal(differsFrom(formFromContent(FANS), FANS, FACTS), false);
     assert.equal(differsFrom({ ...formFromContent(FANS), months: "3" }, FANS, FACTS), true);
-    // A listening rule lost on the way would be a difference too.
-    assert.equal(differsFrom({ ...formFromContent(FANS), listening: null }, FANS, FACTS), true);
+    // A listening rule lost on the way, or changed, is a difference too.
+    assert.equal(differsFrom({ ...formFromContent(FANS), fans: false }, FANS, FACTS), true);
+    assert.equal(differsFrom({ ...formFromContent(FANS), hours: "4" }, FANS, FACTS), true);
   });
 
   it("a new page gets the standard treatment", () => {
@@ -122,5 +123,47 @@ describe("the steps stop on what cannot mean anything", () => {
     assert.equal(parsePercent("0"), null);
     assert.equal(plainAmount({ amountMinor: "299", currency: "EUR" }), "2.99");
     assert.equal(plainAmount({ amountMinor: "1000", currency: "JPY" }), "1000");
+  });
+});
+
+describe("the fans of an artist (§14.2)", () => {
+  const fans = (patch: Partial<ReturnType<typeof formFromContent>>) => ({ ...formFromContent(FANS), ...patch });
+
+  it("reads a saved rule into the form and writes it back: the artist, the hours, the window", () => {
+    const form = formFromContent(FANS);
+    assert.deepEqual([form.fans, form.artist, form.hours, form.days], [true, "4", "3", "30"]);
+    const typed = toInput(fans({ artist: "7", hours: "1,5", days: "14" }), FACTS);
+    assert.ok("input" in typed, JSON.stringify(typed));
+    assert.deepEqual(typed.input.audience.listening, { artistId: 7, minSeconds: 5_400, withinDays: 14 });
+    const none = toInput(fans({ fans: false }), FACTS);
+    assert.ok("input" in none);
+    assert.equal(none.input.audience.listening, undefined);
+  });
+
+  it("starts a new campaign on the book's window, with nothing chosen", () => {
+    const form = emptyForm();
+    assert.deepEqual([form.fans, form.artist, form.hours, form.days], [false, "", "", "30"]);
+  });
+
+  it("writes hours back to the very same seconds", () => {
+    for (const seconds of [3_600, 5_400, 10_800, 5_000, 1, 7_776_000 - 1]) assert.equal(parseHours(plainHours(seconds)), seconds, String(seconds));
+    assert.deepEqual([plainHours(10_800), plainHours(5_400), plainHours(5_000)], ["3", "1.5", "1.3889"]);
+    assert.deepEqual([parseHours("3"), parseHours(" 2,5 "), parseHours("0"), parseHours("three"), parseHours("-1")], [10_800, 9_000, null, null, null]);
+  });
+
+  it("stops step 1 on what cannot mean anything, and points each problem at its field", () => {
+    const fields = (patch: Partial<ReturnType<typeof formFromContent>>) =>
+      checkStep({ ...fans(patch), markets: [] }, 0, FACTS, NOW).map((problem) => problem.field).filter((field) => field !== "markets");
+    assert.deepEqual(fields({ artist: "", hours: "", days: "30" }), ["artist", "hours"]);
+    assert.deepEqual(fields({ hours: "lots" }), ["hours"]);
+    assert.deepEqual(fields({ days: "0" }), ["days"]);
+    assert.deepEqual(fields({ days: "91" }), ["days"]);
+    // More than 24 hours a day cannot be played; 719 hours in 30 days can.
+    const [tooMany] = checkStep({ ...fans({ hours: "720" }), markets: [] }, 0, FACTS, NOW).filter((problem) => problem.field === "hours");
+    assert.equal(tooMany?.message, "Nobody plays more than 24 hours a day: in 30 days, fewer than 720 hours.");
+    assert.deepEqual(fields({ hours: "719" }), []);
+    // Without the rule, its fields are not asked for.
+    assert.deepEqual(fields({ fans: false, artist: "", hours: "" }), []);
+    for (const field of ["fans", "artist", "hours", "days"]) assert.equal(stepOfField(field), 0, field);
   });
 });

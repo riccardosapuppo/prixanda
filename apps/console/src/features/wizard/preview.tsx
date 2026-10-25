@@ -9,6 +9,7 @@ import { BRAND, DISCLAIMER, formatSitePrice, type MarketCode, type MoneyLike, pa
 import { Icon } from "design/icon";
 import { useId, useState } from "react";
 import { type OfferForm, parsePercent } from "../../lib/offer-form.ts";
+import { useArtistNames } from "./artists.tsx";
 import { formatLocal, parseLocal } from "../../lib/time.ts";
 
 export type PreviewMarket = { readonly code: string; readonly name: string; readonly currency: string; readonly timeZone: string };
@@ -35,8 +36,12 @@ export function offerPriceOf(form: OfferForm, market: string, currency: string):
   return parsePercent(entry.percent) === null ? null : { percent: `${entry.percent.trim().replace(/%$/, "")}% off` };
 }
 
-function audienceWords(form: OfferForm, marketName: string): string {
+function audienceWords(form: OfferForm, marketName: string, artist: string | null): string {
   const student = form.needsStudentCheck;
+  // A fans' campaign (§14.2): the site shows it to them alone.
+  if (form.fans && artist !== null && (form.segment === "FREE_LISTENERS" || form.segment === "NEVER_PAID")) {
+    return form.segment === "FREE_LISTENERS" ? `Fans of ${artist} on Free in ${marketName}` : `Fans of ${artist} in ${marketName} who have never paid`;
+  }
   switch (form.segment) {
     case "NEVER_PAID":
       return `${student ? "Verified students" : "People"} in ${marketName} who have never paid`;
@@ -69,6 +74,9 @@ export function SitePreview({ form, markets, plans }: {
   const months = Number(form.months) || 0;
   const starts = entry && parseLocal(entry.startsLocal) && market ? formatLocal(entry.startsLocal, market.timeZone, { withYear: false }).split(",")[0] : null;
   const studentCta = form.needsStudentCheck || plan?.needsStudentCheck;
+  const fansOf = form.fans && form.artist !== "" ? Number(form.artist) : null;
+  const artistNames = useArtistNames(fansOf === null ? [] : [fansOf]);
+  const artist = fansOf === null ? null : artistNames.get(fansOf) ?? `artist #${fansOf}`;
 
   return (
     <section className="grid min-w-0 content-start gap-3 xl:sticky xl:top-4" aria-labelledby={headingId}>
@@ -133,7 +141,7 @@ export function SitePreview({ form, markets, plans }: {
               {DISCLAIMER}
             </p>
             <p className="w-fit border border-saffron bg-stone-0 px-2.5 py-1 text-sm font-semibold text-saffron">
-              {audienceWords(form, market.name)}{starts ? ` · from ${starts}` : ""}
+              {audienceWords(form, market.name, artist)}{starts ? ` · from ${starts}` : ""}
             </p>
             {entry?.pageTerms.trim() ? <p className="text-xs leading-relaxed text-ink-2">{entry.pageTerms.trim()}</p> : null}
           </div>

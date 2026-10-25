@@ -10,10 +10,22 @@ import asyncpg
 import pytest
 
 from commerce.audit import head
-from commerce.generate import fingerprint, generate
+from commerce.generate import START, demo_listeners, fingerprint, generate, ordinal
 from commerce.invariants import check
 from conftest import ADMIN_URL, _admin as admin, fresh_database, on_database
 from helpers import add_subscription, new_change
+
+
+def test_the_demo_s_paying_listeners_say_their_month_and_billing_day_for_any_until():
+    labels = lambda until: [row[3] for row in demo_listeners(5001, 9001, START, until)[3]]  # noqa: E731
+    family, individual = labels(date(2026, 10, 24))[4:]
+    assert "since June 2025, billed on the 15th:" in family and "since May 2026, billed on the 8th:" in individual
+    # The console's stack loads the data up to the day it starts: a month later, the labels follow the dates.
+    family, individual = labels(date(2026, 11, 24))[4:]
+    assert "since July 2025, billed on the 16th:" in family and "since June 2026, billed on the 8th:" in individual
+    assert all("{" not in label for label in labels(date(2026, 11, 24)))
+    assert [ordinal(n) for n in (1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 28)] == [
+        "1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "28th"]
 
 
 async def test_the_small_size_has_what_it_declares(generated):

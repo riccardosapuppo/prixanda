@@ -42,7 +42,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 15, contractFiles: 47, migrations: 17, pythonTests: 721, invariants: 17, generatedSubscribers: 5_000,
+  typecheckedFiles: 15, contractFiles: 47, migrations: 17, pythonTests: 740, invariants: 17, generatedSubscribers: 5_000,
   faultsInjected: 12, measuredQueries: 7,
   // npm's lockfile lists every platform's packages; the Python environment
   // has one more on Windows (colorama, for pytest).
@@ -57,7 +57,7 @@ const COMPAT = { before: "11", expansion: "12" };
 // (services), the calls over gRPC with a real server (e2e), the properties
 // Hypothesis generates cases for (properties), and the faults injected in a
 // launch with the engine's real process (faults).
-const AREA_FLOOR: Record<string, number> = { database: 111, domain: 235, golden: 44, services: 277, e2e: 30, properties: 10, faults: 14 };
+const AREA_FLOOR: Record<string, number> = { database: 112, domain: 235, golden: 44, services: 295, e2e: 30, properties: 10, faults: 14 };
 // What tests/faults writes: every fault injected in a launch, and what it left.
 type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 
@@ -669,7 +669,7 @@ const SUITES: Suite[] = [
   },
   {
     name: "console-e2e",
-    what: "the console's static build on the whole system: the Student Autumn Pass from draft to launch, refusals by the server, the audit log, conflicts, axe on every screen, the keyboard alone, five widths",
+    what: "the console's static build on the whole system: the Student Autumn Pass from draft to launch, the album release for an artist's fans through a real launch, the prices, refusals by the server, the audit log, conflicts, axe on every screen, the keyboard alone, five widths",
     needsDatabase: true,
     async run({ cluster }) {
       if (!cluster) return notRun("no database");
@@ -716,7 +716,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 51, coreFiles: 19, generated: 3, schemaTests: 23, tests: 244, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
+  files: 52, coreFiles: 19, generated: 3, schemaTests: 23, tests: 249, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
 };
 
 /**
@@ -816,7 +816,7 @@ async function siteNodeTests(suite: string, files: string[], floor: number): Pro
 const designDir = join(repoRoot, "packages", "design");
 const consoleDir = join(repoRoot, "apps", "console");
 const CONSOLE_FLOOR = {
-  designFiles: 4, designTests: 77, files: 117, operations: 35, unitTests: 87, stories: 42, pages: 23, e2eTests: 32,
+  designFiles: 4, designTests: 77, files: 121, operations: 36, unitTests: 91, stories: 46, pages: 23, e2eTests: 33,
 };
 /** The gateway the console is built for: the one its end-to-end tests start. */
 const CONSOLE_GATEWAY_URL = E2E_GATEWAY_URL;

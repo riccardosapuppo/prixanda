@@ -343,6 +343,17 @@ kind (`LATE`, `FAILED`, `REFUSED`), when they opened and closed, and how
 (`resolution`); an incident is `OPEN`, `RECOVERED` (its launch went through
 on its own) or `RESOLVED` (a person retried or cancelled it).
 
+## Artists
+
+Since stage 7 a campaign can aim at the fans of an artist (§14.2): the Free
+listeners who played them for more than a set time in a window of days, read
+by the engine from the listening data. `artists(search, ids, first, after)`
+lists the catalog's artists by name, then id, with their label, country and
+latest record: `search` finds a part of the name in any case, `ids` names the
+artists a saved version aims at. Marketing, the commercial lead and finance
+read it, whoever writes an offer and whoever signs one; every other role gets
+`FORBIDDEN`. The engine refuses a campaign for an artist it does not have.
+
 ## Sessions, CSRF and CORS
 
 - The session lives in the gateway's memory under a random id. The cookie

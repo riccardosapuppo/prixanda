@@ -63,6 +63,8 @@ const OPERATIONS: Record<string, { query: string; variables?: Record<string, unk
   launch: { query: '{ launch(id: "LAUNCH") { id } }', method: "GetLaunch" },
   retryLaunch: { query: 'mutation { retryLaunch(launchId: "LAUNCH") { __typename ... on Refusal { code } } }', method: "RetryLaunch" },
   cancelLaunch: { query: 'mutation { cancelLaunch(launchId: "LAUNCH", reason: "Stop.") { __typename ... on Refusal { code } } }', method: "CancelLaunch" },
+  // Stage 7, the album release (§14.2).
+  artists: { query: '{ artists(search: "doppel") { nodes { id } } }', method: "ListArtists" },
 };
 
 /** Who may, per operation, from the coordinator's table (any kind of change). */
@@ -97,6 +99,7 @@ const MAY: Record<string, string[]> = {
   launch: ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"],
   retryLaunch: ["on_call"],
   cancelLaunch: ["on_call"],
+  artists: ["marketing", "commercial_lead", "finance"],
 };
 
 const PEOPLE: Record<string, string> = {

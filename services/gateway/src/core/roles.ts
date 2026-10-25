@@ -89,6 +89,9 @@ export const METHOD_ROLES = {
   GetLaunch: ALL,
   RetryLaunch: ["on_call"],
   CancelLaunch: ["on_call"],
+  // The catalog's artists, for a campaign for an album release (§14.2): whoever
+  // writes an offer and whoever signs one.
+  ListArtists: ["marketing", "commercial_lead", "finance"],
 } as const satisfies Record<string, Allowed | ByKind>;
 
 export type MethodName = keyof typeof METHOD_ROLES;

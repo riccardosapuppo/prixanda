@@ -46,6 +46,15 @@ async def test_catalog_calls(wire):
     assert offers.code is OK and list(offers.response.offers) == []
     assert (await wire.call("ListOffers", catalog_pb2.ListOffersRequest(market="it"), PUBLIC)).code is CODE.INVALID_ARGUMENT
 
+    artists = await wire.call("ListArtists", catalog_pb2.ListArtistsRequest(search="doppel"), MARKETING)
+    assert artists.code is OK and [(a.id, a.name, a.latest_release) for a in artists.response.artists] == [(4, "Doppelfenster", "Nordflur")]
+    paged = await wire.call("ListArtists", catalog_pb2.ListArtistsRequest(page=common_pb2.PageRequest(size=2)), FINANCE)
+    assert paged.code is OK and len(paged.response.artists) == 2 and paged.response.page.next
+    assert (await wire.call("ListArtists", catalog_pb2.ListArtistsRequest(), AUDITOR)).code is CODE.PERMISSION_DENIED
+    assert (await wire.call("ListArtists", catalog_pb2.ListArtistsRequest(), PUBLIC)).code is CODE.PERMISSION_DENIED
+    bad_cursor = catalog_pb2.ListArtistsRequest(page=common_pb2.PageRequest(after="not-a-cursor"))
+    assert (await wire.call("ListArtists", bad_cursor, MARKETING)).code is CODE.INVALID_ARGUMENT
+
 
 async def test_quote_calls(wire):
     quote = await wire.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="duo", market="DE"), PUBLIC)
@@ -359,5 +368,5 @@ def test_every_call_of_the_contract_was_seen_answering_refusing_and_failing():
             gaps.append(f"{method.name}: never seen {', '.join(sorted(missing))}")
         if not seen - {"answer", "refusal"}:
             gaps.append(f"{method.name}: never seen failing with a status code")
-    assert len(METHODS) == 36
+    assert len(METHODS) == 37
     assert not gaps, gaps

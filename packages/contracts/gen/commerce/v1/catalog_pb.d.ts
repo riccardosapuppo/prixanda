@@ -7,7 +7,7 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
-import type { LocalTime, Money } from "./common_pb.js";
+import type { LocalTime, Money, PageInfo, PageRequest } from "./common_pb.js";
 
 /**
  * Describes the file commerce/v1/catalog.proto.
@@ -685,6 +685,110 @@ export declare type ListPrepaidPassesResponse = Message<"commerce.v1.ListPrepaid
 export declare const ListPrepaidPassesResponseSchema: GenMessage<ListPrepaidPassesResponse>;
 
 /**
+ * An artist of the catalog, with the label that releases them and their
+ * latest record (§14.2).
+ *
+ * @generated from message commerce.v1.Artist
+ */
+export declare type Artist = Message<"commerce.v1.Artist"> & {
+  /**
+   * @generated from field: int32 id = 1;
+   */
+  id: number;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string label = 3;
+   */
+  label: string;
+
+  /**
+   * The country of the artist: IT, FR, DE or GB.
+   *
+   * @generated from field: string country = 4;
+   */
+  country: string;
+
+  /**
+   * The latest record and the day it comes out, ISO 8601; both empty when
+   * the catalog holds none.
+   *
+   * @generated from field: string latest_release = 5;
+   */
+  latestRelease: string;
+
+  /**
+   * @generated from field: string latest_release_on = 6;
+   */
+  latestReleaseOn: string;
+};
+
+/**
+ * Describes the message commerce.v1.Artist.
+ * Use `create(ArtistSchema)` to create a new message.
+ */
+export declare const ArtistSchema: GenMessage<Artist>;
+
+/**
+ * @generated from message commerce.v1.ListArtistsRequest
+ */
+export declare type ListArtistsRequest = Message<"commerce.v1.ListArtistsRequest"> & {
+  /**
+   * A part of the name, in any case: "doppel" finds Doppelfenster. Empty:
+   * every artist. At most 80 characters, the longest name.
+   *
+   * @generated from field: string search = 1;
+   */
+  search: string;
+
+  /**
+   * Only these artists, to name the ones a saved version aims at: at most
+   * 100. Empty: no restriction.
+   *
+   * @generated from field: repeated int32 ids = 2;
+   */
+  ids: number[];
+
+  /**
+   * By name, then by id; a page holds 20 artists unless it asks for 1 to 100.
+   *
+   * @generated from field: commerce.v1.PageRequest page = 3;
+   */
+  page?: PageRequest | undefined;
+};
+
+/**
+ * Describes the message commerce.v1.ListArtistsRequest.
+ * Use `create(ListArtistsRequestSchema)` to create a new message.
+ */
+export declare const ListArtistsRequestSchema: GenMessage<ListArtistsRequest>;
+
+/**
+ * @generated from message commerce.v1.ListArtistsResponse
+ */
+export declare type ListArtistsResponse = Message<"commerce.v1.ListArtistsResponse"> & {
+  /**
+   * @generated from field: repeated commerce.v1.Artist artists = 1;
+   */
+  artists: Artist[];
+
+  /**
+   * @generated from field: commerce.v1.PageInfo page = 2;
+   */
+  page?: PageInfo | undefined;
+};
+
+/**
+ * Describes the message commerce.v1.ListArtistsResponse.
+ * Use `create(ListArtistsResponseSchema)` to create a new message.
+ */
+export declare const ListArtistsResponseSchema: GenMessage<ListArtistsResponse>;
+
+/**
  * @generated from service commerce.v1.CatalogService
  */
 export declare const CatalogService: GenService<{
@@ -735,6 +839,18 @@ export declare const CatalogService: GenService<{
     methodKind: "unary";
     input: typeof ListPrepaidPassesRequestSchema;
     output: typeof ListPrepaidPassesResponseSchema;
+  },
+  /**
+   * The artists of the catalog, by name (§14.2): a campaign for an album
+   * release aims at the listeners of one of them. Whoever writes an offer and
+   * whoever signs one reads them: marketing, the commercial lead and finance.
+   *
+   * @generated from rpc commerce.v1.CatalogService.ListArtists
+   */
+  listArtists: {
+    methodKind: "unary";
+    input: typeof ListArtistsRequestSchema;
+    output: typeof ListArtistsResponseSchema;
   },
 }>;
 

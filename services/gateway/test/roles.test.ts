@@ -91,6 +91,8 @@ const TABLE: Record<string, string[] | PerKind> = {
   GetLaunch: ALL,
   RetryLaunch: ["on_call"],
   CancelLaunch: ["on_call"],
+  // Stage 7, the album release (§14.2): whoever writes an offer and whoever signs one reads the artists.
+  ListArtists: ["marketing", "commercial_lead", "finance"],
 };
 
 const sorted = (roles: readonly string[]) => [...roles].sort();
@@ -192,8 +194,8 @@ describe("the role matrix", () => {
   test("covers every method of the contract: public, the subscriber's, or in the matrix, exactly one of them", () => {
     const services = [CatalogService, ChangeService, QuoteService, SimulationService, AuditService, OverviewService, PeopleService, SubscriberService, LaunchService];
     const contract = services.flatMap((service) => service.methods.map((method) => method.name));
-    // Catalog 5, Change 12, Quote 1, Simulation 2, Audit 3, Overview 1, People 1, Subscriber 7, Launch 4.
-    assert.equal(contract.length, 36, "the contract's methods were all read");
+    // Catalog 6, Change 12, Quote 1, Simulation 2, Audit 3, Overview 1, People 1, Subscriber 7, Launch 4.
+    assert.equal(contract.length, 37, "the contract's methods were all read");
     // The gateway binds a client to every service of the contract, and engineCalls() refuses a method no list names.
     assert.deepEqual((Object.values(SERVICES) as unknown[]).length, services.length);
     for (const service of services) assert.ok((Object.values(SERVICES) as unknown[]).includes(service), service.typeName);

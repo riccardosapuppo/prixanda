@@ -72,6 +72,14 @@ type Query {
   launches(filter: LaunchFilter, first: Int! = 20, after: String): LaunchPage!
   "One launch, step by step, with its incidents and the audit events it wrote; null when there is none."
   launch(id: ID!): LaunchRun
+  """
+  The catalog's artists by name, a page at a time (first: 1 to 100): a
+  campaign for an album release aims at the listeners of one of them (§14.2).
+  search finds a part of the name, in any case (at most 80 characters); ids
+  names the artists a saved version aims at (at most 100). Marketing, the
+  commercial lead and finance: whoever writes an offer and whoever signs one.
+  """
+  artists(search: String, ids: [Int!], first: Int! = 20, after: String): ArtistPage!
 }
 
 type Mutation {
@@ -1045,3 +1053,27 @@ type ChainVerification {
 }
 
 union ExportHeadResult = ChainHead | Refusal
+
+"An artist of the catalog (§14.2), with the label that releases them and their latest record."
+type Artist {
+  id: Int!
+  name: String!
+  label: String!
+  "The artist's country: IT, FR, DE or GB."
+  country: String!
+  "Null when the catalog holds no record of theirs."
+  latestRelease: Release
+}
+
+"A record, and the day it comes out."
+type Release {
+  title: String!
+  "The day, ISO 8601: 2026-11-06."
+  releasedOn: String!
+}
+
+type ArtistPage {
+  nodes: [Artist!]!
+  "The cursor of the next page; null on the last one."
+  next: String
+}
