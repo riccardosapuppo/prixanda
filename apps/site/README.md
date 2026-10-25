@@ -40,11 +40,13 @@ The build calls the API written into it at build time: `NEXT_PUBLIC_SITE_API`,
 Built with `SANDBOX=1`, the same site runs in the demo in the browser, with
 no server behind it: its requests go to the sandbox's worker, which runs the
 engine's own Python code over PGlite and the gateway's core, once for every
-tab of the address (`src/data/sandbox.ts`, over the protocol of
-`packages/sandbox`). Nothing above the transport changes: the pages, the
-hooks and the operations are the ones the full system serves. What the
-engine's jobs changed is read again when the worker says so, and when the
-demo starts over every tab reloads.
+tab of the address. The site opens the worker through the sandbox package's
+client, the one the console opens too; `src/data/sandbox.ts` adds what is
+the site's: what it reads again, and a transport that says a worker that
+failed as an API out of reach. Nothing above the transport changes: the
+pages, the hooks and the operations are the ones the full system serves.
+What the engine's jobs changed is read again when the worker says so, and
+when the demo starts over every tab reloads.
 
 The first visit waits a few seconds while the database, Python and the
 engine start on the visitor's device: a bar under the header shows the
@@ -62,6 +64,22 @@ npm run demo:build      # the site, the console and the sandbox, assembled in di
 npm run demo:serve      # dist/demo/ on http://127.0.0.1:4651
 npm run photos -w site  # the photos of docs/images/, taken again from the demo
 ```
+
+The site's journey in the demo, one run of the check's suite `demo` on
+25 October 2026: a Windows 10 virtual machine with 8 cores of an Intel Core
+i7-10700 and 12 GB, shared with other work, so under load and not a
+benchmark; headless Chromium 151 with one browser profile, the demo served
+from `dist/demo/` on 127.0.0.1, with no throttling. A first visit from an
+empty browser had the home ready in 5.3 s, the worker's steps shown
+meanwhile; a second tab was ready in 0.6 s. From another tab, a Student
+Autumn Pass written, signed and scheduled through the console's API, then
+the skip to its launch: the worker moved its clock, ran the launch's five
+steps and answered in 2.6 s, and the site's open tab showed the campaign at
+the same moment, 2.6 s after the skip. A reload had the home ready in 4.9 s; with every tab closed, the
+worker started again on the data it kept in 5.1 s; Start over put every tab
+back as the demo was built in 6.3 s. axe on 2 pages with no violation, and
+no request left the address. The summary of the run, with the machine and
+the conditions, is `reports/demo-site.json`.
 
 ## Pages
 
@@ -208,7 +226,7 @@ npm run e2e -w site -- gift         # stage 7's alone
 |---|---|---|
 | `site-types` | `tsc` over the pages and components as Next.js builds them, then over what Node runs | 48 and 39 files |
 | `site-codegen` | every operation validates against the public schema, and the generated types equal a fresh generation | 14 operations |
-| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit, the tab and the sandbox's worker over their protocol (with a fake worker) | 83 tests |
+| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit, the tab and the sandbox's worker over their protocol (with a fake worker), a worker that failed said as an API out of reach | 84 tests |
 | `site-build` | the static export, every page in it, the API it calls written in | 5 pages |
 | `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 9 tests, 9 audit events, axe on 9 pages, 20 pages fitted |
 | `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a request for consent in Germany answered, a notice in Italy, below | 9 tests, 5 audit events, axe on 9 pages, 10 pages fitted |

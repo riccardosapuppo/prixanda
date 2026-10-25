@@ -7,7 +7,9 @@
 //
 // The worker keeps one session per API for every tab of the origin, as a
 // browser keeps one cookie: a session here signs its person in again before
-// each call, so two people take turns on the one session.
+// each call, so two people take turns on the one session. Signing in over a
+// session that exists takes that session's CSRF token, as any mutation does,
+// so it is read first.
 import { randomUUID } from "node:crypto";
 import type { Page } from "playwright";
 import { type CommandName, WORKER_NAME, WORKER_URL } from "sandbox/protocol";
@@ -73,7 +75,10 @@ async function graphql(page: Page, query: string, variables: Record<string, unkn
 /** One of the demo's people on the console's API, through the worker of the page. */
 export async function workerSession(page: Page, person: string): Promise<Session> {
   const signIn = async () => {
-    const answer = await graphql(page, "mutation SignIn($id: ID!) { signIn(personId: $id) { csrfToken } }", { id: person }, {});
+    const current = await graphql(page, "query { session { csrfToken } }", {}, {});
+    const held: unknown = current.body?.data?.session?.csrfToken;
+    const answer = await graphql(page, "mutation SignIn($id: ID!) { signIn(personId: $id) { csrfToken } }", { id: person },
+      typeof held === "string" ? { "x-csrf-token": held } : {});
     const token = answer.body?.data?.signIn?.csrfToken;
     if (typeof token !== "string") throw new Error(`could not sign in as ${person} through the worker: ${answer.text}`);
     return token;

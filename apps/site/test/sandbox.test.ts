@@ -1,12 +1,15 @@
-// The site's side of the demo's sandbox (stage 8), against the protocol of
-// packages/sandbox with a fake worker: the hello, the requests held until
-// the worker is ready, a request as a graphql message and its reply read like
-// the gateway's, a worker of another build, a worker that fails, what changed
-// read again, a reset, an abort, the commands, and what a browser lacks.
+// The site's side of the demo's sandbox (stage 8): the sandbox package's
+// client as the site opens it, against the protocol of packages/sandbox with a
+// fake worker. The hello, the requests held until the worker is ready, a
+// request as a graphql message and its reply read like the gateway's, a
+// worker of another build, a worker that fails, said to the pages as an API
+// out of reach, what changed read again, a reset, an abort, the commands, and
+// what a browser lacks.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { BackendFailure } from "sandbox/client";
 import { CHANGES, parseToWorker, type ToWorker } from "sandbox/protocol";
-import { createSiteApi } from "../src/data/api.ts";
+import { ApiError, createSiteApi } from "../src/data/api.ts";
 import { connectSandbox, missingInBrowser, type Port, READ_AGAIN, sandboxTransport } from "../src/data/sandbox.ts";
 import { TransportFailure } from "../src/data/transport.ts";
 import { SiteMarkets } from "../src/graphql/generated.ts";
@@ -82,7 +85,7 @@ describe("the site's tab and the sandbox's worker", () => {
     const sandbox = connectSandbox(worker.port, { build: "b1" });
     const waiting = sandbox.graphql({}, "{}");
     worker.say({ ...READY, info: { ...READY.info, build: "b2" } });
-    await assert.rejects(waiting, TransportFailure);
+    await assert.rejects(waiting, BackendFailure);
     assert.equal(sandbox.status().state, "other-build");
   });
 
@@ -100,8 +103,20 @@ describe("the site's tab and the sandbox's worker", () => {
     const sandbox = connectSandbox(worker.port, { build: "b1" });
     const waiting = sandbox.graphql({}, "{}");
     sandbox.broken("the demo's engine could not be loaded from this address");
-    await assert.rejects(waiting, TransportFailure);
+    await assert.rejects(waiting, BackendFailure);
     assert.equal(sandbox.status().state, "failed");
+  });
+
+  it("says a worker that failed to the pages as an API out of reach, with its reason", async () => {
+    const worker = fakeWorker();
+    const sandbox = connectSandbox(worker.port, { build: "b1" });
+    const transport = sandboxTransport(sandbox);
+    const sent = transport.send({ operationName: "SiteMarkets", query: "{ markets { code } }", variables: {}, headers: {} });
+    const api = createSiteApi(sandboxTransport(sandbox), { csrfToken: () => null });
+    const asked = api.query(SiteMarkets, {});
+    worker.say({ kind: "failed", reason: "IndexedDB is not available in a private window" });
+    await assert.rejects(sent, (error: unknown) => error instanceof TransportFailure && /IndexedDB/.test(error.message));
+    await assert.rejects(asked, (error: unknown) => error instanceof ApiError && error.code === "UNREACHABLE" && /IndexedDB/.test(error.message));
   });
 
   it("passes on what changed, and the reset", () => {

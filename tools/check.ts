@@ -20,10 +20,10 @@ import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { buildConsole, GATEWAY_URL as E2E_GATEWAY_URL, runEndToEnd } from "../apps/console/e2e/run.ts";
 import { nestedSegmentFiles } from "../apps/site/scripts/segments.ts";
-import { buildDemo, DEMO_URL, missingParts, serveDemo } from "./demo.ts";
 import { buildSandbox } from "../packages/sandbox/scripts/build.ts";
 import { measureWorker } from "../packages/sandbox/scripts/measure.ts";
 import { buildEngineAssets } from "../packages/sandbox/src/engine/build/assets.ts";
+import { buildDemo, DEMO_URL, missingParts, serveDemo } from "./demo.ts";
 import { licenseInventory, writeReport } from "./licenses.ts";
 import { flyway } from "./lib/flyway.ts";
 import { measure } from "./lib/measure.ts";
@@ -1001,7 +1001,7 @@ const DEMO_JOURNEYS: readonly DemoJourney[] = [
     summaryVariable: "SITE_DEMO_SUMMARY",
     floor: 6,
     describe: (summary) => `first start ${seconds(summary["coldReadyMs"])}, second tab ${seconds(summary["secondTabMs"])},`
-      + ` the campaign on the site ${seconds(summary["offerOnSiteMs"])} after the launch, a reload ${seconds(summary["reloadMs"])},`
+      + ` the campaign launched in ${seconds(summary["launchMs"])} and on the site ${seconds(summary["offerOnSiteMs"])} after the skip to it, a reload ${seconds(summary["reloadMs"])},`
       + ` the worker again ${seconds(summary["restartMs"])}, start over ${seconds(summary["startOverMs"])};`
       + ` axe on ${String(summary["pagesChecked"])} pages, ${String(summary["seriousViolations"])} serious; ${String(summary["externalRequests"])} requests elsewhere`,
   },
@@ -1088,7 +1088,7 @@ async function nodeTests(suite: string, files: string[], floor: number, env: Rec
 // where the end-to-end test starts it (CHECK_GATEWAY_PUBLIC_PORT).
 const siteDir = join(repoRoot, "apps", "site");
 const SITE_FLOOR = {
-  files: 48, nodeFiles: 39, operations: 14, unitTests: 83, e2eTests: 9, e2eAuditEvents: 9, e2ePagesChecked: 9, e2eLayoutChecks: 20,
+  files: 48, nodeFiles: 39, operations: 14, unitTests: 84, e2eTests: 9, e2eAuditEvents: 9, e2ePagesChecked: 9, e2eLayoutChecks: 20,
   e2e7Tests: 9, e2e7AuditEvents: 5, e2e7PagesChecked: 9, e2e7LayoutChecks: 10,
 };
 const SITE_PAGES = ["index.html", "campaign/index.html", "account/index.html", "session/index.html", "404.html"];

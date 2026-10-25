@@ -1,4 +1,4 @@
-// The site in the assembled demo (stage 8, BRIEF-TAPPA-8-DEMO.md, part 3):
+// The site in the assembled browser demo (stage 8):
 // dist/demo/ served on DEMO_URL (npm run demo:serve, or the check's suite
 // demo), headless Chromium, one browser with its tabs, as a visitor has.
 //
@@ -38,6 +38,9 @@ const watch = new Watch(() => {
 const times = {
   coldReadyMs: Number.NaN,
   secondTabMs: Number.NaN,
+  /** From the skip to the campaign's launch until the worker answered it: the launch's five steps, run in this browser. */
+  launchMs: Number.NaN,
+  /** From the same skip until the campaign is on the site's open tab. */
   offerOnSiteMs: Number.NaN,
   reloadMs: Number.NaN,
   restartMs: Number.NaN,
@@ -120,9 +123,10 @@ describe("the site in the demo's sandbox: one browser, its tabs, one worker", ()
     const starts = romeLocal(new Date(now.getTime() + 2 * 86_400_000));
     const ends = romeLocal(new Date(now.getTime() + 40 * 86_400_000));
     await launchOffer((person) => workerSession(other, person), studentAutumnPass(starts, ends), "demo");
-    const skipped = await demoCommand(other, "skip-to-next-launch");
-    assert.equal(skipped.status, 200, JSON.stringify(skipped.body));
     const moved = performance.now();
+    const skipped = await demoCommand(other, "skip-to-next-launch");
+    times.launchMs = Math.round(performance.now() - moved);
+    assert.equal(skipped.status, 200, JSON.stringify(skipped.body));
     await offerFlag(first).waitFor({ timeout: 90_000 });
     times.offerOnSiteMs = Math.round(performance.now() - moved);
     await other.close();
