@@ -71,7 +71,9 @@
     padding-inline: clamp(1rem, 3.4vw, 3rem);
   }
 
-  /* Type roles: wide and light for the voice, heavy for the facts, italic for the notes. */
+  /* Type roles: wide and light for the voice, heavy for the facts, italic for the notes. A page that
+     opens on music or on an offer (the home, a session, a campaign) has a display title; a section,
+     the account and a page that says what is missing have a title-2, as in the design's mock-up. */
   .display {
     font-stretch: 125%;
     font-weight: 250;

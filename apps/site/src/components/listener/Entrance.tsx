@@ -6,8 +6,8 @@
 import { Icon } from "design/icon";
 import { useEffect, useId, useRef, useState } from "react";
 import { copy } from "../../content/copy.ts";
-import { useDemoListeners, useMarkets, useSignIn } from "../../data/hooks.ts";
-import { Failure, Loading } from "../ui/States.tsx";
+import { useDemoListeners, useMarketName, useSignIn } from "../../data/hooks.ts";
+import { Failure, Loading, Named } from "../ui/States.tsx";
 
 type Heading = "h1" | "h2" | "h3";
 
@@ -20,7 +20,6 @@ export function Entrance({ market, elsewhere = copy.entrance.inOtherMarket, head
   readonly focusOnMount?: boolean;
 }) {
   const listeners = useDemoListeners();
-  const markets = useMarkets();
   const signIn = useSignIn();
   const [picked, setPicked] = useState<string | null>(null);
   const titleId = useId();
@@ -33,7 +32,7 @@ export function Entrance({ market, elsewhere = copy.entrance.inOtherMarket, head
 
   const ordered = (listeners.data ?? []).toSorted((a, b) => Number(b.market === market) - Number(a.market === market));
   const chosen = picked ?? ordered[0]?.id ?? null;
-  const marketName = (code: string) => markets.data?.find((each) => each.code === code)?.name ?? code;
+  const marketName = useMarketName();
 
   return (
     <section aria-labelledby={titleId} className="grid gap-4">
@@ -71,7 +70,9 @@ export function Entrance({ market, elsewhere = copy.entrance.inOtherMarket, head
                   <span className="font-semibold">{listener.title}</span>
                   <span className="text-sm text-ink-2">{listener.label}</span>
                   {market !== undefined && listener.market !== market ? (
-                    <span className="text-sm text-ink-2">{elsewhere(marketName(listener.market))}</span>
+                    <span className="text-sm text-ink-2">
+                      <Named ready={marketName(listener.market) !== null}>{elsewhere(marketName(listener.market) ?? listener.market)}</Named>
+                    </span>
                   ) : null}
                 </span>
               </label>

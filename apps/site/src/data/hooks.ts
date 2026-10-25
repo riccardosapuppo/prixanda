@@ -37,6 +37,15 @@ export function useMarkets() {
   });
 }
 
+/**
+ * A market's name as the API gives it: null while the markets are not read
+ * yet, or could not be, and never the market's code in its place.
+ */
+export function useMarketName(): (code: string) => string | null {
+  const markets = useMarkets();
+  return (code) => markets.data?.find((each) => each.code === code)?.name ?? null;
+}
+
 const plansQuery = (api: SiteApi, market: SiteMarket) => ({
   queryKey: keys.plans(market),
   queryFn: async ({ signal }: { readonly signal: AbortSignal }) => (await api.query(SitePlans, { market }, signal)).plans,

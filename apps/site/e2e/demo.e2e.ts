@@ -12,7 +12,10 @@
 //   5. Start over puts the demo back as it was built, in every tab. The
 //      panel about the sandbox, and its question before starting over, fit
 //      every width as they stand.
-//   6. No request left the origin, and no page logged an error.
+//   6. A browser that cannot run the demo (no IndexedDB here) is told so,
+//      and on a phone's width the button to reload stands under the words,
+//      in line with them, not under the icon.
+//   7. No request left the origin, and no page logged an error.
 //
 // Each step is timed, and the times are written with the machine and the
 // conditions they were taken under (SITE_DEMO_SUMMARY).
@@ -185,9 +188,26 @@ describe("the site in the demo's sandbox: one browser, its tabs, one worker", ()
     assert.equal(await offerFlag(second).count(), 0, "the campaign is gone in the other tab too");
   });
 
-  test("6. no request left the origin, and no page logged an error", () => {
+  test("6. a browser that cannot run the demo is told so, the button to reload under the words on a phone", async () => {
+    const phone = await watch.context(390);
+    await phone.addInitScript(() => Object.defineProperty(window, "indexedDB", { value: undefined, configurable: true }));
+    const page = await watch.tab(phone);
+    await page.goto(`${DEMO_URL}/?market=IT`);
+    const bar = page.locator("[data-sandbox='failed']");
+    await bar.waitFor({ timeout: 30_000 });
+    assert.match(await bar.innerText(), /This browser does not offer IndexedDB/);
+    const words = await bar.locator(".sandbox-bar-row > div").boundingBox();
+    const button = await bar.getByRole("button", { name: "Reload" }).boundingBox();
+    assert.ok(words && button);
+    assert.equal(Math.round(button.x), Math.round(words.x), "the button stands under the words, in line with them");
+    assert.ok(button.y >= words.y + words.height, "under them, on a line of its own");
+    await watch.accessible(page, "a browser that cannot run the demo");
+    await phone.close();
+  });
+
+  test("7. no request left the origin, and no page logged an error", () => {
     assert.equal(watch.externalRequests, 0);
     assert.deepEqual(watch.pageErrors, []);
-    assert.ok(watch.pagesChecked >= 2, `axe ran on ${watch.pagesChecked} pages`);
+    assert.ok(watch.pagesChecked >= 3, `axe ran on ${watch.pagesChecked} pages`);
   });
 });

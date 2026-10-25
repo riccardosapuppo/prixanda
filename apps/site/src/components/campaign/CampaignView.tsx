@@ -15,12 +15,12 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 import { copy } from "../../content/copy.ts";
-import { type Offer, useMarkets, useOffers, usePlans } from "../../data/hooks.ts";
+import { type Offer, useMarketName, useMarkets, useOffers, usePlans } from "../../data/hooks.ts";
 import { marketFromQuery, type SiteMarket } from "../../data/markets.ts";
 import { lastDayBefore } from "../../lib/dates.ts";
 import { monthsScene } from "../art/geometry.ts";
 import { MonthsDrawing } from "../art/Sails.tsx";
-import { Failure, Loading } from "../ui/States.tsx";
+import { Failure, Loading, Named } from "../ui/States.tsx";
 import { CampaignAction } from "./CampaignAction.tsx";
 import { PromiseBand } from "./PromiseBand.tsx";
 
@@ -35,6 +35,7 @@ export function CampaignView() {
 function Campaign({ market, offerId }: { readonly market: SiteMarket; readonly offerId: string }) {
   const offers = useOffers(market);
   const markets = useMarkets();
+  const marketNameOf = useMarketName();
   const plans = usePlans(market);
   const offer = offers.data?.find((candidate) => candidate.id === offerId);
 
@@ -56,11 +57,12 @@ function Campaign({ market, offerId }: { readonly market: SiteMarket; readonly o
   if (offers.data === undefined) return <div className="wrap py-12">{failure}</div>;
   if (!offer) return <Gone market={market} />;
   const marketData = markets.data?.find((candidate) => candidate.code === market);
-  const planName = plans.data?.find((candidate) => candidate.code === offer.plan)?.name ?? offer.plan;
+  // Null while the plans are read: never the plan's code in a sentence.
+  const planName = plans.data?.find((candidate) => candidate.code === offer.plan)?.name ?? null;
   return (
     <>
       {failure ? <div className="wrap pt-6">{failure}</div> : null}
-      <CampaignPage offer={offer} market={market} marketName={marketData?.name ?? market} minimum={marketData?.artistsMinimum ?? null} planName={planName} />
+      <CampaignPage offer={offer} market={market} marketName={marketNameOf(market)} minimum={marketData?.artistsMinimum ?? null} planName={planName} />
     </>
   );
 }
@@ -68,9 +70,9 @@ function Campaign({ market, offerId }: { readonly market: SiteMarket; readonly o
 function CampaignPage({ offer, market, marketName, minimum, planName }: {
   readonly offer: Offer;
   readonly market: SiteMarket;
-  readonly marketName: string;
+  readonly marketName: string | null;
   readonly minimum: MoneyLike | null;
-  readonly planName: string;
+  readonly planName: string | null;
 }) {
   const price = formatSitePrice(offer.price, market);
   const list = formatSitePrice(offer.listPrice, market);
@@ -78,7 +80,8 @@ function CampaignPage({ offer, market, marketName, minimum, planName }: {
   const scene = monthsScene(months);
   const audienceTag = offer.listening
     ? copy.listening.tag(offer.listening.artist)
-    : offer.needsStudentCheck ? copy.campaign.studentsIn(marketName) : copy.campaign.planIn(planName, marketName);
+    : offer.needsStudentCheck ? copy.campaign.studentsIn(marketName ?? market) : copy.campaign.planIn(planName ?? offer.plan, marketName ?? market);
+  const tagNamed = offer.listening !== null || (marketName !== null && (offer.needsStudentCheck || planName !== null));
   const until = offer.takeableUntil ? lastDayBefore(offer.takeableUntil.local) : null;
   const tag = offer.takeableUntil ? `${audienceTag} · until ${lastDayBefore(offer.takeableUntil.local, { withYear: false })}` : audienceTag;
 
@@ -103,9 +106,11 @@ function CampaignPage({ offer, market, marketName, minimum, planName }: {
           <CampaignAction offer={offer} market={market} marketName={marketName} planName={planName} />
         </div>
         <figure aria-labelledby="campaign-months" className="col-span-12 m-0 grid gap-2 lg:col-span-7">
-          <p className="m-0 justify-self-start rounded-control border border-saffron bg-stone-0 px-[0.7rem] py-[0.3rem] text-md font-[650] text-saffron">
-            {tag}
-          </p>
+          <Named block ready={tagNamed}>
+            <p className="m-0 justify-self-start rounded-control border border-saffron bg-stone-0 px-[0.7rem] py-[0.3rem] text-md font-[650] text-saffron">
+              {tag}
+            </p>
+          </Named>
           <MonthsDrawing scene={scene} />
           <figcaption
             id="campaign-months"
@@ -120,7 +125,7 @@ function CampaignPage({ offer, market, marketName, minimum, planName }: {
             ))}
             <span className="grid content-start border-l border-cord pr-[0.3rem] pl-[0.45rem]" style={{ gridColumn: `span ${scene.columns - months}` }}>
               <b className="num text-lg font-bold text-indigo">{list}</b>
-              {copy.campaign.then(planName)}
+              <Named ready={planName !== null}>{copy.campaign.then(planName ?? offer.plan)}</Named>
             </span>
           </figcaption>
         </figure>

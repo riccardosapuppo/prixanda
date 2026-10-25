@@ -8,14 +8,10 @@ import type { Route } from "next";
 import Link from "next/link";
 import { copy } from "../../content/copy.ts";
 import { type Label, releasesOf, runningTime, sessionOf, slug } from "../../content/editorial.ts";
-import { useLabels, useMarkets, useReleases } from "../../data/hooks.ts";
+import { useLabels, useMarketName, useReleases } from "../../data/hooks.ts";
+import { Named } from "../ui/States.tsx";
 import { Cover, Sleeves } from "../art/Cover.tsx";
 import { TECHNIQUE } from "../art/covers.ts";
-
-function useMarketName() {
-  const markets = useMarkets();
-  return (code: string) => markets.data?.find((each) => each.code === code)?.name ?? code;
-}
 
 export function Releases() {
   const labels = useLabels();
@@ -34,7 +30,11 @@ export function Releases() {
             <article key={label.id} className="label-block" id={id} aria-labelledby={`${id}-name`}>
               <header className="label-head">
                 <h3 id={`${id}-name`}>{label.name}</h3>
-                <p>{copy.catalogue.labelFacts(marketName(label.country), records.length, TECHNIQUE[label.name] ?? "linocut")}</p>
+                <p>
+                  <Named ready={marketName(label.country) !== null}>
+                    {copy.catalogue.labelFacts(marketName(label.country) ?? label.country, records.length, TECHNIQUE[label.name] ?? "linocut")}
+                  </Named>
+                </p>
               </header>
               <ul role="list" className={records.length === 1 ? "records records-one" : "records"}>
                 {records.map((record) => (
@@ -81,7 +81,7 @@ export function Sessions() {
               <div className="session-words">
                 <h3>
                   {label.name}
-                  <span>{marketName(label.country)}</span>
+                  {marketName(label.country) !== null ? <span>{marketName(label.country)}</span> : null}
                 </h3>
                 <p>
                   {session.records.map((record, index) => (

@@ -120,7 +120,7 @@ function OtherMarket({ me, target, level }: { readonly me: Me; readonly target: 
   );
 }
 
-/** Who the steps act for, and the way to be someone else. */
+/** Who the steps act for, and the way to be someone else at the end of the row, as in the account, under the name too. */
 export function Who({ me }: { readonly me: Me }) {
   const signOut = useSignOut();
   return (
@@ -132,7 +132,7 @@ export function Who({ me }: { readonly me: Me }) {
           <b>{me.title}</b>
         </span>
       </p>
-      <button type="button" className="btn btn-quiet" aria-disabled={signOut.isPending} onClick={() => signOut.isPending || signOut.mutate()}>
+      <button type="button" className="btn btn-quiet ml-auto" aria-disabled={signOut.isPending} onClick={() => signOut.isPending || signOut.mutate()}>
         <Icon name="user-switch" size={16} />
         {copy.entrance.switch}
       </button>

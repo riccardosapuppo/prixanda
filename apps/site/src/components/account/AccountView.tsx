@@ -20,12 +20,12 @@ import type { Route } from "next";
 import Link from "next/link";
 import { type ReactNode, useEffect } from "react";
 import { copy } from "../../content/copy.ts";
-import { type Me, useMarkets, useMeWhileWaiting, usePlans, useSignOut } from "../../data/hooks.ts";
+import { type Me, useMarketName, useMarkets, useMeWhileWaiting, usePlans, useSignOut } from "../../data/hooks.ts";
 import { isSiteMarket, type SiteMarket } from "../../data/markets.ts";
 import type { SitePaymentFragment } from "../../graphql/generated.ts";
 import { lastDayBefore, siteDay, siteDayAt } from "../../lib/dates.ts";
 import { Entrance } from "../listener/Entrance.tsx";
-import { Failure, Loading } from "../ui/States.tsx";
+import { Failure, Loading, Named } from "../ui/States.tsx";
 import { ActivateCode, codeMoney, PrepaidCodes } from "./Prepaid.tsx";
 import { PriceChanges } from "./PriceChanges.tsx";
 
@@ -42,7 +42,7 @@ export function AccountView() {
 
   return (
     <section className="wrap grid gap-8 pt-[clamp(1.75rem,3vw,3rem)] pb-16" aria-labelledby="account-title">
-      <h1 id="account-title" className="display m-0">{copy.account.title}</h1>
+      <h1 id="account-title" className="title-2 m-0">{copy.account.title}</h1>
       {me.isPending ? <Loading /> : null}
       {me.isError ? <Failure error={me.error} onRetry={() => void me.refetch()} /> : null}
       {me.data === null ? (
@@ -64,18 +64,22 @@ export function AccountView() {
 function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly timedOut: boolean; readonly onCheckAgain: () => void }) {
   const market: SiteMarket | null = isSiteMarket(me.market) ? me.market : null;
   const markets = useMarkets();
+  const marketNameOf = useMarketName();
   const plans = usePlans(market ?? "IT");
   const signOut = useSignOut();
   const { subscription, payment, studentVerification, priceChanges, prepaidCodes } = me.account;
   const askingYes = priceChanges.some((change) => change.state === "WAITING" && change.kind === "CONSENT");
   const write = (money: MoneyLike) => (market ? formatSitePrice(money, market) : `${money.amountMinor} ${money.currency}`);
   const marketData = markets.data?.find((each) => each.code === me.market);
-  const marketName = marketData?.name ?? me.market;
-  const planName = plans.data?.find((plan) => plan.code === subscription.plan)?.name ?? subscription.plan;
+  // The plan's and the market's names come with the plans and the markets: until then what speaks of
+  // them keeps its place unseen, rather than show their codes.
+  const marketName = marketNameOf(me.market);
+  const planName = plans.data?.find((plan) => plan.code === subscription.plan)?.name ?? null;
+  const named = marketName !== null && planName !== null;
 
   return (
     <div className="grid gap-8">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <p className="m-0 grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-2">
           <Icon name="user-circle" size={22} className="mt-[0.2rem]" />
           <span className="grid">
@@ -83,14 +87,16 @@ function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly tim
             <b className="text-xl">{me.title}</b>
           </span>
         </p>
-        <button type="button" className="btn btn-quiet" aria-disabled={signOut.isPending} onClick={() => signOut.isPending || signOut.mutate()}>
+        <button type="button" className="btn btn-quiet ml-auto" aria-disabled={signOut.isPending} onClick={() => signOut.isPending || signOut.mutate()}>
           <Icon name="user-switch" size={16} />
           {copy.entrance.switch}
         </button>
       </div>
 
       <dl className="m-0 grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-x-12 gap-y-4 border-y border-cord py-4">
-        <Fact term={copy.account.plan}>{copy.account.planIn(planName, marketName)}</Fact>
+        <Fact term={copy.account.plan}>
+          <Named ready={named}>{copy.account.planIn(planName ?? subscription.plan, marketName ?? me.market)}</Named>
+        </Fact>
         {subscription.prepaidCode && subscription.prepaidPrice ? (
           <Fact term={copy.account.price}>
             {copy.account.prepaid(write(subscription.prepaidPrice))}
@@ -123,7 +129,9 @@ function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly tim
       </dl>
 
       {market && priceChanges.length > 0 ? (
-        <PriceChanges changes={priceChanges} market={market} marketName={marketName} planName={planName} />
+        <Named block ready={named}>
+          <PriceChanges changes={priceChanges} market={market} marketName={marketName ?? me.market} planName={planName ?? subscription.plan} />
+        </Named>
       ) : null}
 
       {!subscription.paid ? (

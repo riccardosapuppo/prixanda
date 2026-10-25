@@ -1451,21 +1451,25 @@
   .sandbox-bar.is-failed {
     border-bottom: 2px solid var(--color-madder);
   }
+  /* The icon, the words, and what the visitor can do or see happen: on a phone that goes under the
+     words, in line with them. */
   .sandbox-bar-row {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 0.5rem 1rem;
     padding-top: 0.6rem;
     padding-bottom: 0.6rem;
   }
-  .sandbox-bar-row > .icon {
-    flex: none;
-  }
-  .sandbox-bar-row > p,
-  .sandbox-bar-row > div {
-    flex: 1 1 20rem;
-    min-width: 0;
+  @media (max-width: 760px) {
+    .sandbox-bar-row {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+    .sandbox-bar-row > .btn,
+    .sandbox-bar-row > .sandbox-meter {
+      grid-column: 2;
+      justify-self: start;
+    }
   }
   .sandbox-meter {
     display: inline-flex;
