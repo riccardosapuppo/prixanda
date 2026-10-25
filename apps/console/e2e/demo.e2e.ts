@@ -24,6 +24,7 @@ import { cpus, platform, release, totalmem } from "node:os";
 import { after, before, describe, test } from "node:test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Browser, type BrowserContext, chromium, type Locator, type Page } from "playwright";
+import { animationsEnded } from "./animations.ts";
 
 const DEMO_URL = process.env["DEMO_URL"] ?? `http://127.0.0.1:${process.env["DEMO_PORT"] ?? 4651}`;
 const SUMMARY = process.env["CONSOLE_DEMO_SUMMARY"] ?? "";
@@ -53,14 +54,35 @@ function watch(page: Page): void {
   });
 }
 
-/** axe on the page as it stands: WCAG 2.2 A and AA. Serious or critical violations fail the step. */
+/**
+ * axe on the page as it stands, once what comes in animated is in (e2e/animations.ts): WCAG 2.2 A and AA. Serious
+ * or critical violations fail the step.
+ */
 async function accessible(page: Page, where: string): Promise<void> {
+  await animationsEnded(page);
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
   const serious = results.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical");
   seen.pagesChecked += 1;
   seen.seriousViolations += serious.length;
   seen.otherViolations += results.violations.length - serious.length;
   assert.deepEqual(serious.map((violation) => `${violation.id}: ${violation.nodes.slice(0, 2).map((node) => node.target.join(" ")).join(" | ")}`), [], `axe on ${where}`);
+}
+
+/**
+ * The page's animations at a fraction of their speed, through the browser's own protocol, until restore(): what comes
+ * in fading takes that much longer, as on a machine far slower than this one.
+ */
+async function slowAnimations(page: Page, rate: number): Promise<{ restore: () => Promise<void> }> {
+  assert.ok(context);
+  const session = await context.newCDPSession(page);
+  await session.send("Animation.enable");
+  await session.send("Animation.setPlaybackRate", { playbackRate: rate });
+  return {
+    async restore() {
+      await session.send("Animation.setPlaybackRate", { playbackRate: 1 });
+      await session.detach();
+    },
+  };
 }
 
 /** The demo has started in this tab: the start is gone. */
@@ -276,10 +298,14 @@ describe("the console in the demo's sandbox: the recruiter's path, two tabs, one
     await about.waitFor();
     assert.match(await about.innerText(), /IndexedDB/);
     await accessible(page, "the panel about the sandbox");
+    // The confirmation comes in fading, here ten times slower than it does: measured before its animation ended, its
+    // buttons would be half transparent, as they were on a slow machine. axe measures it once it is in.
+    const slowed = await slowAnimations(page, 0.1);
     await click(about.getByRole("button", { name: "Start over" }));
     const dialog = page.getByRole("dialog", { name: "Start over?" });
     await dialog.waitFor();
     await accessible(page, "the confirmation of Start over");
+    await slowed.restore();
     const reloads = Promise.all([page.waitForEvent("load", { timeout: 60_000 }), siteTab.waitForEvent("load", { timeout: 60_000 })]);
     const begun = performance.now();
     await click(dialog.getByRole("button", { name: "Yes, start over" }));

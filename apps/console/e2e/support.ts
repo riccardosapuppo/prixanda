@@ -9,6 +9,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { type BrowserContext, expect, type Locator, type Page } from "@playwright/test";
+import { animationsEnded } from "./animations.ts";
 
 export const GATEWAY_URL = process.env["GATEWAY_URL"] ?? `http://127.0.0.1:${process.env["GATEWAY_INTERNAL_PORT"] ?? 4621}/graphql`;
 export const SITE_API_URL = process.env["GATEWAY_PUBLIC_URL"] ?? `http://127.0.0.1:${process.env["GATEWAY_PUBLIC_PORT"] ?? 4622}/graphql`;
@@ -55,8 +56,12 @@ export async function switchTo(page: Page, label: string): Promise<void> {
 
 export type AxeOutcome = { readonly serious: number; readonly moderate: number; readonly ids: readonly string[] };
 
-/** axe on the page as it is now: WCAG 2.2 A and AA rules. Serious or critical violations fail the test. */
+/**
+ * axe on the page as it is now, once what comes in animated is in (e2e/animations.ts): WCAG 2.2 A and AA rules.
+ * Serious or critical violations fail the test.
+ */
 export async function axe(page: Page, where: string): Promise<AxeOutcome> {
+  await animationsEnded(page);
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"]).analyze();
   const serious = results.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical");
   const moderate = results.violations.filter((violation) => violation.impact === "moderate" || violation.impact === "minor");
