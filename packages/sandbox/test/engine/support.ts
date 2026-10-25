@@ -20,12 +20,17 @@ export function assetsDir(): string {
   return dir;
 }
 
-export type NodeEngine = { engine: SandboxEngine; token: string; logs: string[]; manifest: Manifest };
+/** Failures the tests ask for: how many of the next downloads of the snapshot, and of the next removals of the data
+ * (IndexedDB's in the browser; there is nothing to remove in Node), fail. */
+export type Failures = { snapshot: number; remove: number };
+
+export type NodeEngine = { engine: SandboxEngine; token: string; logs: string[]; manifest: Manifest; failures: Failures };
 
 export async function nodeEngine(assets = assetsDir()): Promise<NodeEngine> {
   const manifest = JSON.parse(await readFile(join(assets, "engine", "manifest.json"), "utf8")) as Manifest;
   const token = randomBytes(32).toString("base64url");
   const logs: string[] = [];
+  const failures: Failures = { snapshot: 0, remove: 0 };
   const zip = await readFile(join(assets, "engine", manifest.engine));
   const engine = await createEngine({
     modules: { PGlite, btree_gist },
@@ -35,12 +40,24 @@ export async function nodeEngine(assets = assetsDir()): Promise<NodeEngine> {
       packageBaseUrl: `${join(assets, "pyodide").replaceAll("\\", "/")}/`,
       engine: async () => zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer,
     },
-    snapshot: async () => new Blob([await readFile(join(assets, "engine", manifest.snapshot))]),
+    snapshot: async () => {
+      if (failures.snapshot > 0) {
+        failures.snapshot -= 1;
+        throw new Error(`/sandbox/engine/${manifest.snapshot} answered 503`);
+      }
+      return new Blob([await readFile(join(assets, "engine", manifest.snapshot))]);
+    },
+    remove: async () => {
+      if (failures.remove > 0) {
+        failures.remove -= 1;
+        throw new Error("IndexedDB did not delete the database");
+      }
+    },
     migrations: async () => JSON.parse(await readFile(join(assets, "engine", manifest.migrations), "utf8")) as Migration[],
     token,
     onLog: (line) => logs.push(line),
   });
-  return { engine, token, logs, manifest };
+  return { engine, token, logs, manifest, failures };
 }
 
 export type Who = readonly [actor: string, role: string] | null;

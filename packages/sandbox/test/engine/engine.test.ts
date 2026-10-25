@@ -263,6 +263,35 @@ test("reset goes back to the build's snapshot", async () => {
   assert.equal(await on.engine.clock.nextDue(), null);
 });
 
+test("a start over whose snapshot cannot be downloaded leaves the demo as it was, and the next one starts over", async () => {
+  const lead = ["commercial-lead-1", "commercial_lead"] as const;
+  await rpc(on, ChangeService.method.createChange, {
+    content: { case: "listPrice", value: { title: "Duo price, France", plan: "duo", market: "FR",
+      amount: { amountMinor: 1699n, currency: "EUR" }, startsLocal: `${romeLocal(on.engine.clock.now(), 60, 0)}` } },
+  }, lead);
+  on.failures.snapshot = 1;
+  await assert.rejects(on.engine.reset(), /answered 503/);
+  // The snapshot is downloaded before anything closes: the data in use is still open, as it was.
+  assert.equal((await rpc(on, ChangeService.method.listChanges, {}, lead)).changes.length, 1);
+  await on.engine.reset();
+  assert.equal((await rpc(on, ChangeService.method.listChanges, {}, lead)).changes.length, 0);
+  assert.equal((await rpc(on, CatalogService.method.listMarkets, {})).markets.length, 4);
+});
+
+test("a start over that fails once the data is closed: calls say so with UNAVAILABLE, and the next start over opens it", async () => {
+  on.failures.remove = 1;
+  await assert.rejects(on.engine.reset(), (error: unknown) => error instanceof Error && error.name === "DataNotOpen"
+    && /could not be opened again after the start over \(IndexedDB did not delete the database\)/.test(error.message));
+  await assert.rejects(rpc(on, CatalogService.method.listMarkets, {}), (error: unknown) => error instanceof RpcError
+    && error.code === 14 && /start over again, or reload the page/.test(error.message));
+  assert.deepEqual(await on.engine.tick(), { ran: 0, changed: [] });
+  assert.equal(await on.engine.clock.nextDue(), null);
+  await assert.rejects(on.engine.skipToNextLaunch(), (error: unknown) => error instanceof Error && error.name === "DataNotOpen");
+  await on.engine.reset();
+  assert.equal((await rpc(on, CatalogService.method.listMarkets, {})).markets.length, 4);
+  assert.ok(Math.abs(on.engine.clock.now().getTime() - Date.parse(on.manifest.story)) < 60_000, "the clock is back at the story's start");
+});
+
 test("the engine's log has a line for each call, in JSON, and none on the console", async () => {
   const lines = on.logs.map((line) => JSON.parse(line) as { event: string; status?: number });
   assert.ok(lines.some((line) => line.event === "rpc" && line.status === 0));

@@ -314,6 +314,42 @@ describe("the sandbox's backend", () => {
     assert.equal(starts(), 2);
   });
 
+  test("a start over that leaves the engine with no data open: the jobs stop, and the next hello starts the demo again", async () => {
+    const engine = fakeBrowserEngine();
+    const { tab, starts } = start(engine);
+    const site = tab();
+    site.send({ kind: "hello", app: "site", build: "build-0001" });
+    await site.next(isReady);
+    engine.resetFails = Object.assign(new Error("The demo's data could not be opened again after the start over "
+      + "(IndexedDB did not delete the database): start over again, or reload the page."), { name: "DataNotOpen" });
+    const ticks = engine.ticks;
+    const answer = await site.command("reset");
+    assert.equal(answer.status, 503);
+    assert.match(answer.json.error, /could not be opened again/);
+    assert.equal(engine.ticks, ticks, "no jobs on an engine with no data open");
+    const reloaded = tab();
+    reloaded.send({ kind: "hello", app: "site", build: "build-0001" });
+    const ready = await reloaded.next(isReady);
+    assert.equal(ready.info.alreadyRunning, false, "a new start");
+    assert.equal(starts(), 2);
+    assert.equal((await reloaded.graphql("public", "{ markets { code } }")).status, 200);
+  });
+
+  test("a start over that fails before it closes the data: the engine runs on, and the next hello finds it running", async () => {
+    const engine = fakeBrowserEngine();
+    const { tab, starts } = start(engine);
+    const site = tab();
+    site.send({ kind: "hello", app: "site", build: "build-0001" });
+    await site.next(isReady);
+    engine.resetFails = new Error("/sandbox/engine/snapshot.tar.gz answered 503");
+    assert.equal((await site.command("reset")).status, 503);
+    const reloaded = tab();
+    reloaded.send({ kind: "hello", app: "site", build: "build-0001" });
+    assert.equal((await reloaded.next(isReady)).info.alreadyRunning, true);
+    assert.equal(starts(), 1);
+    assert.equal((await site.command("reset")).status, 200, "and a start over works on it");
+  });
+
   test("a tab that comes in while the worker starts sees the latest step at once, then ready with the others", async () => {
     const engine = fakeBrowserEngine();
     let release = () => {};

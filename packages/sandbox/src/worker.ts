@@ -13,7 +13,9 @@
 //   - the jobs run on a timer and after every request, and when they change
 //     something every tab is told what to read again;
 //   - the demo's commands: where it stands, start over, arm or clear the
-//     simulated fault, skip to the next launch.
+//     simulated fault, skip to the next launch; a start over that leaves the
+//     engine with no data open stops the jobs, and the next hello starts the
+//     demo again, unless another start over opened the data first.
 // The engine's data in IndexedDB is one worker's at a time: before the engine
 // starts, the worker takes the origin's lock on it (Web Locks) and keeps it
 // while it lives. The one SharedWorker waits for it only a moment, after a
@@ -139,6 +141,10 @@ export function createBackend(options: BackendOptions): Backend {
   let settled = false;
   /** The start failed: there are no jobs to run, and every request says so until a tab says hello again. */
   let failed = false;
+  /** A start over left the engine with no data open (its reset failed with DataNotOpen): no jobs run, and the next
+   * hello starts the demo again, unless another start over opened the data first. */
+  let broken = false;
+  let restarting: Promise<void> | null = null;
   let done = 0;
   let latest: Progress | null = null;
   let jobs: Promise<void> | null = null;
@@ -193,9 +199,30 @@ export function createBackend(options: BackendOptions): Backend {
     return starting;
   }
 
+  /**
+   * Lets the engine a start over left with no data open go, so that the next boot starts another: its timer stops,
+   * its gateway too. The lock on the data stays the worker's, and the new engine opens the data from the snapshot,
+   * as a first visit does. One at a time, for every tab that says hello meanwhile.
+   */
+  function restart(): Promise<void> {
+    restarting ??= (async () => {
+      const old = await booting?.catch(() => null);
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+      await old?.gateway.stop().catch((error: unknown) => log("error", "the gateway did not stop", error));
+      booting = null;
+      broken = false;
+    })().finally(() => {
+      restarting = null;
+    });
+    return restarting;
+  }
+
   /** The engine's jobs, one run at a time; a run asked for meanwhile follows it. */
   function runJobs(): Promise<void> {
-    if (booting === null || failed) return Promise.resolve();
+    if (booting === null || failed || broken) return Promise.resolve();
     if (jobs !== null) {
       again = true;
       return jobs;
@@ -245,8 +272,10 @@ export function createBackend(options: BackendOptions): Backend {
 
   async function hello(port: Port) {
     // A start that failed (a file that did not load, a browser that refused its storage) is tried again by the next
-    // tab that says hello: a reload is how a visitor tries again, and it finds the same SharedWorker.
-    if (failed) booting = null;
+    // tab that says hello: a reload is how a visitor tries again, and it finds the same SharedWorker. So is an engine
+    // a start over left with no data open.
+    if (broken || restarting !== null) await restart();
+    else if (failed) booting = null;
     const alreadyRunning = booting !== null;
     if (alreadyRunning && !settled && latest !== null) port.postMessage(latest);
     try {
@@ -289,7 +318,14 @@ export function createBackend(options: BackendOptions): Backend {
       }
       case "reset":
         return withoutJobs(async () => {
-          await engine.reset();
+          try {
+            await engine.reset();
+          } catch (error) {
+            // One that failed before it closed the data (the snapshot not downloaded) leaves the engine as it was.
+            if (error instanceof Error && error.name === "DataNotOpen") broken = true;
+            throw error;
+          }
+          broken = false;
           gateway.reset();
           broadcast({ kind: "reset" });
           return [200, { now: engine.clock.now().toISOString() }] as const;
