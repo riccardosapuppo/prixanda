@@ -22,7 +22,7 @@ import { createConnection } from "node:net";
 import { join } from "node:path";
 import { STACK_PORTS, startStack } from "../apps/console/scripts/stack.ts";
 import { flyway, flywayHome } from "./lib/flyway.ts";
-import { commerceDir, dataDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
+import { dataDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
 import { assertFree } from "./lib/ports.ts";
 import { createDatabase, isRunning, startCluster, stopIfRunning } from "./lib/postgres.ts";
 import { run } from "./lib/run.ts";
@@ -54,12 +54,6 @@ function inherit(command: string, commandArgs: string[]): Promise<number> {
     child.once("error", () => resolve(1));
     child.once("exit", (code) => resolve(code ?? 1));
   });
-}
-
-/** The machine's date, as the data's last day: today, where this runs. */
-function today(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 function listening(port: number): Promise<boolean> {
@@ -120,18 +114,6 @@ async function main(): Promise<number> {
       await stopDatabase();
       return 1;
     }
-    const people = await cluster.sql<{ n: number }>(DATABASE, "select count(*)::int as n from person");
-    if (people[0]?.n === 0) {
-      const until = today();
-      say(`loading the small generated data, seed 7, up to ${until} (the first start only)`);
-      const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(DATABASE, "owner"), "--size", "small",
-        "--seed", "7", "--until", until], { cwd: commerceDir, env: { ...process.env, PYTHONPATH: join(commerceDir, "src") } });
-      if (generated.code !== 0) {
-        console.log(generated.output.slice(-3000));
-        await stopDatabase();
-        return 1;
-      }
-    }
   } catch (error) {
     await stopDatabase();
     throw error;
@@ -150,7 +132,8 @@ async function main(): Promise<number> {
   };
   try {
     await assertFree(SITE_PORT, "the site");
-    stack = await startStack({ cluster, database: DATABASE, seed: false, enginePort: PORTS.engine, console: "dev" });
+    // The stack loads the small data the first time, up to the day it loads.
+    stack = await startStack({ cluster, database: DATABASE, seed: true, enginePort: PORTS.engine, console: "dev" });
     site = spawn(process.execPath, [join(repoRoot, "node_modules", "next", "dist", "bin", "next"), "dev", "--hostname", "127.0.0.1", "--port", String(SITE_PORT)], {
       cwd: siteDir,
       stdio: ["ignore", "pipe", "pipe"],
