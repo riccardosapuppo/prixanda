@@ -84,6 +84,17 @@ async def list_price_at(tx: Connection, plan: str, market: reference.Market, loc
     return None if amount is None else Money(amount, market.currency)
 
 
+async def list_price_replaced(tx: Connection, plan: str, market: reference.Market, local: datetime,
+                              change_id: int) -> Money | None:
+    """The list price a change replaces from a moment: the one in force then, the change's own left out. Once the
+    change launched, its price is the one in force from that moment, and the one before it ends there."""
+    amount = await tx.fetchval(
+        "select amount_minor from list_price where plan_id = $1 and market = $2 and change_id is distinct from $4 "
+        "and lower(valid) <= $3::text::timestamp order by lower(valid) desc limit 1",
+        plan, market.code, format_local(local), change_id)
+    return None if amount is None else Money(amount, market.currency)
+
+
 @dataclass(frozen=True)
 class LiveOffer:
     change_id: int

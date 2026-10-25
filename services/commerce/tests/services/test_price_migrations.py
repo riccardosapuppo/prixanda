@@ -485,6 +485,26 @@ async def test_the_simulation_counts_the_existing_subscribers_and_says_where_eac
     assert result.prepaid_passes_untouched == 0
 
 
+async def test_a_migration_simulates_the_same_before_and_after_its_launch(world):
+    """The launch puts the new price in the price list from its start: the simulation still starts from the price the
+    migration raises, so the console shows the same numbers through the consent window."""
+    await add_family(world)
+    change = await scheduled(world, family_migration(), LEAD, FINANCE)
+    world.clock.at = at(2026, 11, 2, 7, 59, 30)
+
+    async def simulate() -> simulation_pb2.SimulateMigrationResponse:
+        return await world.call("SimulateMigration", simulation_pb2.SimulateMigrationRequest(change_id=change.id), LEAD)
+
+    before = await simulate()
+    assert before.WhichOneof("outcome") == "result", before
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    after = await simulate()
+    assert after.WhichOneof("outcome") == "result", after
+    assert after.result == before.result
+    assert (after.result.before.price, after.result.after.price, after.result.existing) == (eur(1899), eur(2099), 4)
+
+
 async def test_the_simulation_gives_the_maquette_s_numbers_with_its_typed_assumptions(world):
     change = await create(world, family_migration(), LEAD)
     typed = [simulation_pb2.AssumptionOverride(name="existing", value=8412),

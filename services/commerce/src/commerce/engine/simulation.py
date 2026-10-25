@@ -18,7 +18,7 @@ from commerce.domain.offers import Offer, PriceMigration
 from commerce.domain.validation import resolve_price
 from commerce.engine import contract, eligibility, migrations, prepaid, records, reference
 from commerce.engine.call import Call, Clock
-from commerce.engine.catalog import list_price_at, market_code
+from commerce.engine.catalog import list_price_at, list_price_replaced, market_code
 from commerce.engine.changes import require_role
 from commerce.engine.database import Connection
 from commerce.engine.errors import InvalidArgument, NotFound, Refused
@@ -182,7 +182,7 @@ async def simulate_migration(tx: Connection, call: Call, request: simulation_pb2
     rules = (await reference.policies(tx)).get(market.code)
     if rules is None:
         raise Refused("INVALID", f"{market.name} has no rules yet for raising an existing subscriber's price (§8).")
-    old = await list_price_at(tx, change.plan, market, change.starts)
+    old = await list_price_replaced(tx, change.plan, market, change.starts, request.change_id)
     if old is None:
         raise Refused("INVALID", f"No {change.plan} price is in force in {market.name} when the new price starts.")
     if change.amount <= old:
