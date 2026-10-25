@@ -49,18 +49,19 @@ function Campaign({ market, offerId }: { readonly market: SiteMarket; readonly o
       </div>
     );
   }
-  if (offers.isError) {
-    return (
-      <div className="wrap py-12">
-        <Failure error={offers.error} onRetry={() => void offers.refetch()} />
-      </div>
-    );
-  }
+  // The offers are read again every ten seconds while the page is open: a reading that fails takes
+  // nothing away. The page stays as read last, with the steps open on it and their keys, and says
+  // the reading failed.
+  const failure = offers.isError ? <Failure error={offers.error} onRetry={() => void offers.refetch()} /> : null;
+  if (offers.data === undefined) return <div className="wrap py-12">{failure}</div>;
   if (!offer) return <Gone market={market} />;
   const marketData = markets.data?.find((candidate) => candidate.code === market);
   const planName = plans.data?.find((candidate) => candidate.code === offer.plan)?.name ?? offer.plan;
   return (
-    <CampaignPage offer={offer} market={market} marketName={marketData?.name ?? market} minimum={marketData?.artistsMinimum ?? null} planName={planName} />
+    <>
+      {failure ? <div className="wrap pt-6">{failure}</div> : null}
+      <CampaignPage offer={offer} market={market} marketName={marketData?.name ?? market} minimum={marketData?.artistsMinimum ?? null} planName={planName} />
+    </>
   );
 }
 

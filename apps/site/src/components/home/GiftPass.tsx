@@ -109,15 +109,18 @@ function Buy({ pass, marketName }: { readonly pass: PrepaidPass; readonly market
 }
 
 function GiftSteps({ pass, marketName, onClose }: { readonly pass: PrepaidPass; readonly marketName: string; readonly onClose: () => void }) {
+  // The account is read again after the purchase, and every second while its code waits: a
+  // reading that fails takes nothing away. The listener read last stays, and the purchase with its
+  // answer and its key, so it is never offered again; the failure is said above, with a try again.
   const me = useMe();
   return (
     <div className="is-entering grid gap-4 border border-ink bg-stone px-5 pt-4 pb-5 max-md:px-4">
       {me.isPending ? <Loading /> : null}
       {me.isError ? <Failure error={me.error} onRetry={() => void me.refetch()} /> : null}
-      {me.isSuccess && me.data === null ? (
+      {me.data === null ? (
         <Entrance market={pass.market} elsewhere={(name) => copy.gift.elsewhere(name, marketName)} heading="h3" focusOnMount />
       ) : null}
-      {me.isSuccess && me.data !== null ? <Signed me={me.data} pass={pass} marketName={marketName} /> : null}
+      {me.data ? <Signed key={me.data.id} me={me.data} pass={pass} marketName={marketName} /> : null}
       <p className="m-0">
         <button type="button" className="btn btn-quiet" onClick={onClose}>
           <Icon name="arrow-left" size={16} />
@@ -128,6 +131,11 @@ function GiftSteps({ pass, marketName, onClose }: { readonly pass: PrepaidPass; 
   );
 }
 
+/**
+ * The purchase for the listener of the session, mounted anew for each
+ * listener (keyed by their id): its key never goes for another listener, and
+ * the code bought shows only to its buyer.
+ */
 function Signed({ me, pass, marketName }: { readonly me: Me; readonly pass: PrepaidPass; readonly marketName: string }) {
   const markets = useMarkets();
   const theirs = markets.data?.find((each) => each.code === me.market)?.name ?? me.market;

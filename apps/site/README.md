@@ -180,7 +180,11 @@ code typed in the wrong shape is said at once and never sent.
   unknown, after an error; an answer, success or refusal, spends it, and the
   next attempt takes a new one (`ActionKeys`, `src/data/ids.ts`). The engine
   answers a key with its first answer: a code refused while its payment was
-  pending would otherwise be refused again once the payment settled.
+  pending would otherwise be refused again once the payment settled. A key
+  is its listener's, too: the engine binds it to its request, the listener
+  included, so the steps of a subscription, of a purchase and of the account
+  are mounted anew for each listener, and one who enters meanwhile (in
+  another tab, say) starts over with keys of their own.
 - **The session is the gateway's.** Entering as a demo listener sets an
   HttpOnly cookie of the gateway; the browser sends it to the API's origin
   (`credentials: "include"`) and the CSRF token it was given back with every
@@ -188,6 +192,12 @@ code typed in the wrong shape is said at once and never sent.
 - **Refusals are answers.** "This offer isn't for this listener" comes back
   as data and is shown as such; an error (the API unreachable, the engine
   down) is shown with what to do and the request's reference.
+- **A reading that fails takes nothing away.** The pages read again by
+  themselves: the account every second while a payment waits, the offers
+  every 10 seconds, the listener when a tab is seen again. When one of these
+  readings fails, the page keeps what it read last, with the steps open on
+  it and their keys, and says that the reading failed, with a way to try
+  again: a code just bought stays on the screen, and is not offered again.
 - **The payment settles later.** The confirmation leaves the first month's
   payment pending; the account reads it again every second, for 30 seconds at
   most, until it succeeds or fails, then says plainly that the provider has
@@ -252,8 +262,8 @@ npm run e2e -w site -- gift         # one of them alone: student, gift or album
 | `site-codegen` | every operation validates against the public schema, and the generated types equal a fresh generation | 14 operations |
 | `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit, who an offer for an artist's listeners is for, and the listener of before's offers for an artist's listeners dropped on an entry or an exit, the tab and the sandbox's worker over their protocol (with a fake worker), a worker that failed said as an API out of reach, an idempotency key spent by an answer and kept only to retry after an error, the rounds of asking while a payment waits, a new one with each check again | 95 tests |
 | `site-build` | the static export, every page in it, the API it calls written in | 5 pages |
-| `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 9 tests, 9 audit events, axe on 9 pages, 20 pages fitted |
-| `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a code refused while its payment is pending and activated once it settled, a request for consent in Germany answered, a notice in Italy, below | 10 tests, 8 audit events, axe on 10 pages, 10 pages fitted |
+| `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 11 tests, 9 audit events, axe on 11 pages, 20 pages fitted |
+| `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a code refused while its payment is pending and activated once it settled, a reading that fails after a purchase taking nothing away, a request for consent in Germany answered, a notice in Italy, below | 11 tests, 10 audit events, axe on 10 pages, 10 pages fitted |
 | `site-e2e-fans` | the same for §14.2: the album release shown to its fan at the engine's price, and to none of the listeners outside its audience nor a visitor, below | 8 tests, 3 listeners outside, 8 audit events, axe on 6 pages, 10 pages fitted |
 | `demo` | the assembled demo served on 4651, headless Chromium with one browser and its tabs: the first start, a second tab, a campaign launched from another tab reaching the site, the data after a reload and after the worker started again, Start over in every tab; no request leaving the address, axe | 6 tests for the site |
 
@@ -267,7 +277,13 @@ yet then enters as a demo listener, is verified by the simulated provider,
 subscribes at 2,99 € a month for 3 months, then 5,79 €, and sees the first
 month settle with a demo receipt; a student who paid before is told the pass
 is not for them. The audit log must hold every step with the request id that
-caused it, the browser's own for the student's, and its chain must hold. A
+caused it, the browser's own for the student's, and its chain must hold. With
+the confirmation open for a verified student, the visitor enters as the
+student who paid before in a second tab; back on the first, the steps start
+over for the new listener, whose quote goes with a key of its own. With the
+confirmation open again, the readings of the listener and of the offers
+fail: the steps stay as they were, with their quote, and each failure is
+said with a way to try again. A
 verified student then takes the pass from the home on the keyboard alone,
 with nothing moving while they do. The home, the campaign, a listening
 session and the account are loaded at 1440, 1280, 720 (1440 at 200 %), 390
@@ -288,7 +304,10 @@ seconds of a round: the page says the provider has not answered yet, its
 check again asks for thirty seconds more, and at their end says so again.
 The third listener who types the code meanwhile is refused; once the provider answered and the payment
 settled, the same code sent again from the same page, without a reload, is
-activated, with a new idempotency key: the refusal spent the first one. Two
+activated, with a new idempotency key: the refusal spent the first one. A
+third code is bought, and the reading of the account that follows fails
+once: the code stays on the page, which reads the account again and shows
+it ready, bought once, and never offers the purchase again. Two
 price migrations follow, Family in Germany and Individual in Italy: the
 Family subscriber in Germany is asked, with two answers of the same weight,
 and says no; the Individual subscriber in Italy is told, and leaves before

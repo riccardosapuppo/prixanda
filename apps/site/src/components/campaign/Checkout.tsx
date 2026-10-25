@@ -11,9 +11,13 @@
 //      payment settles.
 //
 // Each action carries its own idempotency key, made when the visitor acts and
-// sent again if the same action is retried. Each step takes the focus when it
-// appears, so a keyboard or a screen reader follows the flow; the panel enters
-// with a 4 px fade, which the keyboard and reduced motion switch off.
+// sent again if the same action is retried. The steps and their keys belong
+// to the listener they were made for: the engine binds a key to its request,
+// the listener included, so when another listener enters (in another tab,
+// say) the steps start over for them, with keys of their own. Each step takes
+// the focus when it appears, so a keyboard or a screen reader follows the
+// flow; the panel enters with a 4 px fade, which the keyboard and reduced
+// motion switch off.
 import { formatSitePrice, type IconName, type MoneyLike } from "design";
 import { Icon } from "design/icon";
 import type { Route } from "next";
@@ -48,12 +52,15 @@ export type Target = {
 export type Level = 2 | 3;
 
 export function Checkout({ target, onClose, level = 2 }: { readonly target: Target; readonly onClose: () => void; readonly level?: Level }) {
+  // The listener is read again when the tab is seen again and after a check or a confirmation: a
+  // reading that fails takes nothing away. The listener read last stays, and the steps with their
+  // keys; the failure is said above them, with a try again.
   const me = useMe();
   return (
     <div className="is-entering mt-2 grid gap-4 border border-ink bg-stone px-5 pt-4 pb-5 max-md:px-4">
       {me.isPending ? <Loading /> : null}
       {me.isError ? <Failure error={me.error} onRetry={() => void me.refetch()} /> : null}
-      {me.isSuccess && me.data === null ? (
+      {me.data === null ? (
         <Entrance
           market={target.market}
           elsewhere={target.offer ? copy.entrance.inOtherMarket : (name) => copy.entrance.otherPrices(name, target.marketName)}
@@ -61,7 +68,7 @@ export function Checkout({ target, onClose, level = 2 }: { readonly target: Targ
           focusOnMount
         />
       ) : null}
-      {me.isSuccess && me.data !== null ? <Signed me={me.data} target={target} level={level} /> : null}
+      {me.data ? <Signed key={me.data.id} me={me.data} target={target} level={level} /> : null}
       <p className="m-0">
         <button type="button" className="btn btn-quiet" onClick={onClose}>
           <Icon name="arrow-left" size={16} />
@@ -72,6 +79,10 @@ export function Checkout({ target, onClose, level = 2 }: { readonly target: Targ
   );
 }
 
+/**
+ * The steps for the listener of the session, mounted anew for each listener
+ * (keyed by their id): a key made for one listener never goes for another.
+ */
 function Signed({ me, target, level }: { readonly me: Me; readonly target: Target; readonly level: Level }) {
   const verification = me.account.studentVerification;
   const needsCheck = target.needsStudentCheck && !(verification?.valid ?? false);
@@ -172,10 +183,11 @@ function QuoteStep({ target, me, level }: { readonly target: Target; readonly me
   const quote = useRequestQuote();
   const [key, setKey] = useState(newIdempotencyKey);
   const ask = (idempotencyKey: string) => quote.mutate({ plan: target.plan, market: target.market, offerId: target.offer?.id ?? null, idempotencyKey });
-  // One quote per listener and step: asked when the step appears, with the step's key.
+  // One quote per step: asked when the step appears, with the step's key, and with a new key when
+  // the visitor asks again. The step is its listener's: another listener gets a step of their own.
   useEffect(() => {
     ask(key);
-  }, [key, me.id]);
+  }, [key]);
 
   if (quote.isError) return <Failure error={quote.error} onRetry={() => ask(key)} />;
   if (!quote.isSuccess) return <Loading label={copy.checkout.asking} />;

@@ -11,6 +11,9 @@
 // pending the page reads the account again every second, for thirty seconds
 // at most; then it says the provider has not answered yet, and lets the
 // visitor ask again, for thirty seconds more each time (useMeWhileWaiting).
+// A reading that fails takes nothing away: the account stays as read last,
+// with a code typed or an answer given on it and their keys, and the failure
+// is said above it, with a try again.
 import { formatSitePrice, type MoneyLike } from "design";
 import { Icon } from "design/icon";
 import type { Route } from "next";
@@ -42,19 +45,22 @@ export function AccountView() {
       <h1 id="account-title" className="display m-0">{copy.account.title}</h1>
       {me.isPending ? <Loading /> : null}
       {me.isError ? <Failure error={me.error} onRetry={() => void me.refetch()} /> : null}
-      {me.isSuccess && me.data === null ? (
+      {me.data === null ? (
         <div className="max-w-[44rem]">
           <p className="m-0 mb-4 text-ink-2">{copy.account.nobody}</p>
           <Entrance heading="h2" />
         </div>
       ) : null}
-      {me.isSuccess && me.data !== null ? (
-        <Account me={me.data} timedOut={timedOut} onCheckAgain={checkAgain} />
-      ) : null}
+      {me.data ? <Account key={me.data.id} me={me.data} timedOut={timedOut} onCheckAgain={checkAgain} /> : null}
     </section>
   );
 }
 
+/**
+ * The account of the listener of the session, mounted anew for each listener
+ * (keyed by their id): a code typed, an answer given and the keys they went
+ * with are never sent for another listener.
+ */
 function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly timedOut: boolean; readonly onCheckAgain: () => void }) {
   const market: SiteMarket | null = isSiteMarket(me.market) ? me.market : null;
   const markets = useMarkets();

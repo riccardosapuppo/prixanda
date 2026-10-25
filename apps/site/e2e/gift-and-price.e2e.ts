@@ -20,15 +20,19 @@
 //      code, sent again from the same page without a reload, is activated: an
 //      answer, success or refusal, spends the key it was asked with, and the
 //      next attempt takes a new one, which the engine answers afresh.
-//   6. Two price migrations launched: Family in Germany, Individual in Italy.
+//   6. A third code, and the reading of the account that follows its
+//      purchase fails once: the code bought stays on the page, which reads
+//      the account again and shows the code ready, and never offers the
+//      purchase again. One purchase, never two.
+//   7. Two price migrations launched: Family in Germany, Individual in Italy.
 //      The engine's clock reaches the morning the subscribers are told.
-//   7. The Family subscriber in Germany is asked: two answers of the same
+//   8. The Family subscriber in Germany is asked: two answers of the same
 //      weight, silence counted as no, the law and the service's choice in two
 //      blocks; the panel fits five widths; the answer is no, and the page
 //      says what follows with the engine's date.
-//   8. The Individual subscriber in Italy is told in advance, and leaves
+//   9. The Individual subscriber in Italy is told in advance, and leaves
 //      before the new price, on the engine's date.
-//   9. The audit log holds every step of the listeners with the request id
+//  10. The audit log holds every step of the listeners with the request id
 //      their browser sent.
 //
 // Every page and state is checked with axe, no page may ask anything of
@@ -41,7 +45,7 @@ import { after, before, describe, test } from "node:test";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 import { PAYMENT_POLL_LIMIT_MS } from "../src/data/config.ts";
 import { siteDay } from "../src/lib/dates.ts";
-import { text, Watch } from "./support/browser.ts";
+import { failedAnswer, operationOf, text, Watch } from "./support/browser.ts";
 import { ConsoleSession, giftPass, launchChange, priceMigration } from "./support/console.ts";
 import { CONSOLE_API, PUBLIC_API, SITE_URL, type Stack, startStack } from "./support/stack.ts";
 
@@ -313,7 +317,49 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     }
   });
 
-  test("6. two price migrations launched; the engine reaches the morning the subscribers are asked or told", async () => {
+  test("6. a reading of the account that fails after a purchase takes nothing away: the code stays, and nothing is bought twice", async () => {
+    const { page } = await watch.visitor();
+    await page.goto(`${SITE_URL}/?market=IT#gift`);
+    await page.getByRole("button", { name: "Get a demo gift code" }).click();
+    await page.getByRole("heading", { name: "Enter as a demo listener" }).waitFor();
+    await enterAs(page, /Student in Italy, not verified yet/);
+    const confirm = page.getByRole("button", { name: "Confirm the demo purchase" });
+    await confirm.waitFor();
+
+    // The first reading of the account once the purchase is answered fails, once, with an error of
+    // the API: a network out of reach would be asked again at once, and never seen.
+    let answered = false;
+    let failed = 0;
+    await page.route(PUBLIC_API, async (route) => {
+      const operation = operationOf(route.request());
+      if (operation === "SiteBuyPrepaidPass") {
+        const response = await route.fetch();
+        answered = true;
+        await route.fulfill({ response });
+        return;
+      }
+      if (operation === "SiteMe" && answered && failed === 0) {
+        failed += 1;
+        await route.fulfill(failedAnswer(route.request()));
+        return;
+      }
+      await route.fallback();
+    });
+    const bought = watch.sent("SiteBuyPrepaidPass").length;
+    await confirm.click();
+    // The purchase stays on the page through the failure, and the page reads the account again by
+    // itself: the code is followed until it is ready, and the purchase is never offered again.
+    await page.locator("#gift [data-code-state]").first().waitFor({ timeout: 10_000 })
+      .catch(() => assert.fail("the purchase left the page with the reading that failed"));
+    await page.locator("#gift [data-code-state='READY']").waitFor({ timeout: 30_000 });
+    assert.equal(failed, 1, "the reading after the purchase failed");
+    assert.ok(CODE_SHAPE.test((await page.locator(".gift-code .code").textContent())?.trim() ?? ""), "the receipt shows the code bought");
+    assert.equal(watch.sent("SiteBuyPrepaidPass").length - bought, 1, "one purchase, never two");
+    assert.equal(await confirm.count(), 0, "the purchase is not offered again");
+    assert.equal(await page.getByRole("button", { name: "Try again" }).count(), 0, "the failure went with the reading that went through");
+  });
+
+  test("7. two price migrations launched; the engine reaches the morning the subscribers are asked or told", async () => {
     assert.ok(stack);
     await launchChange(CONSOLE_API, "migration", priceMigration("Family price in Germany", "family", "DE", "2099", NOTICES_LOCAL, "2026-12-01T00:00"), "family-de");
     await launchChange(CONSOLE_API, "migration", priceMigration("Individual price in Italy", "individual", "IT", "1099", NOTICES_LOCAL, "2026-12-01T00:00"), "individual-it");
@@ -332,7 +378,7 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     await context.close();
   });
 
-  test("7. in Germany the Family subscriber is asked: two equal answers, silence is no, law and choice apart; the answer no", async () => {
+  test("8. in Germany the Family subscriber is asked: two equal answers, silence is no, law and choice apart; the answer no", async () => {
     const { context, page } = await watch.visitor();
     await page.goto(`${SITE_URL}/account/`);
     await enterAs(page, /Family subscriber in Germany/);
@@ -385,7 +431,7 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     await watch.accessible(page, "the answer no");
   });
 
-  test("8. in Italy the Individual subscriber is told in advance, and leaves before the new price", async () => {
+  test("9. in Italy the Individual subscriber is told in advance, and leaves before the new price", async () => {
     const { context, page } = await watch.visitor();
     await page.goto(`${SITE_URL}/account/`);
     await enterAs(page, /Individual subscriber in Italy/);
@@ -408,15 +454,15 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     await watch.accessible(page, "the notice answered");
   });
 
-  test("9. the audit log holds every step of the listeners with the request id their browser sent", async () => {
+  test("10. the audit log holds every step of the listeners with the request id their browser sent", async () => {
     const auditor = await new ConsoleSession(CONSOLE_API, "auditor-1").signIn();
     const read = async (filter: Record<string, string>) => {
       const answer = await auditor.graphql("query ($filter: AuditFilter) { auditEvents(filter: $filter, first: 50) { nodes { action actor requestId } } }", { filter });
       return (answer.body?.data?.auditEvents?.nodes ?? []) as Array<{ action: string; actor: string; requestId: string }>;
     };
-    // The two codes: each sold, paid and activated, each step with the browser's request id.
+    // The three codes: each sold and paid, two of them activated, each step with the browser's request id.
     const sold = await read({ action: "prepaid.sold" });
-    assert.equal(sold.length, 2, "two codes sold");
+    assert.equal(sold.length, 3, "three codes sold: the third once only, whatever its page read");
     const payments = await read({ action: "payment.succeeded" });
     for (const sale of sold) {
       assert.ok(watch.sent("SiteBuyPrepaidPass").includes(sale.requestId), "prepaid.sold carries the browser's request id");
@@ -434,7 +480,7 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     summary.auditEvents = sold.length + sold.length + activated.length + answers.length;
   });
 
-  test("10. no page asked anything of another host, and none logged an error", () => {
+  test("11. no page asked anything of another host, and none logged an error", () => {
     assert.equal(watch.externalRequests, 0);
     assert.deepEqual(watch.pageErrors, []);
     assert.ok(watch.pagesChecked >= 10, `axe ran on ${watch.pagesChecked} pages`);
