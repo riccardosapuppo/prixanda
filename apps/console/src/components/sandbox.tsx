@@ -94,12 +94,15 @@ function useStartOver(sandbox: Sandbox) {
   const confirm = async () => {
     setBusy(true);
     setFailed(null);
+    // Done, the worker tells every tab and each reloads: until then the dialog stays busy.
     try {
       const answer = await runCommand(sandbox, "reset");
-      if (!answer.ok) setFailed(answer.error);
+      if (!answer.ok) {
+        setFailed(answer.error);
+        setBusy(false);
+      }
     } catch (error) {
       setFailed(error instanceof Error ? error.message : String(error));
-    } finally {
       setBusy(false);
     }
   };
@@ -173,7 +176,9 @@ function Panel({ sandbox, shown }: { readonly sandbox: Sandbox; readonly shown: 
   return (
     <div className={`${shown ? "grid" : "hidden"} w-full gap-4 border-t border-rail-line pt-3 lg:grid lg:px-2.5`}>
       {ready ? <TryThis /> : null}
-      {ready ? <Controls sandbox={sandbox} /> : <p className="text-xs text-rail-ink-2">The demo's controls come once it has started.</p>}
+      {ready ? <Controls sandbox={sandbox} /> : null}
+      {/* A demo that could not start says why on the page itself; here, only while it starts. */}
+      {status.state === "starting" ? <p className="text-xs text-rail-ink-2">The demo's controls come once it has started.</p> : null}
     </div>
   );
 }
@@ -206,7 +211,7 @@ function TryThis() {
                 <span className="sr-only">{step.done ? "Done: " : here ? "Next: " : "Then: "}</span>
                 {index + 1}. {step.words}
                 {step.id === "site" ? <> <a className="text-rail-ink underline underline-offset-2" href="/" target="_blank" rel="noopener" onClick={() => recordGuide({ siteOpened: true })}>Open the site</a></> : null}
-                {step.id === "found" && live ? <> <a className="text-rail-ink underline underline-offset-2" href="/" target="_blank" rel="noopener" onClick={() => recordGuide({ foundOnSite: true })}>Open the site</a></> : null}
+                {step.id === "found" && live ? <> <a className="text-rail-ink underline underline-offset-2" href="/" target="_blank" rel="noopener" onClick={() => recordGuide({ foundOnSite: true })}>Open the site again</a></> : null}
               </span>
             </li>
           );
@@ -235,8 +240,12 @@ function Controls({ sandbox }: { readonly sandbox: Sandbox }) {
     setSaid(null);
     try {
       if (kind === "skip") {
+        // The clock stops at the change's start, its launch already run (through the simulated fault, when one was armed).
+        const armed = status.data?.armed ?? null;
         const answer = await runCommand(sandbox, "skip-to-next-launch");
-        setSaid(answer.ok ? `The demo's clock moved to ${formatInstantIn(answer.result.now, ZONE)}: the launch ran (${answer.result.ran} ${answer.result.ran === 1 ? "job" : "jobs"}).` : answer.error);
+        setSaid(answer.ok
+          ? `The demo's clock moved from ${formatInstantIn(answer.result.from, ZONE)} to ${formatInstantIn(answer.result.to, ZONE)}, the change's start: its launch ran${armed ? `, met the simulated fault at ${armed} and recovered` : ""}. Launches show it step by step.`
+          : answer.error);
       } else if (kind === "arm") {
         const answer = await runCommand(sandbox, "arm-fault", { step });
         if (!answer.ok) setSaid(answer.error);

@@ -8,6 +8,8 @@ on a server at request time.
 > Independent personal project. Fictional business and synthetic customer
 > data. No real payments are processed.
 
+![Marketing's home in the demo, with "Try this" and the demo's controls in the rail](../../docs/images/console-home-1440.png)
+
 ## What it does
 
 - **Entry.** A person of the demo is chosen from the engine's list, by role.
@@ -81,6 +83,42 @@ reads (§12.2) and who signs (§7.3). The menu, the entry and every lock compose
 their sentences from it. The server decides all the same: the gateway applies
 the same rights, the engine again, the database a third time for approvals.
 
+## In the demo
+
+The same console runs with no server in the demo (stage 8), at `/console/`
+beside the site: built with `SANDBOX=1`, its pages live under the base path
+`/console`, and its requests go to the demo's worker in the browser instead
+of the gateway over HTTP, through the sandbox's own client
+(`sandbox/client`): the same internal schema, the engine's own Python code,
+the same migrations. Nothing above the transport changes (`src/lib/sandbox.ts`).
+What differs is said on the screen:
+
+- **The start.** The first visit starts the demo in this browser: the page
+  shows the worker's steps as they happen, and a second tab of the site or
+  the console is ready at once. A browser that lacks what the demo needs
+  (WebAssembly, IndexedDB, workers) is told which, and what to use instead.
+- **The demo's clock.** The console reasons with the demo's time, the
+  story's, which runs at the machine's pace and jumps when the demo skips to
+  a launch; the header shows it.
+- **Try this**, in the rail: the recruiter's path in seven steps, each
+  ticked when it happens, from the engine's facts (the campaign's state, its
+  signature, its launch through a fault) and from what only this browser
+  knows (the site opened, the approval page seen by its author).
+- **The demo's controls**, in the rail: skip to the next launch due (the
+  demo's clock moves to the change's start, its launch already run), a fault
+  armed at one step of the next launch, simulated and said so (the real
+  faults run on the full system, §14.6), and Start over.
+- **The foot of every page**: where the data stays, and *About this sandbox*
+  with Start over behind a confirmation; every tab reloads on the demo's
+  first data.
+
+The recruiter's path runs as a test on the assembled demo
+(`e2e/demo.e2e.ts`, in the check's suite `demo`): two tabs, the console and
+the site, from the first start to Start over, timed, with axe on every
+screen and no request leaving the origin.
+
+![A launch's timeline in the demo, after a simulated fault at the publish step](../../docs/images/console-timeline-1440.png)
+
 ## Commands
 
 From the repository's root:
@@ -95,6 +133,9 @@ From the repository's root:
 | `npm run storybook -w console` | Storybook on 127.0.0.1:4633, without opening a browser |
 | `node apps/console/e2e/run.ts` | the end-to-end tests on the whole system: a throwaway database, the engine (from its fault-injection launcher, with the publish step of the first launch cut once), the gateway, the static build, Playwright |
 | `npm run check -- --only design,console-types,console-codegen,console-unit,storybook,console-build,console-e2e` | the same, as suites with their floors |
+| `SANDBOX=1 SANDBOX_BUILD=<build> npm run build -w console` | the console for the demo, under `/console` (`npm run demo:build` builds it with the site and the sandbox) |
+| `node apps/console/e2e/demo.e2e.ts` with `DEMO_URL` | the recruiter's path on the assembled demo (`npm run demo:serve`) |
+| `npm run photos -w console` | the photos of `docs/images/console-*`, taken again from the demo |
 
 Ports come from the environment and are asked to the system before use:
 `DEV_POSTGRES_PORT`, `CHECK_POSTGRES_PORT`, `ENGINE_URL`, `CHECK_ENGINE_PORT`,

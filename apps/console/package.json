@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "codegen": "node scripts/codegen.ts",
     "storybook": "storybook dev --port 4633 --host 127.0.0.1 --no-open --disable-telemetry",
-    "build-storybook": "storybook build --disable-telemetry --quiet"
+    "build-storybook": "storybook build --disable-telemetry --quiet",
+    "photos": "node scripts/photos.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.1",
