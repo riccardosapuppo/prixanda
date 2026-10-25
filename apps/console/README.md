@@ -87,8 +87,7 @@ From the repository's root:
 
 | Command | What |
 |---|---|
-| `npm start` | the whole system on this machine: the development database with the migrations and the small data, the engine, the gateway, the console's `next dev` on 127.0.0.1:4631 and the site's on 127.0.0.1:4632; Ctrl+C stops everything, the database too |
-| `npm run console:stack` | the development database, the engine, the gateway and `next dev` on 127.0.0.1:4631, without the site; Ctrl+C leaves the database running |
+| `npm run console:stack` | the development database, the engine, the gateway and `next dev` on 127.0.0.1:4631 |
 | `npm run build -w console` | the static export in `apps/console/out` (`scripts/build.ts`) |
 | `npm run codegen -w console` | the typed operations from the gateway's schema and `src/graphql/operations`; `-- --check` compares |
 | `node --test apps/console/test/*.test.ts` | the console's own logic under Node |
@@ -99,8 +98,8 @@ From the repository's root:
 
 Ports come from the environment and are asked to the system before use:
 `DEV_POSTGRES_PORT`, `CHECK_POSTGRES_PORT`, `ENGINE_URL`, `CHECK_ENGINE_PORT`,
-`GATEWAY_INTERNAL_PORT`, `GATEWAY_PUBLIC_PORT`, `CONSOLE_PORT` (4631), `SITE_PORT`
-(4632) and `STORYBOOK_PORT` (4633). Playwright and Storybook run headless; requests
+`GATEWAY_INTERNAL_PORT`, `GATEWAY_PUBLIC_PORT`, `CONSOLE_PORT` (4631) and
+`STORYBOOK_PORT` (4633). Playwright and Storybook run headless; requests
 leaving 127.0.0.1 are refused and counted. Telemetry is off: Next.js through
 `NEXT_TELEMETRY_DISABLED`, Storybook through `--disable-telemetry` and
 `core.disableTelemetry`.
