@@ -19,7 +19,7 @@ import { writeFile } from "node:fs/promises";
 import { cpus, platform, release, totalmem } from "node:os";
 import { after, before, describe, test } from "node:test";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import { text, Watch } from "./support/browser.ts";
+import { Watch } from "./support/browser.ts";
 import { launchOffer, studentAutumnPass } from "./support/console.ts";
 import { connectWorker, demoCommand, romeLocal, workerSession } from "./support/demo.ts";
 
@@ -37,6 +37,8 @@ const watch = new Watch(() => {
 });
 const times = {
   coldReadyMs: Number.NaN,
+  /** From the same first visit until the home's campaigns are read: they come after the plans. */
+  campaignsMs: Number.NaN,
   secondTabMs: Number.NaN,
   /** From the skip to the campaign's launch until the worker answered it: the launch's five steps, run in this browser. */
   launchMs: Number.NaN,
@@ -95,9 +97,11 @@ describe("the site in the demo's sandbox: one browser, its tabs, one worker", ()
     await page.locator("#releases").waitFor();
     await homeReady(page, BOOT_LIMIT_MS);
     times.coldReadyMs = Math.round(performance.now() - started);
-    assert.match(await text(page), /No campaign is running in this market today\./);
+    // The campaigns are asked for apart from the plans, and may come later: their sentence is waited for, not read once.
+    await page.getByText("No campaign is running in this market today.").waitFor({ timeout: 60_000 });
+    times.campaignsMs = Math.round(performance.now() - started);
     assert.match(await page.locator("meta[name='robots']").getAttribute("content") ?? "", /noindex/);
-    assert.match(await page.locator("footer").innerText(), /Your data stays in this browser\./);
+    await page.locator("footer").getByText("Your data stays in this browser.").waitFor({ timeout: 30_000 });
     await watch.accessible(page, "the home in the sandbox");
   });
 

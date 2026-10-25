@@ -1132,7 +1132,7 @@ const DEMO_JOURNEYS: readonly DemoJourney[] = [
     args: (report) => ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`, "--test-reporter=spec", "--test-reporter-destination=stdout", join("e2e", "demo.e2e.ts")],
     summaryVariable: "SITE_DEMO_SUMMARY",
     floor: 6,
-    describe: (summary) => `first start ${seconds(summary["coldReadyMs"])}, second tab ${seconds(summary["secondTabMs"])},`
+    describe: (summary) => `first start ${seconds(summary["coldReadyMs"])}, its campaigns ${seconds(summary["campaignsMs"])}, second tab ${seconds(summary["secondTabMs"])},`
       + ` the campaign launched in ${seconds(summary["launchMs"])} and on the site ${seconds(summary["offerOnSiteMs"])} after the skip to it, a reload ${seconds(summary["reloadMs"])},`
       + ` the worker again ${seconds(summary["restartMs"])}, start over ${seconds(summary["startOverMs"])};`
       + ` axe on ${String(summary["pagesChecked"])} pages, ${String(summary["seriousViolations"])} serious; ${String(summary["externalRequests"])} requests elsewhere`,

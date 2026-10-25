@@ -234,9 +234,10 @@ describe("the console in the demo's sandbox: the recruiter's path, two tabs, one
     const run = page.getByRole("link", { name: /^launch-/ }).first();
     await click(run);
     await page.getByRole("heading", { name: /^Launch timeline: / }).waitFor();
-    const timeline = await page.locator("main").innerText();
-    assert.match(timeline, /attempt 2 of 5/, "the publish step's second attempt, after the fault");
-    assert.match(timeline, /Student Autumn Pass v1 is live on the site\./);
+    // The timeline's parts may come after its title: each is waited for, not read once.
+    const main = page.locator("main");
+    await main.getByText("attempt 2 of 5").first().waitFor({ timeout: 30_000 }); // the publish step's second attempt, after the fault
+    await main.getByText("Student Autumn Pass v1 is live on the site.").first().waitFor({ timeout: 30_000 });
     await accessible(page, "a launch's timeline after a simulated fault");
   });
 
@@ -262,8 +263,7 @@ describe("the console in the demo's sandbox: the recruiter's path, two tabs, one
     await page.getByRole("link", { name: "Campaigns" }).first().waitFor({ timeout: 60_000 });
     await started(page, 60_000);
     await click(page.getByRole("link", { name: "Campaigns" }).first());
-    await page.getByRole("row", { name: /Student Autumn Pass/ }).first().waitFor({ timeout: 30_000 });
-    assert.match(await page.getByRole("row", { name: /Student Autumn Pass/ }).first().innerText(), /Live/);
+    await page.getByRole("row", { name: /Student Autumn Pass/ }).filter({ hasText: "Live" }).first().waitFor({ timeout: 30_000 });
     times.reloadMs = Math.round(performance.now() - begun);
     await doneUpTo(page, 7);
   });
@@ -295,6 +295,8 @@ describe("the console in the demo's sandbox: the recruiter's path, two tabs, one
     assert.deepEqual(await stepsDone(page), []);
     await click(page.getByRole("link", { name: "Campaigns" }).first());
     await page.getByRole("heading", { name: "Campaigns", level: 1 }).waitFor();
+    // The list read, not still on its way: its empty state says so.
+    await page.getByText("No campaign here yet.").first().waitFor({ timeout: 30_000 });
     assert.equal(await page.getByRole("row", { name: /Student Autumn Pass/ }).count(), 0, "the campaign is gone");
   });
 
