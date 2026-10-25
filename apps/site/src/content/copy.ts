@@ -383,6 +383,7 @@ export const copy = {
       action: "Activate",
       activating: "Activating",
       refused: "This code can't be activated",
+      unknown: "There is no code like this one. Check it against the receipt, letter by letter, and try again.",
       done: (plan: string, day: string) => `Activated: ${plan} until ${day}, then Free.`,
     },
     payment: {

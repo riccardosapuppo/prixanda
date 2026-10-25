@@ -312,8 +312,9 @@ commercial lead's gift pass is launched through the console's API, and the
 open home shows it; a listener in Italy buys a code, waits for the simulated
 payment and gets the demo receipt, which fits every width as it stands;
 another listener activates the code and has three months of Individual,
-never charged, then Free; a third cannot use it again, and the code is in no
-line the engine or the gateway logged. Then
+never charged, then Free, after a code of the right shape that does not exist
+was said to be no code, not a failure of the service; a third cannot use it
+again, and the code is in no line the engine or the gateway logged. Then
 the engine's payment provider is kept from answering, as a real one may take
 its time: a second code, bought meanwhile, stays pending. On the page of the
 purchase, then on the account, the page's own clock is moved over the thirty
