@@ -22,6 +22,7 @@ export function safeNext(next: string | null): string {
   } catch {
     return "/";
   }
-  if (url.origin !== BASE || url.pathname.startsWith("/sign-in")) return "/";
+  // Dots resolved can leave two slashes in front ("/.//example.com" reads as "//example.com"): another site.
+  if (url.origin !== BASE || url.pathname.startsWith("//") || url.pathname.startsWith("/sign-in")) return "/";
   return `${url.pathname}${url.search}${url.hash}`;
 }

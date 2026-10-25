@@ -51,6 +51,14 @@ describe("the entry's next", () => {
     assert.equal(safeNext(null), "/");
   });
 
+  it("refuses a path that its dots turn into another host", () => {
+    // "/./" and "/a/../" are resolved away, and what is left starts with two slashes: another site.
+    assert.equal(safeNext("/.//example.com"), "/");
+    assert.equal(safeNext("/a/..//example.com"), "/");
+    assert.equal(safeNext("/a/%2e%2e//example.com"), "/");
+    assert.equal(safeNext(nextOf("next=%2F.%2F%2Fexample.com")), "/");
+  });
+
   it("keeps an encoded backslash as part of a path: it stays on the console", () => {
     assert.equal(safeNext("/%5Cexample.com"), "/%5Cexample.com");
   });
