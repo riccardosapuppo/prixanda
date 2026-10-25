@@ -6,6 +6,7 @@ import { BRAND, DISCLAIMER } from "design";
 import { Icon } from "design/icon";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { SandboxFoot, SandboxStart } from "../../components/sandbox.tsx";
 import { Button, ErrorPanel, Loading } from "../../components/ui.tsx";
 import { PeopleDocument } from "../../graphql/generated.ts";
 import { primaryRole, TEAM } from "../../lib/permissions.ts";
@@ -43,8 +44,8 @@ export function Entry() {
   };
 
   return (
-    <main id="main" className="min-h-screen bg-stone">
-      <div className="mx-auto grid max-w-3xl gap-8 px-4 py-10 md:px-6 md:py-16">
+    <main id="main" className="flex min-h-screen flex-col bg-stone">
+      <div className="mx-auto grid w-full max-w-3xl gap-8 px-4 py-10 md:px-6 md:py-16">
         <header className="grid gap-3">
           <p className="grid gap-0.5">
             <span className="font-archivo text-5xl font-bold leading-tight tracking-[-0.015em] text-ink [font-stretch:125%]">{BRAND.platform}</span>
@@ -56,6 +57,7 @@ export function Entry() {
             the gateway, the engine and the database check every action against the role.
           </p>
         </header>
+        <SandboxStart />
         {failure ? <ErrorPanel error={failure} /> : null}
         {people.isPending ? <Loading what="the demo's people" lines={6} /> : people.isError ? (
           <ErrorPanel error={people.error} retry={() => void people.refetch()} />
@@ -92,6 +94,7 @@ export function Entry() {
           {DISCLAIMER}
         </p>
       </div>
+      <SandboxFoot />
     </main>
   );
 }

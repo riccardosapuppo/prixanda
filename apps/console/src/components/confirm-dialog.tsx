@@ -8,12 +8,14 @@ import type { IconName } from "design";
 import { type ReactNode, type RefObject, useEffect, useId, useRef } from "react";
 import { Button } from "./ui.tsx";
 
-export function ConfirmDialog({ open, title, children, confirmLabel, confirmIcon, busy = false, onCancel, onConfirm, returnFocus }: {
+export function ConfirmDialog({ open, title, children, confirmLabel, confirmIcon, cancelLabel = "Cancel", busy = false, onCancel, onConfirm, returnFocus }: {
   readonly open: boolean;
   readonly title: string;
   readonly children: ReactNode;
   readonly confirmLabel: string;
   readonly confirmIcon: IconName;
+  /** What keeping things as they are is called: Cancel, unless the moment has words of its own. */
+  readonly cancelLabel?: string;
   readonly busy?: boolean;
   readonly onCancel: () => void;
   readonly onConfirm: () => void | Promise<void>;
@@ -50,7 +52,7 @@ export function ConfirmDialog({ open, title, children, confirmLabel, confirmIcon
         <h2 id={titleId} className="text-3xl font-bold">{title}</h2>
         <div className="grid gap-3">{children}</div>
         <div className="flex flex-wrap gap-3">
-          <Button autoFocus onClick={onCancel} disabled={busy}>Cancel</Button>
+          <Button autoFocus onClick={onCancel} disabled={busy}>{cancelLabel}</Button>
           <Button weight="primary" icon={confirmIcon} busy={busy} onClick={() => void onConfirm()}>{confirmLabel}</Button>
         </div>
       </form>

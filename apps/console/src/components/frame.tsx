@@ -15,6 +15,7 @@ import { useMinute } from "../lib/react/clock.tsx";
 import { useGatewayQuery } from "../lib/react/gateway.tsx";
 import { useSession } from "../lib/react/session.tsx";
 import { nowLabel } from "../lib/time.ts";
+import { DemoPanel, SandboxFoot, SandboxStart } from "./sandbox.tsx";
 import { ErrorPanel, SimulatedTag, Skeleton } from "./ui.tsx";
 
 /** Where the team works: the console writes "now" in Rome, where the service has its office. */
@@ -51,14 +52,16 @@ export function Frame({ section, children }: { readonly section: Section; readon
       <Rail section={section} />
       <main id="main" tabIndex={-1} className="flex min-w-0 flex-col focus-visible:outline-none">
         {session.status === "signed-in" ? children : session.status === "error" ? (
-          <div className="p-6"><ErrorPanel error={session.error} retry={() => window.location.reload()} /></div>
+          <div className="grid gap-6 p-6"><SandboxStart /><ErrorPanel error={session.error} retry={() => window.location.reload()} /></div>
         ) : (
           <div className="grid gap-6 p-6" aria-busy="true">
+            <SandboxStart />
             <p className="sr-only" role="status">Loading the demo session</p>
             <Skeleton lines={2} className="max-w-xl" />
             <Skeleton lines={6} />
           </div>
         )}
+        <SandboxFoot />
       </main>
     </div>
   );
@@ -102,6 +105,7 @@ function Rail({ section }: { readonly section: Section }) {
             ))}
           </ul>
         </nav>
+        <DemoPanel shown={open} />
         <div className="order-2 grid w-full gap-2 border-t border-rail-line pt-3 lg:order-none lg:mt-auto lg:px-2.5 lg:pt-4">
           <label htmlFor={roleId} className="text-xs text-rail-ink-2">Signed in as</label>
           <select
