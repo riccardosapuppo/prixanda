@@ -155,7 +155,10 @@ them in `dist/demo/` (the site at `/`, the console at `/console/`, the
 sandbox at `/sandbox/`); `npm run demo:serve` serves it on
 http://127.0.0.1:4651. The check's suite `demo` builds it, serves it and
 drives headless Chromium through its journeys; it reports itself as not run
-while a part cannot be built yet.
+while a part cannot be built yet. On a busy 8-core virtual machine, a first
+visit to the site has its home ready in about 5 seconds and a second tab in
+under one; the measures, with the machine and the conditions, are in
+[apps/site/README.md](apps/site/README.md).
 
 ## Layout
 
