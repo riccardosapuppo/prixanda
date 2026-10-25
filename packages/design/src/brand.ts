@@ -34,7 +34,7 @@ export const SANDBOX = {
     title: "About this sandbox",
     where: {
       title: "Where your data is",
-      text: "In this browser only, in the IndexedDB storage of this address. Nothing you do here is sent anywhere.",
+      text: "In this browser only, in the IndexedDB storage of this address. Nothing you do here is sent anywhere; the host that serves these files keeps the access log any web server keeps.",
     },
     reset: {
       title: "Starting over",
