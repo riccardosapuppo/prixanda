@@ -3,7 +3,9 @@
 // exit went with the old cookie: its late answer must not put the listener of
 // before back, with the CSRF token every mutation carries, nor keep the
 // account on them after leaving. A reading that leaves after the change is
-// taken as it comes.
+// taken as it comes. The offers read for the listener of before are partly
+// theirs (an offer for an artist's listeners, §6.8): those go at the change,
+// and the offers everyone sees stay.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MutationObserver, QueryClient } from "@tanstack/react-query";
@@ -52,6 +54,13 @@ function readingOnItsWay(client: QueryClient) {
 
 const meIn = (client: QueryClient) => client.getQueryData<MeAnswer>(keys.me) ?? null;
 
+/** The offers in Italy as they were listed to the listener of before: one everyone sees, and one for an artist's listeners. */
+const EVERYONE_S = { id: "9001", title: "Student Autumn Pass", listening: null };
+const THEIR_OFFERS = [
+  EVERYONE_S,
+  { id: "9005", title: "Low Tide Hymns", listening: { artistId: "2", artist: "Ottoline Marr", minSeconds: 7_200, withinDays: 30 } },
+];
+
 describe("changing the demo listener", () => {
   it("drops a reading of me that left before the entry, and keeps the chosen listener's CSRF token", async () => {
     const client = newClient();
@@ -74,6 +83,28 @@ describe("changing the demo listener", () => {
     await late.settled();
     assert.equal(meIn(client), null);
     client.clear();
+  });
+
+  it("drops the listener of before's offer for an artist's listeners, on entering and on leaving, with a reading still on its way; the others stay", async () => {
+    for (const change of ["enter", "leave"] as const) {
+      const client = newClient();
+      client.setQueryData<MeAnswer>(keys.me, BEFORE);
+      client.setQueryData(keys.offers("IT"), THEIR_OFFERS);
+      client.setQueryData(keys.offers("FR"), []);
+      let answer: (offers: unknown) => void = () => {};
+      const late = client
+        .fetchQuery({ queryKey: keys.offers("IT"), queryFn: () => new Promise((resolve) => { answer = resolve; }), staleTime: 0 })
+        .then(() => undefined, () => undefined);
+      const options = change === "enter" ? signInOptions(apiEntering(CHOSEN), client) : signOutOptions(apiEntering(CHOSEN), client);
+      await new MutationObserver<unknown, Error, string | void>(client, options as never).mutate(change === "enter" ? "listener-2" : undefined);
+      answer(THEIR_OFFERS);
+      await late;
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(client.getQueryData(keys.offers("IT")), [EVERYONE_S], change);
+      assert.deepEqual(client.getQueryData(keys.offers("FR")), [], change);
+      assert.equal(client.getQueryState(keys.offers("IT"))?.isInvalidated, true, `${change}: the offers are read again`);
+      client.clear();
+    }
   });
 
   it("takes a reading that left after the entry: it went with the new cookie", async () => {

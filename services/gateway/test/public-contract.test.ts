@@ -158,6 +158,14 @@ const ALLOWED = [
   "Offer.takeableUntil: MarketTime",
   "Offer.audience: String!",
   "Offer.needsStudentCheck: Boolean!",
+  // An offer for an artist's listeners (§14.2) says what it asks of their
+  // listening, so the site words it with the engine's numbers; it reaches only
+  // the listeners in its audience (§6.8).
+  "Offer.listening: OfferListening",
+  "OfferListening.artistId: ID!",
+  "OfferListening.artist: String!",
+  "OfferListening.minSeconds: Int!",
+  "OfferListening.withinDays: Int!",
   "Quote.id: ID!",
   "Quote.plan: PlanCode!",
   "Quote.market: MarketCode!",
@@ -257,6 +265,12 @@ const PRICE_CHANGE_NAMES = [
 ];
 
 /**
+ * An offer for an artist's listeners names the artist they played (§14.2):
+ * the catalog's, not the artists' economics, which stay the console's.
+ */
+const LISTENING_NAMES = ["OfferListening.artistId", "OfferListening.artist"];
+
+/**
  * A prepaid code the listener bought has a state of its own, as a payment
  * has: no change's state of the workflow. And activating a code holds the
  * letters of VAT without being any.
@@ -335,7 +349,7 @@ describe("the site's schema, as written", () => {
     // change's state of the workflow; so has a price change the listener answers.
     const exceptions = [
       "RefusalCode.NOT_ELIGIBLE", "Mutation.signInAsListener", "Mutation.signOutListener", "Me.csrfToken", "PaymentState", "Payment.state",
-      ...PRICE_CHANGE_NAMES, ...PREPAID_CODE_NAMES, ...Object.keys(PUBLIC_BY_DECISION),
+      ...PRICE_CHANGE_NAMES, ...PREPAID_CODE_NAMES, ...LISTENING_NAMES, ...Object.keys(PUBLIC_BY_DECISION),
     ];
     assert.deepEqual(all.filter(({ name, where }) => INTERNAL_WORDS.test(name) && !exceptions.includes(where)).map(({ where }) => where), []);
     assert.deepEqual(exceptions.filter((where) => !all.some((entry) => entry.where === where)), [], "an exception for a name the schema no longer has");
@@ -642,6 +656,64 @@ describe("the site's refusals: the gateway's sentences, never the engine's", () 
     } finally {
       engine.close();
     }
+  });
+});
+
+describe("an offer for an artist's listeners (§14.2): only they are shown it (§6.8)", () => {
+  let harness: Harness;
+  const fans = "9005";
+  before(async () => {
+    harness = await startHarness();
+    // Two months of Individual at 1,99 € for the Free listeners in Italy with more than 2 hours of Ottoline Marr in the
+    // last 30 days: of the demo's listeners, the student who paid before is among them.
+    harness.engine.published.push(create(PublishedOfferSchema, {
+      offerId: fans, version: 1, market: "IT", plan: "individual", title: "Low Tide Hymns", text: "Two months of Individual.",
+      terms: "Free listeners only.", price: { amountMinor: 199n, currency: "EUR" }, listPrice: { amountMinor: 1049n, currency: "EUR" },
+      monthsAtOfferPrice: 2, audience: "Free listeners in Italy, with more than 2 hours of Ottoline Marr in the last 30 days",
+      needsStudentCheck: false, listening: { artistId: 2, artistName: "Ottoline Marr", minSeconds: 7_200, withinDays: 30 },
+    }));
+    harness.engine.offerRules.set(fans, { neverPaid: false, group: "release", cap: 0, listeners: [LISTENERS.paidBefore] });
+  });
+  after(async () => {
+    await harness.close();
+  });
+
+  const OFFERS = '{ offers(market: "IT") { id listening { artistId artist minSeconds withinDays } } }';
+  const listedFor = async (site: Client) => {
+    harness.engine.clearCalls();
+    const answer = await site.graphql(OFFERS);
+    assert.equal(answer.body.errors, undefined, answer.text);
+    const [call] = harness.engine.calls.filter((each) => each.method === "ListOffers");
+    return { offers: answer.body.data.offers as Array<{ id: string; listening: unknown }>, askedFor: (call?.message as { subscriberId?: string })?.subscriberId };
+  };
+
+  test("the session's listener in its audience is shown it, with what it asks of their listening", async () => {
+    const site = harness.site();
+    await site.signInAsListener(LISTENERS.paidBefore);
+    const { offers, askedFor } = await listedFor(site);
+    assert.equal(askedFor, LISTENERS.paidBefore, "the engine is asked for the session's listener");
+    assert.deepEqual(offers, [
+      { id: "9001", listening: null },
+      { id: fans, listening: { artistId: "2", artist: "Ottoline Marr", minSeconds: 7_200, withinDays: 30 } },
+    ]);
+  });
+
+  test("a listener outside its audience is not shown it, and a visitor without a session neither", async () => {
+    const outside = harness.site();
+    await outside.signInAsListener(LISTENERS.verified);
+    const listener = await listedFor(outside);
+    assert.equal(listener.askedFor, LISTENERS.verified);
+    assert.deepEqual(listener.offers.map((offer) => offer.id), ["9001"]);
+    const visitor = await listedFor(harness.site());
+    assert.equal(visitor.askedFor, "0", "a visitor is nobody to the engine");
+    assert.deepEqual(visitor.offers.map((offer) => offer.id), ["9001"]);
+  });
+
+  test("a listener outside its audience who asks for its price anyway is refused", async () => {
+    const outside = harness.site();
+    await outside.signInAsListener(LISTENERS.verified);
+    const quoted = await outside.graphql(`mutation { requestQuote(plan: "individual", market: "IT", offerId: "${fans}") { __typename ... on Refusal { code } } }`);
+    assert.deepEqual(quoted.body.data, { requestQuote: { __typename: "Refusal", code: "NOT_ELIGIBLE" } }, quoted.text);
   });
 });
 

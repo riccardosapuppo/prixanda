@@ -5,7 +5,8 @@
 // goes (the engine's breakdown, drawn as the canopy and written out), what
 // it includes, and the way to take it, which opens the steps of a demo
 // subscription in its place. The title and the market stay in view while
-// the plans scroll.
+// the plans scroll. An offer for an artist's listeners is listed only to
+// them (§6.8), and says under its flag who it is for.
 import { formatPercent, formatSitePrice, type IconName, type MoneyLike } from "design";
 import { Icon } from "design/icon";
 import type { Route } from "next";
@@ -130,6 +131,7 @@ function PlanRow({ plan, market, open, moved, offers, onPick }: {
             {copy.plans.onNow(offer.title, write(offer.price), offer.monthsAtOfferPrice)}
             <Icon name="arrow-right" size={16} />
           </Link>
+          {offer.listening ? <span className="offer-why">{copy.listening.forListeners(offer.listening)}</span> : null}
         </p>
       ))}
       {open ? <Decision key={`${market.code}-${plan.code}`} plan={plan} market={market} moved={moved} price={price} /> : null}
