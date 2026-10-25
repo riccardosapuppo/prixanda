@@ -60,6 +60,10 @@
       flex-wrap: wrap;
       gap: 0.75rem;
     }
+    /* The first line keeps the row's height when the menu opens below it: nothing above moves. */
+    .head-actions {
+      min-height: 3.75rem;
+    }
     .menu-toggle {
       display: inline-flex;
     }
@@ -77,6 +81,19 @@
     }
     .site-nav a[aria-current="page"] {
       box-shadow: inset 2px 0 0 var(--color-ink);
+    }
+  }
+  /* Under a finger, a text link that stands alone reaches 44 px: padding for the finger, the same
+     taken back as margin, so that nothing around it moves. */
+  @media (pointer: coarse) {
+    .wordmark,
+    .listen-back a {
+      padding-block: 0.625rem;
+      margin-block: -0.625rem;
+    }
+    .hero-label a {
+      padding-block: 0.4375rem;
+      margin-block: -0.4375rem;
     }
   }
 
@@ -182,7 +199,7 @@
     grid-template-columns: 8.5rem minmax(0, 1fr);
     gap: 0.75rem 1rem;
     align-items: center;
-    max-width: 36rem;
+    max-width: 34rem;
     padding: 1rem;
     background: var(--color-stone-0);
     border: 1px solid var(--color-ink);
@@ -1054,7 +1071,10 @@
   .run-item.is-played .run-item-words {
     color: var(--color-ink-2);
   }
+  /* The record playing stands out on a panel wider than the list, as the plan open does: its cover
+     and words stay in line with the others'. */
   .run-item.is-now {
+    margin-inline: -0.75rem;
     padding-inline: 0.75rem;
     background: var(--color-stone-0);
   }
@@ -1573,7 +1593,8 @@
     .plan-choice {
       column-gap: 0.75rem;
     }
-    .plan.is-open {
+    .plan.is-open,
+    .run-item.is-now {
       margin-inline: -0.5rem;
       padding-inline: 0.5rem;
     }

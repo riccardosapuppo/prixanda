@@ -248,6 +248,15 @@ reduced motion every entrance is a 140 ms fade. The listening session
 changes in place, as a player does: its clock, buttons and running order
 never animate.
 
+## Under a finger
+
+On a touch screen (`pointer: coarse`) every control is at least 44 px tall,
+the size the platforms' guidelines ask for a fingertip: the buttons grow from
+40 to 44 px, and a link that stands alone (the wordmark, the label's name in
+the opening, the way back from a session) takes the finger on padding it gives
+back as margin, so nothing around it moves. A link inside a sentence keeps
+the sentence's lines. With a mouse nothing changes.
+
 ## Checks
 
 ```
@@ -262,10 +271,10 @@ npm run e2e -w site -- gift         # one of them alone: student, gift or album
 | `site-codegen` | every operation validates against the public schema, and the generated types equal a fresh generation | 14 operations |
 | `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit, who an offer for an artist's listeners is for, and the listener of before's offers for an artist's listeners dropped on an entry or an exit, the tab and the sandbox's worker over their protocol (with a fake worker), a worker that failed said as an API out of reach, an idempotency key spent by an answer and kept only to retry after an error, the rounds of asking while a payment waits, a new one with each check again | 95 tests |
 | `site-build` | the static export, every page in it, the API it calls written in | 5 pages |
-| `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 11 tests, 9 audit events, axe on 11 pages, 20 pages fitted |
-| `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a code refused while its payment is pending and activated once it settled, a reading that fails after a purchase taking nothing away, a request for consent in Germany answered, a notice in Italy, below | 11 tests, 10 audit events, axe on 10 pages, 10 pages fitted |
+| `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 11 tests, 9 audit events, axe on 12 pages, 30 pages fitted |
+| `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a code refused while its payment is pending and activated once it settled, a reading that fails after a purchase taking nothing away, a request for consent in Germany answered, a notice in Italy, below | 11 tests, 10 audit events, axe on 10 pages, 15 pages fitted |
 | `site-e2e-fans` | the same for §14.2: the album release shown to its fan at the engine's price, and to none of the listeners outside its audience nor a visitor, below | 8 tests, 3 listeners outside, 8 audit events, axe on 6 pages, 10 pages fitted |
-| `demo` | the assembled demo served on 4651, headless Chromium with one browser and its tabs: the first start, a second tab, a campaign launched from another tab reaching the site, the data after a reload and after the worker started again, Start over in every tab; no request leaving the address, axe | 6 tests for the site |
+| `demo` | the assembled demo served on 4651, headless Chromium with one browser and its tabs: the first start, a second tab, a campaign launched from another tab reaching the site, the data after a reload and after the worker started again, Start over in every tab, the panel about the sandbox at every width; no request leaving the address, axe | 6 tests for the site |
 
 `site-e2e` starts the engine on a clock the test moves, the gateway and the
 site's build, launches the Student Autumn Pass through the console's API
@@ -275,8 +284,9 @@ clocks go back. It measures how long the engine takes to publish the pass
 and how long an open page takes to show it. A student who has not verified
 yet then enters as a demo listener, is verified by the simulated provider,
 subscribes at 2,99 € a month for 3 months, then 5,79 €, and sees the first
-month settle with a demo receipt; a student who paid before is told the pass
-is not for them. The audit log must hold every step with the request id that
+month settle with a demo receipt; the steps, open on the confirmation, fit
+every width as they stand. A student who paid before is told the pass is not
+for them. The audit log must hold every step with the request id that
 caused it, the browser's own for the student's, and its chain must hold. With
 the confirmation open for a verified student, the visitor enters as the
 student who paid before in a second tab; back on the first, the steps start
@@ -286,8 +296,12 @@ fail: the steps stay as they were, with their quote, and each failure is
 said with a way to try again. A
 verified student then takes the pass from the home on the keyboard alone,
 with nothing moving while they do. The home, the campaign, a listening
-session and the account are loaded at 1440, 1280, 720 (1440 at 200 %), 390
-and 320 pixels, and none may scroll sideways or cut off a line of text. axe
+session, the account and an address that leads nowhere are loaded at 1440,
+1280, 720 (1440 at 200 %), 390 and 320 pixels, and none may scroll sideways
+or cut off a line of text. At 390 and 320 the browser is a phone's, with a
+touch screen: every control is at least 44 px for a finger, and the menu
+opens without moving the header's first line. The record playing in a
+session's running order stays in line with the others at every width. axe
 runs on every page and state once what was entering has come to rest, since
 a colour read halfway through a fade has a contrast it does not keep (no
 serious or critical violation), and no page may ask another host for
@@ -296,9 +310,11 @@ anything.
 `site-e2e-7` starts the same system on a database of its own. The
 commercial lead's gift pass is launched through the console's API, and the
 open home shows it; a listener in Italy buys a code, waits for the simulated
-payment and gets the demo receipt; another listener activates the code and
-has three months of Individual, never charged, then Free; a third cannot use
-it again, and the code is in no line the engine or the gateway logged. Then
+payment and gets the demo receipt, which fits every width as it stands;
+another listener activates the code and has three months of Individual,
+never charged, then Free, after a code of the right shape that does not exist
+was said to be no code, not a failure of the service; a third cannot use it
+again, and the code is in no line the engine or the gateway logged. Then
 the engine's payment provider is kept from answering, as a real one may take
 its time: a second code, bought meanwhile, stays pending. On the page of the
 purchase, then on the account, the page's own clock is moved over the thirty

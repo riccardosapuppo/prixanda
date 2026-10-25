@@ -13,7 +13,8 @@
 //   4. A student who has not verified yet enters as a demo listener, is
 //      verified by the simulated provider, and confirms the demo subscription
 //      at 2,99 € a month for 3 months, then 5,79 €; the account shows it, and
-//      its first month's payment settles with a demo receipt.
+//      its first month's payment settles with a demo receipt. The steps, open
+//      on the confirmation, fit every width as they stand.
 //   5. A student who paid before is told the pass is not for them.
 //   6. The audit log holds every step, each with the request id that caused
 //      it: the console's for the launch, the browser's own for the student.
@@ -26,9 +27,13 @@
 //      failure is said with a way to try again, which goes through.
 //   9. A verified student takes the pass from the home on the keyboard alone,
 //      and nothing moves while they do.
-//  10. The home, the campaign, a listening session and the account fit 1440,
-//      1280, 720 (1440 at 200 %), 390 and 320 pixels: no sideways scroll, no
-//      text cut off.
+//  10. The home, the campaign, a listening session, the account and an
+//      address that leads nowhere fit 1440, 1280, 720 (1440 at 200 %), 390 and
+//      320 pixels: no sideways scroll, no text cut off. At 390 and 320 the
+//      browser is a phone's, with a touch screen: every control is at least
+//      44 px for a finger, and opening the menu moves nothing above it. The
+//      record playing in the session's running order stays in line with the
+//      others at every width.
 //
 // Every page is checked with axe (no serious or critical violation), no page
 // may ask anything of another host, and none may log an error. Run by
@@ -39,7 +44,7 @@ import { writeFile } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import { animationsDone, failedAnswer, misfits, operationOf, type Seen, tabTo, text, WIDTHS } from "./support/browser.ts";
+import { animationsDone, failedAnswer, misfits, misfitsHere, operationOf, PHONE, type Seen, smallTargets, tabTo, text, WIDTHS } from "./support/browser.ts";
 import { ConsoleSession, launchOffer, studentAutumnPass } from "./support/console.ts";
 import { CONSOLE_API, PUBLIC_API, SITE_URL, type Stack, startStack } from "./support/stack.ts";
 
@@ -51,6 +56,8 @@ const BEFORE = "2026-10-26T07:58:00Z";
 const PAST_THE_START = "2026-10-26T08:00:05Z";
 /** How long an open page may take to show a launched campaign: its refresh, the activation, a margin. */
 const SITE_LIMIT_MS = 30_000;
+/** An address of the site that leads nowhere: its page says so. */
+const NOWHERE = "/no-such-page/";
 
 const SUMMARY = process.env["SITE_E2E_SUMMARY"] ?? "";
 
@@ -76,9 +83,11 @@ const consoleIds: Record<string, string> = {};
 const siteRequests: Seen[] = [];
 
 /** A browser of its own (cookies included) that counts what it must not do. */
-async function newVisitor(width = 1280): Promise<{ context: BrowserContext; page: Page }> {
+async function newVisitor(width = 1280, phone = false): Promise<{ context: BrowserContext; page: Page }> {
   assert.ok(browser);
-  const context = await browser.newContext({ viewport: { width, height: width < 600 ? 844 : 900 }, locale: "en-GB", timezoneId: "Europe/Rome" });
+  const context = await browser.newContext({
+    viewport: { width, height: width < 600 ? 844 : 900 }, locale: "en-GB", timezoneId: "Europe/Rome", ...(phone ? PHONE : {}),
+  });
   await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== "127.0.0.1") {
@@ -94,7 +103,10 @@ async function newVisitor(width = 1280): Promise<{ context: BrowserContext; page
 /** A tab that counts what it must not do, and remembers the site's requests to the API. */
 function watched(page: Page): Page {
   page.on("console", (message) => {
-    if (message.type() === "error") summary.pageErrors.push(message.text());
+    if (message.type() !== "error") return;
+    // The page of an address that leads nowhere comes with a 404, as it must, and the browser says so.
+    if (message.location().url.endsWith(NOWHERE) && message.text().includes("status of 404")) return;
+    summary.pageErrors.push(message.text());
   });
   page.on("pageerror", (error) => summary.pageErrors.push(error.message));
   page.on("request", (request) => {
@@ -259,6 +271,9 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     assert.match(confirm, /2,99 € a month for 3 months, then 5,79 € a month, the Student price in force at that time \(VAT included\)\./);
     assert.match(confirm, /Independent personal project\. Fictional business and synthetic customer data\. No real payments are processed\./);
     await accessible(page, "the confirmation");
+    const steps = await misfitsHere(page);
+    summary.layoutChecks += WIDTHS.length;
+    assert.deepEqual(steps, [], "the steps, open on the confirmation, fit every width");
 
     const confirmed = performance.now();
     await page.getByRole("button", { name: "Confirm demo subscription" }).click();
@@ -441,33 +456,56 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     assert.match(account, /Offer\s*Student Autumn Pass: 3 of 3 months left at this price/);
   });
 
-  test("10. the home, the campaign, a listening session and the account fit every width, without a sideways scroll or text cut off", async () => {
+  test("10. every page fits every width, without a sideways scroll or text cut off; on a phone every control takes a finger", async () => {
     const pages = [
       { path: "/?market=IT&plan=student", ready: ".plan.is-open .decision", axe: "the home with the pass on sale" },
       { path: `/campaign/?market=IT&offer=${summary.changeId}`, ready: "h1", axe: null },
       { path: "/session/?label=coldframe-records", ready: ".player", axe: "a listening session" },
       { path: "/account/", ready: "h1", axe: null },
+      { path: NOWHERE, ready: "h1", axe: "an address that leads nowhere" },
     ];
     const misfit: string[] = [];
+    const small: string[] = [];
+    const moved: string[] = [];
     for (const width of WIDTHS) {
-      const { context, page } = await newVisitor(width);
+      const phone = width < 600;
+      const { context, page } = await newVisitor(width, phone);
       for (const each of pages) {
         await page.goto(`${SITE_URL}${each.path}`);
         await page.locator(each.ready).first().waitFor();
         await page.evaluate(() => document.fonts.ready);
         for (const problem of await misfits(page)) misfit.push(`${width} px, ${each.path}: ${problem}`);
         summary.layoutChecks += 1;
+        if (phone) for (const target of await smallTargets(page)) small.push(`${width} px, ${each.path}: ${target}`);
         if (width === 1440 && each.axe !== null) await accessible(page, each.axe);
+        if (each.path.startsWith("/session/")) {
+          // The record playing stands out on its panel, its cover in line with the others'.
+          const lefts = await page.locator(".run-item .cover").evaluateAll((covers) => covers.map((cover) => Math.round(cover.getBoundingClientRect().left)));
+          if (new Set(lefts).size !== 1) moved.push(`${width} px: the running order's covers start at ${lefts.join(", ")}`);
+        }
+      }
+      if (phone) {
+        // The menu opens below the header's first line, which stays where it was.
+        await page.goto(`${SITE_URL}/?market=IT`);
+        const toggle = page.getByRole("button", { name: "Menu" });
+        await toggle.waitFor();
+        const closed = await toggle.boundingBox();
+        await toggle.click();
+        await page.getByRole("navigation").getByRole("link", { name: "Listening sessions" }).waitFor();
+        await animationsDone(page); // the button pressed gives, then comes back
+        const open = await toggle.boundingBox();
+        if (closed?.y !== open?.y) moved.push(`${width} px: the menu's button moved from ${closed?.y} to ${open?.y} as the menu opened`);
       }
       await context.close();
     }
-    assert.deepEqual(misfit, []);
+    // Each kind of problem in a list of its own, every one of them said at once.
+    assert.deepEqual({ misfit, small, moved }, { misfit: [], small: [], moved: [] });
   });
 
   test("11. no page asked anything of another host, and none logged an error", () => {
     assert.equal(summary.externalRequests, 0);
     assert.deepEqual(summary.pageErrors, []);
-    assert.ok(summary.pagesChecked >= 11, `axe ran on ${summary.pagesChecked} pages`);
-    assert.equal(summary.layoutChecks, WIDTHS.length * 4);
+    assert.ok(summary.pagesChecked >= 12, `axe ran on ${summary.pagesChecked} pages`);
+    assert.equal(summary.layoutChecks, WIDTHS.length * 6);
   });
 });

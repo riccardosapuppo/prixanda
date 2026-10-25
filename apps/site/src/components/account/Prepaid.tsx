@@ -9,6 +9,7 @@ import { formatSitePrice, type MoneyLike } from "design";
 import { Icon } from "design/icon";
 import { useId, useRef, useState } from "react";
 import { copy } from "../../content/copy.ts";
+import { ApiError } from "../../data/api.ts";
 import { type Me, useActivatePrepaidPass, usePlans } from "../../data/hooks.ts";
 import { ActionKeys } from "../../data/ids.ts";
 import { DEFAULT_MARKET, isSiteMarket } from "../../data/markets.ts";
@@ -71,6 +72,8 @@ export function ActivateCode({ me }: { readonly me: Me }) {
   const keys = useRef(new ActionKeys<string>());
   const field = useId();
   const answer = activate.data?.activatePrepaidPass;
+  // A code the engine does not know, typed wrong most likely, is said so, not as a failure of the service.
+  const unknown = activate.isError && activate.error instanceof ApiError && activate.error.code === "NOT_FOUND";
   const send = (code: string) => {
     activate.mutate({ code, idempotencyKey: keys.current.key(code) }, {
       onSuccess: (data) => {
@@ -129,7 +132,8 @@ export function ActivateCode({ me }: { readonly me: Me }) {
         </p>
       ) : null}
       {answer?.__typename === "Refusal" ? <Refusal title={words.refused} reason={answer.reason} /> : null}
-      {activate.isError ? <Failure error={activate.error} /> : null}
+      {unknown ? <Refusal title={words.refused} reason={words.unknown} /> : null}
+      {activate.isError && !unknown ? <Failure error={activate.error} /> : null}
     </section>
   );
 }

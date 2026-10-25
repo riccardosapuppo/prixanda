@@ -123,6 +123,12 @@
   .btn:active {
     transform: scale(0.97);
   }
+  /* Under a finger every button is at least 44 px tall, as the links of the header are. */
+  @media (pointer: coarse) {
+    .btn {
+      min-height: 2.75rem;
+    }
+  }
   .btn-primary {
     background: var(--color-indigo);
     border-color: var(--color-indigo);

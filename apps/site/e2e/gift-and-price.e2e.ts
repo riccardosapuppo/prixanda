@@ -8,10 +8,13 @@
 //      reaches the open home within a measured time.
 //   3. A listener in Italy buys a code: the entrance, the confirmation with
 //      the disclaimer, the payment the simulated provider settles, the demo
-//      receipt with the code; the account lists it.
+//      receipt with the code, which fits every width as it stands; the
+//      account lists it.
 //   4. Another listener activates the code: three months of Individual, never
 //      charged and never renewed, then Free; a third cannot use it again; the
-//      code is in no line the engine or the gateway logged.
+//      code is in no line the engine or the gateway logged. Before it, a code
+//      of the wrong shape is never sent, and one of the right shape that
+//      does not exist is said to be no code, not a failure of the service.
 //   5. A second code, bought while the payment provider has not answered
 //      yet: after thirty seconds of asking, the page of the purchase and then
 //      the account say the provider has not answered, and each check again
@@ -213,6 +216,7 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     assert.ok(CODE_SHAPE.test(code), "the receipt shows a code of the engine's shape");
     assert.match(await text(page), /Demo receipt: no money moved\./);
     await watch.accessible(page, "the gift pass's receipt");
+    assert.deepEqual(await watch.fitsHere(page), [], "the receipt with its code fits every width");
 
     await page.goto(`${SITE_URL}/account/`);
     await page.locator("[data-code-state='READY']").waitFor();
@@ -232,6 +236,11 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     await page.getByRole("button", { name: "Activate" }).click();
     await page.getByText("A code is three groups of four letters and digits").waitFor();
     assert.equal(watch.sent("SiteActivatePrepaidPass").length, 0, "a code of the wrong shape is never sent");
+    // A code of the right shape that does not exist, mistyped most likely: no code, in those words.
+    await field.fill("ABCD-EFGH-JKMN");
+    await page.getByRole("button", { name: "Activate" }).click();
+    await page.getByText("There is no code like this one. Check it against the receipt, letter by letter, and try again.").waitFor({ timeout: 20_000 });
+    assert.equal(await page.getByRole("alert").filter({ hasText: "This is no longer here" }).count(), 0, "not said as a failure of the service");
 
     // Typed the way a person might: lower case, spaces for dashes.
     await field.fill(code.toLowerCase().replaceAll("-", " "));
@@ -484,6 +493,6 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     assert.equal(watch.externalRequests, 0);
     assert.deepEqual(watch.pageErrors, []);
     assert.ok(watch.pagesChecked >= 10, `axe ran on ${watch.pagesChecked} pages`);
-    assert.equal(watch.layoutChecks, 10);
+    assert.equal(watch.layoutChecks, 15);
   });
 });
