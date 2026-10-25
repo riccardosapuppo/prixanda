@@ -20,6 +20,8 @@ import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { buildConsole, GATEWAY_URL as E2E_GATEWAY_URL, runEndToEnd } from "../apps/console/e2e/run.ts";
 import { nestedSegmentFiles } from "../apps/site/scripts/segments.ts";
+import { buildSandbox } from "../packages/sandbox/scripts/build.ts";
+import { measureWorker } from "../packages/sandbox/scripts/measure.ts";
 import { buildEngineAssets } from "../packages/sandbox/src/engine/build/assets.ts";
 import { licenseInventory, writeReport } from "./licenses.ts";
 import { flyway } from "./lib/flyway.ts";
@@ -306,7 +308,7 @@ const SUITES: Suite[] = [
   // after asking the system that nobody listens there; they need no database.
   {
     name: "gw-types",
-    what: "tsc over the gateway (strict, erasable), then again with a browser's types and none of Node's what runs in the sandbox's worker: the core, the shells' shared part, the browser's shell",
+    what: "tsc over the gateway (strict, erasable), then, with a browser's types and none of Node's, what runs in the sandbox's worker: the core, the shells' shared part, the browser's shell",
     needsDatabase: false,
     async run() {
       const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
@@ -846,6 +848,67 @@ const SUITES: Suite[] = [
       return passed(counted, "a loaded machine's numbers: quote those of npm run measure:sandbox on a quiet one");
     },
   },
+  // The gateway's side of the sandbox (stage 8): the protocol between a tab
+  // and the worker, the client both apps open, the worker that holds the
+  // gateway over the engine in the page, and its bundle
+  // (packages/sandbox/scripts/build.ts); then the bundle in headless
+  // Chromium, with a canned engine, and with the engine's own side and the
+  // files sandbox-build made.
+  {
+    name: "sandbox-gateway",
+    what: "the sandbox's gateway side: tsc with a browser's types, then with Node's for its tests and build; the protocol, the client, the worker and its SHA-256 under Node; the worker's bundle with a stub engine, its size, and Node's modules it names but never runs",
+    needsDatabase: false,
+    async run() {
+      const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+      if (!existsSync(tsc)) return notRun("typescript is not installed: npm install");
+      const counted: string[] = [];
+      for (const [config, floor, label] of [["tsconfig.json", SANDBOX_GATEWAY_FLOOR.browserFiles, "for the browser"],
+        ["tsconfig.test.json", SANDBOX_GATEWAY_FLOOR.nodeFiles, "with Node"]] as const) {
+        const ran = await run(process.execPath, [tsc, "-p", config, "--listFiles"], { cwd: sandboxDir });
+        const ours = ran.output.split(/\r?\n/).filter((line) => {
+          const path = line.replaceAll("\\", "/");
+          return path.includes("/packages/sandbox/") && path.endsWith(".ts") && !path.includes("node_modules")
+            && !path.includes("/packages/sandbox/src/engine/") && !path.includes("/packages/sandbox/test/engine/");
+        }).length;
+        counted.push(`${ours} ${label}`);
+        if (ran.code !== 0) return failed(counted.join(", "), ran.output.split(/\r?\n/).filter((line) => /error TS\d+/.test(line)).slice(0, 8).join("\n") || ran.output.slice(0, 2000));
+        if (ours < floor) return failed(counted.join(", "), `${config}: fewer than ${floor} files of the gateway's side checked`);
+      }
+      const tests = await nodeTests("sandbox-gateway", ["test/protocol.test.ts", "test/client.test.ts", "test/worker.test.ts", "test/sha256.test.ts"],
+        SANDBOX_GATEWAY_FLOOR.nodeTests, {}, sandboxDir);
+      counted.push(tests.counted);
+      if (tests.outcome !== "passed") return { ...tests, counted: counted.join("; ") };
+      // The worker alone, a stub in place of the engine: the gateway's part of the demo's backend.js.
+      const built = await buildSandbox({ engine: join(sandboxDir, "test", "support", "stub-engine.ts"), out: join(reports, "sandbox-worker"), build: "check" });
+      const kib = Math.round(built.bytes / 1024);
+      counted.push(`worker ${kib} KiB from ${built.inputs.length} modules`);
+      const all = counted.join("; ");
+      if (built.inputs.length < SANDBOX_GATEWAY_FLOOR.bundleModules) return failed(all, `fewer than ${SANDBOX_GATEWAY_FLOOR.bundleModules} modules: the gateway is not in the bundle`);
+      if (kib > SANDBOX_GATEWAY_FLOOR.bundleKiB) return failed(all, `more than ${SANDBOX_GATEWAY_FLOOR.bundleKiB} KiB`);
+      const unexpected = built.nodeModules.filter((name) => !SANDBOX_GATEWAY_FLOOR.nodeModules.includes(name));
+      if (unexpected.length) return failed(all, `Node's modules in the bundle beyond ${SANDBOX_GATEWAY_FLOOR.nodeModules.join(", ")}: ${unexpected.join(", ")}`);
+      return passed(all, `Node's modules named but never run: ${built.nodeModules.join(", ")}`);
+    },
+  },
+  {
+    name: "sandbox-worker",
+    what: "the worker's bundle in headless Chromium, every other host unreachable: with a canned engine (one SharedWorker for every tab, a tab of another build, the dedicated workers and their lock on the data), then with the engine's own side (§14.1 from the console's tab to the site's through a simulated fault, the data kept when every tab closed, the start over); its measuring tool tried once",
+    needsDatabase: false,
+    async run() {
+      if (!(await chromiumInstalled())) return notRun("no Chromium for playwright 1.62.1: npx playwright install chromium (it downloads the browser)");
+      const built = await sandboxAssets();
+      const tests = await nodeTests("sandbox-worker", ["test/chromium.test.ts", "test/demo-worker.test.ts"], SANDBOX_GATEWAY_FLOOR.chromiumTests,
+        { SANDBOX_ENGINE_ASSETS: built.outDir }, sandboxDir);
+      if (tests.outcome !== "passed") return tests;
+      // The measuring tool, once, on a machine that may be busy: the numbers to quote come from npm run measure -w sandbox on a quiet one.
+      const report = await measureWorker({ runs: 1, mbps: 0, latencyMs: 0, assets: built.outDir });
+      const first = report.first_visit;
+      const counted = `${tests.counted}; ready in ${(first.median_ready_ms / 1000).toFixed(1)} s, ${(first.median_downloaded_bytes / 1e6).toFixed(1)} MB, `
+        + `a second tab ${report.second_tab.median_ready_ms} ms`;
+      if (!(first.median_ready_ms > 0) || !(first.median_downloaded_bytes > 0) || !(report.requests.median_read_ms > 0)) return failed(counted, "the report misses a number");
+      return passed(counted, "a busy machine's numbers: quote those of npm run measure -w sandbox on a quiet one");
+    },
+  },
 ];
 
 // pytest's JUnit report: the totals of its test suites.
@@ -879,6 +942,14 @@ function sandboxAssets(): ReturnType<typeof buildEngineAssets> {
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
   files: 55, coreFiles: 22, generated: 3, schemaTests: 23, tests: 253, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
+};
+// The sandbox's gateway side (stage 8): what its suites must at least have
+// checked, and what the worker's bundle may hold: the gateway's part of it,
+// minified (the engine's files are apart), and the Node modules that Apollo
+// Server names for its reporting, which the gateway turns off.
+const SANDBOX_GATEWAY_FLOOR = {
+  browserFiles: 8, nodeFiles: 21, nodeTests: 31, chromiumTests: 4, bundleModules: 400, bundleKiB: 1_100,
+  nodeModules: ["crypto", "os", "zlib"] as readonly string[],
 };
 
 /**

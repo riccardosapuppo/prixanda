@@ -13,6 +13,8 @@ declare global {
     demo: ReturnType<typeof openBackend>;
     /** Every step the worker showed while it started, in order. */
     progress: Array<{ step: string; done: number; of: number }>;
+    /** When the tab heard ready, in the page's own milliseconds (performance.now: from its navigation). */
+    readyAt: number | null;
     changed: string[][];
     resets: number;
     ask(query: string, variables?: Record<string, unknown>): Promise<Answer>;
@@ -25,11 +27,13 @@ if (params.has("dedicated")) Reflect.deleteProperty(globalThis, "SharedWorker");
 const app = params.get("app") === "console" ? "console" : "site";
 window.demo = openBackend({ app, build: params.get("build") ?? "test-build" });
 window.progress = [];
+window.readyAt = null;
 window.changed = [];
 window.resets = 0;
 window.demo.subscribe(() => {
   const status = window.demo.status();
   if (status.state === "starting" && status.step !== null) window.progress.push({ step: status.step, done: status.done, of: status.of });
+  if (status.state === "ready" && window.readyAt === null) window.readyAt = performance.now();
 });
 window.demo.onChanged((what) => window.changed.push([...what]));
 window.demo.onReset(() => {

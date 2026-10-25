@@ -81,7 +81,7 @@ export async function buildSandbox(options: {
     metafile: true,
     logLevel: "warning",
     // Apollo Server hashes every query with sha.js outside Node, and sha.js needs Node's Buffer: a SHA-256 of the sandbox's own instead.
-    alias: { "sandbox-engine": options.engine, "sha.js": join(root, "src", "gateway", "sha256.cjs") },
+    alias: { "sandbox-engine": resolve(options.engine), "sha.js": join(root, "src", "gateway", "sha256.cjs") },
     define: { __SANDBOX_BUILD__: JSON.stringify(options.build), "process.env.NODE_ENV": '"production"' },
     // Where the code names Node's process or Buffer: an empty environment, and nothing a Buffer.
     inject: [join(root, "src", "gateway", "node-globals.ts")],

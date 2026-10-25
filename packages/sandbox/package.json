@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "node scripts/build.ts",
+    "measure": "node scripts/measure.ts",
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
