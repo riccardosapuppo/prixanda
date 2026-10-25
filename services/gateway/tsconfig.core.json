@@ -1,12 +1,13 @@
 {
-  // The core alone (schemas, resolvers, loaders), with the types of a browser
-  // and none of Node's: in stage 8 it runs in a page, so a Buffer, a process or
-  // a node: import here does not compile. test/core-boundary.test.ts checks its
-  // imports as well.
+  // What runs in the browser of stage 8, with the types of a browser and none
+  // of Node's: the core (schemas, resolvers, loaders), what both shells share
+  // (src/shell) and the browser's shell (src/browser). A Buffer, a process or a
+  // node: import here does not compile. test/core-boundary.test.ts checks
+  // their imports as well.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["es2024", "dom"],
     "types": []
   },
-  "include": ["src/core/**/*.ts"]
+  "include": ["src/core/**/*.ts", "src/shell/**/*.ts", "src/browser/**/*.ts"]
 }

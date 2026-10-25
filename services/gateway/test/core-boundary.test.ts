@@ -77,3 +77,46 @@ describe("the core's imports", () => {
     ]);
   });
 });
+
+// Stage 8: what both shells share (src/shell) and the browser's shell
+// (src/browser) run in the sandbox's worker, beside the core. They may use
+// Apollo Server through its integration API too, and never Node, nor the Node
+// shell.
+const SRC = join(import.meta.dirname, "..", "src");
+const BROWSER_SIDE = ["core", "shell", "browser"].map((folder) => join(SRC, folder));
+const BROWSER_PACKAGES = [...ALLOWED_PACKAGES, "@apollo/server", "@apollo/server/plugin/disabled"];
+
+function forbiddenInBrowser(file: string, specifiers: readonly string[]): string[] {
+  const problems: string[] = [];
+  for (const specifier of specifiers) {
+    if (specifier.startsWith(".")) {
+      const target = resolve(join(file, ".."), specifier);
+      if (!BROWSER_SIDE.some((folder) => !relative(folder, target).startsWith("..") && !isAbsolute(relative(folder, target)))) {
+        problems.push(`${specifier}: outside what runs in the browser`);
+      }
+    } else if (!BROWSER_PACKAGES.includes(specifier) && !specifier.startsWith("contracts/commerce/")) {
+      problems.push(`${specifier}: not a package the browser's side may use`);
+    }
+  }
+  return problems;
+}
+
+describe("the shells' shared part and the browser's shell", () => {
+  test("import the core, Apollo Server's integration API, and nothing of Node", async () => {
+    const files = [...(await sources(join(SRC, "shell"))), ...(await sources(join(SRC, "browser")))];
+    assert.ok(files.length >= 3, `only ${files.length} files were read`);
+    const problems: string[] = [];
+    for (const file of files) {
+      problems.push(...forbiddenInBrowser(file, imports(await readFile(file, "utf8"))).map((problem) => `${relative(SRC, file)}: ${problem}`));
+    }
+    assert.deepEqual(problems, []);
+  });
+
+  test("the check finds the Node shell and Node's modules, planted", () => {
+    const planted = ['import { createServer } from "node:http";', 'import { SessionStore } from "../node/sessions.ts";', 'import { buildPublicSchema } from "../core/schemas.ts";'].join("\n");
+    assert.deepEqual(forbiddenInBrowser(join(SRC, "browser", "planted.ts"), imports(planted)), [
+      "node:http: not a package the browser's side may use",
+      "../node/sessions.ts: outside what runs in the browser",
+    ]);
+  });
+});

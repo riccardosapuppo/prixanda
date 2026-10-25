@@ -1,6 +1,6 @@
-// The HTTP shell around one schema: Node's http server, Apollo Server through
-// its integration API, and everything that belongs to HTTP rather than to the
-// schema. In order, for each request:
+// The HTTP shell around one schema: Node's http server, and everything that
+// belongs to HTTP rather than to the schema; what both shells do with the
+// request once it is theirs is src/shell/graphql.ts. In order, for each request:
 //   1. the request id: the client's when well formed, a new one otherwise,
 //      returned in X-Request-Id and in the response's extensions;
 //   2. CORS: only the console's origins reach the console's API, only the
@@ -12,41 +12,23 @@
 //   5. the session from its signed cookie (the console's person, or the
 //      site's listener, each API reading its own cookie only), and the CSRF
 //      token every mutation must carry while a session exists;
-//   6. Apollo, with the schema's limits, no stack traces, no landing page, no
-//      reporting to any outside service.
+//   6. Apollo, as src/shell/graphql.ts sets it up for both shells.
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { ApolloServer, type ApolloServerPlugin, HeaderMap } from "@apollo/server";
-import {
-  ApolloServerPluginCacheControlDisabled, ApolloServerPluginInlineTraceDisabled, ApolloServerPluginLandingPageDisabled,
-  ApolloServerPluginSchemaReportingDisabled, ApolloServerPluginUsageReportingDisabled,
-} from "@apollo/server/plugin/disabled";
-import { GraphQLError, type GraphQLFormattedError, type GraphQLSchema } from "graphql";
+import type { GraphQLSchema } from "graphql";
 import {
   createInternalContext, createPublicContext, type InternalContext, type Listener, type PublicContext, type Viewer,
 } from "../core/context.ts";
 import type { CallSettings, EngineClient } from "../core/engine.ts";
-import { ERROR_CODES } from "../core/errors.ts";
 import { idempotencyKeyFrom, requestIdFrom } from "../core/ids.ts";
-import { INTERNAL_LIMITS, limitRules, PUBLIC_LIMITS } from "../core/limits.ts";
 import type { TokenBuckets } from "../core/rate-limit.ts";
+import { failure, MAX_BODY_BYTES, type RequestRecord, type Served, startGraphqlServer } from "../shell/graphql.ts";
 import type { Endpoint, GatewayConfig } from "./config.ts";
 import type { Logger } from "./log.ts";
 import { cookieValueFrom, requestSessions, type SessionStore } from "./sessions.ts";
 
-export const MAX_BODY_BYTES = 64 * 1024;
+export { formatError, MAX_BODY_BYTES } from "../shell/graphql.ts";
 export const PATH = "/graphql";
-
-/** What the shell knows about a request, for its plugins and its log line. */
-type Record_ = {
-  readonly requestId: string;
-  operation: string | null;
-  engineCalls: number;
-  engineFailures: number;
-  readonly csrf: "valid" | "wrong" | "no session";
-};
-
-type Served<C> = C & { readonly record: Record_ };
 
 export type EndpointServer = {
   readonly endpoint: Endpoint;
@@ -72,70 +54,9 @@ export type EndpointOptions = {
   readonly batch?: boolean;
 };
 
-/** Apollo's own codes that speak to the client, kept with their message. */
-const CLIENT_CODES = new Set<string>([
-  ...ERROR_CODES.filter((code) => code !== "INTERNAL_SERVER_ERROR"),
-  "GRAPHQL_PARSE_FAILED", "GRAPHQL_VALIDATION_FAILED", "BAD_REQUEST", "OPERATION_RESOLUTION_FAILURE", "PERSISTED_QUERY_NOT_SUPPORTED",
-]);
-
-/**
- * What an error looks like to the client: its message and code when it is
- * meant for them, a generic sentence otherwise; never a stack trace or the
- * extensions a library added.
- */
-export function formatError(formatted: GraphQLFormattedError): GraphQLFormattedError {
-  const code = typeof formatted.extensions?.["code"] === "string" ? formatted.extensions["code"] : "INTERNAL_SERVER_ERROR";
-  const where = { ...(formatted.locations ? { locations: formatted.locations } : {}), ...(formatted.path ? { path: formatted.path } : {}) };
-  if (CLIENT_CODES.has(code)) return { message: formatted.message, ...where, extensions: { code } };
-  return { message: "Internal error. The gateway's log has it under this response's request id.", ...where, extensions: { code: "INTERNAL_SERVER_ERROR" } };
-}
-
-function plugins(logger: Logger): ApolloServerPlugin<Served<InternalContext | PublicContext>>[] {
-  return [
-    ApolloServerPluginLandingPageDisabled(),
-    ApolloServerPluginUsageReportingDisabled(),
-    ApolloServerPluginSchemaReportingDisabled(),
-    ApolloServerPluginInlineTraceDisabled(),
-    ApolloServerPluginCacheControlDisabled(),
-    {
-      async requestDidStart() {
-        return {
-          async didResolveOperation({ operation, operationName, contextValue }) {
-            contextValue.record.operation = operationName ?? operation?.name?.value ?? null;
-            // CSRF: while a session cookie travels, a mutation must also carry
-            // the token that only a page of the console, or of the site, could have read.
-            if (operation?.operation === "mutation" && contextValue.record.csrf === "wrong") {
-              throw new GraphQLError("This mutation needs the session's CSRF token in the X-CSRF-Token header.", {
-                extensions: { code: "FORBIDDEN", http: { status: 403 } },
-              });
-            }
-          },
-          async didEncounterErrors({ errors, contextValue }) {
-            for (const error of errors) {
-              const code = error.extensions?.["code"];
-              if (code === undefined || code === "INTERNAL_SERVER_ERROR") {
-                logger.log("error", "request failed", { requestId: contextValue.record.requestId, error: error.message, path: error.path });
-              }
-            }
-          },
-          async willSendResponse({ response, contextValue }) {
-            if (response.body.kind === "single") {
-              response.body.singleResult.extensions = { ...response.body.singleResult.extensions, requestId: contextValue.record.requestId };
-            }
-          },
-        };
-      },
-    },
-  ];
-}
-
 function send(response: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", ...headers });
   response.end(JSON.stringify(body));
-}
-
-function failure(requestId: string, code: string, message: string) {
-  return { errors: [{ message, extensions: { code } }], extensions: { requestId } };
 }
 
 async function readBody(request: IncomingMessage): Promise<{ ok: true; text: string } | { ok: false; status: number; message: string }> {
@@ -186,29 +107,7 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
   const allowed = new Set(config.origins[endpoint]);
   const consoleSessions = internal ? options.sessions : undefined;
   const siteSessions = internal ? undefined : options.siteSessions;
-  const apollo = new ApolloServer<Served<InternalContext | PublicContext>>({
-    schema: options.schema,
-    // The site's schema is not introspectable in production; the console's API never runs there.
-    introspection: !config.production,
-    hideSchemaDetailsFromClientErrors: config.production || !internal,
-    includeStacktraceInErrorResponses: false,
-    csrfPrevention: true,
-    allowBatchedHttpRequests: false,
-    persistedQueries: false,
-    stopOnTerminationSignals: false,
-    nodeEnv: config.production ? "production" : "development",
-    validationRules: limitRules(internal ? INTERNAL_LIMITS : PUBLIC_LIMITS),
-    parseOptions: { maxTokens: internal ? 5_000 : 1_500 },
-    formatError,
-    logger: {
-      debug: () => {},
-      info: () => {},
-      warn: (message: unknown) => logger.log("warn", String(message), { endpoint }),
-      error: (message: unknown) => logger.log("error", String(message), { endpoint }),
-    },
-    plugins: plugins(logger),
-  });
-  await apollo.start();
+  const graphql = await startGraphqlServer({ endpoint, schema: options.schema, production: config.production, logger });
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const started = performance.now();
@@ -223,7 +122,7 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
     };
     let status = 0;
     let who: { person?: string; listener?: string } = {};
-    let record: Record_ | null = null;
+    let record: RequestRecord | null = null;
     const finish = (code: number, body: unknown, extra: Record<string, string> = {}) => {
       status = code;
       send(response, code, body, { ...common, ...extra });
@@ -348,26 +247,18 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
         };
 
       // 6. Apollo.
-      const headers = new HeaderMap();
+      const headers: Array<[string, string]> = [];
       for (const [name, value] of Object.entries(request.headers)) {
-        if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value);
+        if (value !== undefined) headers.push([name, Array.isArray(value) ? value.join(", ") : value]);
       }
-      const answer = await apollo.executeHTTPGraphQLRequest({
-        httpGraphQLRequest: { method: request.method, headers, search: url.search, body },
-        context: async () => context,
-      });
-      status = answer.status ?? 200;
+      const answer = await graphql.execute({ method: request.method, headers, search: url.search, body, context });
+      status = answer.status;
       const out: Record<string, string | string[]> = { ...common };
       for (const [name, value] of answer.headers) out[name] = value;
       if (pending.length) out["set-cookie"] = pending;
       who = whoIs(context);
       response.writeHead(status, out);
-      if (answer.body.kind === "complete") {
-        response.end(answer.body.string);
-      } else {
-        for await (const chunk of answer.body.asyncIterator) response.write(chunk);
-        response.end();
-      }
+      response.end(answer.body);
     } catch (error) {
       logger.log("error", "request crashed", { requestId, error: error instanceof Error ? error.message : String(error) });
       if (!response.headersSent) finish(500, failure(requestId, "INTERNAL_SERVER_ERROR", "Internal error. The gateway's log has it under this request id."));
@@ -420,7 +311,7 @@ export async function serveEndpoint(options: EndpointOptions): Promise<EndpointS
         server.close(() => resolve());
         server.closeIdleConnections();
       });
-      await apollo.stop();
+      await graphql.stop();
     },
   };
 }

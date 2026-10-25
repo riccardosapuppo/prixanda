@@ -21,8 +21,9 @@ export const venvPython = join(repoRoot, ".venv", process.platform === "win32" ?
 // CHECK_POSTGRES_PORT, DEV_POSTGRES_PORT, CHECK_ENGINE_PORT and, for the
 // gateway's tests, CHECK_GATEWAY_INTERNAL_PORT, CHECK_GATEWAY_PUBLIC_PORT and
 // CHECK_FAKE_ENGINE_PORT; MEASURE_POSTGRES_PORT moves the measurements'
-// cluster (npm run measure). The engine listens where ENGINE_URL, the
-// address the gateway calls it at, points.
+// cluster (npm run measure), SANDBOX_PORT the static server of the browser's
+// engine (its tests in the check, npm run measure:sandbox). The engine
+// listens where ENGINE_URL, the address the gateway calls it at, points.
 export const PORTS = {
   postgresDev: Number(process.env["DEV_POSTGRES_PORT"] ?? 4601),
   postgresCheck: Number(process.env["CHECK_POSTGRES_PORT"] ?? 4602),
@@ -32,4 +33,5 @@ export const PORTS = {
   gatewayCheckInternal: Number(process.env["CHECK_GATEWAY_INTERNAL_PORT"] ?? 4621),
   gatewayCheckPublic: Number(process.env["CHECK_GATEWAY_PUBLIC_PORT"] ?? 4622),
   fakeEngineCheck: Number(process.env["CHECK_FAKE_ENGINE_PORT"] ?? 4613),
+  sandbox: Number(process.env["SANDBOX_PORT"] ?? 4651),
 } as const;

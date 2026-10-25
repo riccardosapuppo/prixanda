@@ -13,7 +13,9 @@ import { createHash } from "node:crypto";
 import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
 import { setTimeout as sleep } from "node:timers/promises";
 import { create, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
-import { Code, ConnectError, type ConnectRouter, type HandlerContext, type Interceptor, type UnaryResponse } from "@connectrpc/connect";
+import {
+  Code, ConnectError, type ConnectRouter, createRouterTransport, type HandlerContext, type Interceptor, type Transport, type UnaryResponse,
+} from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { AuditEventSchema, AuditService, ChainHeadSchema, type AuditEvent } from "contracts/commerce/v1/audit";
 import {
@@ -2281,6 +2283,24 @@ export class FakeEngine {
         const head = this.audit.at(-1);
         return { outcome: { case: "head" as const, value: create(ChainHeadSchema, { seq: head?.seq ?? "0", hash: head?.hash ?? new Uint8Array(32) }) } };
       },
+    });
+  }
+
+  /**
+   * The same services and behaviours in this process, with no server: for
+   * the browser's shell (stage 8), whose engine is in the page. The client's
+   * side carries the token, as the gRPC transport does, unless the caller
+   * writes it itself (`authorize: false`, as the sandbox's transport does);
+   * the server's side checks it and records every call as over gRPC.
+   */
+  inProcessTransport(options: { authorize?: boolean } = {}): Transport {
+    const authorize: Interceptor = (next) => (request) => {
+      request.header.set("authorization", `Bearer ${this.token}`);
+      return next(request);
+    };
+    return createRouterTransport((router) => this.#routes(router), {
+      transport: { interceptors: options.authorize === false ? [] : [authorize] },
+      router: { interceptors: [this.#interceptor()] },
     });
   }
 

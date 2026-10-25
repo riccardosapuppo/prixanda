@@ -18,7 +18,7 @@ from commerce.engine.call import FixedClock
 from commerce.engine.engine import Engine
 from commerce.server.app import start
 from commerce.server.config import Config
-from commerce.server.logs import JsonLog
+from commerce.engine.logs import JsonLog
 from commerce.v1 import catalog_pb2, catalog_pb2_grpc, changes_pb2, overview_pb2
 from engine_support import FINANCE, MARKETING, PUBLIC, student_autumn
 from helpers import T0

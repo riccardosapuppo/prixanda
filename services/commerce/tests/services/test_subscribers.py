@@ -384,6 +384,7 @@ async def test_a_confirmation_never_takes_an_offer_suspended_before_it(world):
     assert await world.owner.fetchval("select count(*) from subscription where subscriber_id = 101 and paid") == 0
 
 
+@pytest.mark.postgresql_only("the owner holds a transaction open while the engine waits for its locks")
 async def test_a_confirmation_decides_at_the_time_it_holds_its_locks(world):
     q = await quote(world, plan="individual", market="FR", subscriber_id=401)  # at 08:42, valid for 30 minutes
     world.clock.at = at(2026, 10, 24, 9, 11, 50)

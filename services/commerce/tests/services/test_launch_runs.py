@@ -20,7 +20,7 @@ import pytest
 from commerce.engine.errors import Unavailable
 from commerce.engine.launches import STEPS
 from commerce.server.app import Jobs
-from commerce.server.logs import JsonLog
+from commerce.engine.logs import JsonLog
 from commerce.v1 import changes_pb2, common_pb2, launches_pb2, overview_pb2
 from conftest import ADMIN_URL, on_database
 from engine_support import (
@@ -126,6 +126,32 @@ async def test_a_failed_step_is_tried_again_from_where_it_stopped(world):
     assert "no space left" in steps(run)["publish"].facts["last failure"]
     assert await world.owner.fetchval("select count(*) from catalog_publication") == 1
     assert len(await world.events("change.activated")) == 1
+
+
+async def test_next_due_is_the_opening_of_the_next_launch_then_its_next_attempt(world):
+    """What the browser's demo skips its clock to (stage 8)."""
+    assert await world.engine.next_launch_due() is None
+    change = await scheduled(world, student_autumn())
+    assert await world.engine.next_launch_due() == at(2026, 10, 26, 7, 59)  # a minute before 09:00 in Rome
+    world.clock.at = DUE
+    assert await world.engine.next_launch_due() == at(2026, 10, 26, 7, 59)  # due already: no pass ran since
+    left = {"failures": 1}
+
+    async def full_disk(step, phase, tx):
+        if (step, phase) == ("prepare", "end") and left["failures"]:
+            left["failures"] -= 1
+            raise OSError("no space left on the device")
+
+    world.engine.launches.probe = full_disk
+    await world.engine.run_launches()
+    assert await world.engine.next_launch_due() == at(2026, 10, 26, 7, 59, 35)  # its next attempt
+    [due] = await world.engine.launches_due(change.id)
+    assert (due.at, due.change, due.starts) == (at(2026, 10, 26, 7, 59, 35), change.id, at(2026, 10, 26, 8, 0))
+    assert await world.engine.launches_due(change.id + 1) == []
+    world.clock.advance(seconds=5)
+    await world.engine.run_launches()
+    assert (await launch_of(world, change.id)).state == STATE.LAUNCH_STATE_DONE
+    assert await world.engine.next_launch_due() is None  # nothing waits for a moment of its own
 
 
 class Stopped(BaseException):
@@ -253,6 +279,7 @@ async def test_the_alarm_waits_five_minutes_after_the_start(world):
     assert [h for h in await world.engine.run_launches() if h.event == "incident_opened"] == []  # one is open already
 
 
+@pytest.mark.postgresql_only("a second connection holds the launch's lock while the alarm is looked for")
 async def test_an_alarm_is_never_opened_on_a_launch_that_stopped_meanwhile(world):
     """The alarm reads the late launches, then opens their incidents: a launch cancelled in between must not get an
     incident that nobody would close. Here the cancellation holds the launch while the alarm runs."""

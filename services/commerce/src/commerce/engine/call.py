@@ -11,10 +11,15 @@ mode of the engine lets a browser grant itself a role.
 
 Public calls (the site's catalog, quotes and the list of people) come with
 no person at all.
+
+The internal token is checked by whoever carries the calls: the gRPC server
+(server/grpc_server.py) and the browser's demo (browser/sandbox.py), with the
+same words for the same faults.
 """
 
 from __future__ import annotations
 
+import hmac
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -28,6 +33,17 @@ from commerce.engine.errors import InvalidArgument, PermissionDenied
 TOKEN_SHAPE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,99}$")
 PERSON = re.compile(r"^[a-z][a-z0-9-]{0,40}$")
 PUBLIC_SCOPE = "(public)"
+
+
+class Unauthenticated(Exception):
+    """No internal token, or the wrong one: only the gateway calls the engine."""
+
+
+def bearer(value: str | None, expected: str) -> None:
+    if not value or not value.startswith("Bearer "):
+        raise Unauthenticated("the engine answers the gateway only: send authorization: Bearer <internal token>")
+    if not hmac.compare_digest(value[len("Bearer "):].encode(), expected.encode()):
+        raise Unauthenticated("the internal token is not the one this engine was given")
 
 
 @dataclass(frozen=True)

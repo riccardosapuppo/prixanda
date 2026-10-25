@@ -480,6 +480,88 @@ browser's types and none of Node's.
 sessions, the configuration, the log, and the gRPC transport (Connect over
 Node's HTTP/2) that carries the internal token. Apollo's landing page and
 every reporting plugin are off: nothing leaves for an outside service.
+What it does with a request once the request is its own it shares with the
+browser's shell (below): `src/shell/graphql.ts`, Apollo Server through its
+integration API with the schema's limits, the CSRF check of every mutation,
+the request id in every answer, and the errors told in the client's words or
+as a generic sentence.
+
+## In the browser
+
+In the demo (stage 8) the gateway runs in the visitor's browser, in the one
+worker every tab of the address shares (`packages/sandbox`), with the
+engine's own Python code in Pyodide beside it. `src/browser/gateway.ts` is
+a second shell next to `src/node/`, with the same core, schemas, limits,
+errors and demonstration sessions. A tab sends a request as it would POST it
+to `/graphql`, the same headers and the same JSON body, and gets back the
+status, headers and body the HTTP shell would send, so the apps' transports
+stay as they are over HTTP (`test/browser-gateway.test.ts` sends the same
+requests through both shells and finds the same answers). What only HTTP
+needs stays on Node: there are no cookies, since the worker keeps each API's
+session as a browser keeps an origin's cookies, one per API, shared by every
+tab; no Origin to check, every tab being of the demo's own address; no
+limits per client address. The engine is the one in the page, behind a
+Connect transport over its binary call (`packages/sandbox/src/gateway/
+transport.ts`), with an internal token the worker makes at random when it
+starts.
+
+The worker (`packages/sandbox/src/worker.ts`) starts the engine and the
+gateway once for the address and shows every tab the steps, then says ready
+with its build: a tab of another deploy finds it different, and reloads.
+It runs the engine's jobs every second and after every request, and tells
+every tab what they changed; a demo command answers once the jobs after it
+ran, so that the engine has saved a moved clock before the tab hears it. Its
+commands say where the demo stands, start it over, arm and clear the
+simulated fault, and skip to the next launch; no tick of its own runs beside
+a skip, which runs the launch's own, or beside a start over. Before it starts
+the engine it takes the address's Web Lock on the data, so that two workers
+never open the same IndexedDB database: where a browser has no SharedWorker
+and each tab has a worker of its own, a second tab waits until the first one
+closes, and says so. `packages/sandbox/src/client.ts` is the tab's side,
+which both apps open.
+
+`node packages/sandbox/scripts/build.ts`, which `npm run demo:build` runs,
+writes `packages/sandbox/dist/`: the engine's files, then the worker bundled
+by esbuild into `backend.js`, with its source map and the licences of what
+it holds; it stops with a clear error when the engine's side is not in the
+tree, and `--engine <module>` builds the worker alone around another engine,
+for the tests. Apollo Server and its libraries expect a little of Node, and
+get it: an empty `process.env`, a `Buffer.isBuffer` that finds no Buffer, a
+SHA-256 of the sandbox's own for the hashing that would otherwise need
+Node's Buffer, and, for the Node modules they name only in the reporting the
+gateway turns off, modules that throw if they ever run.
+
+```
+npm run check -- --only gw-types,sandbox-gateway,sandbox-worker
+```
+
+`sandbox-gateway` type-checks that side with a browser's types and none of
+Node's, then the tests and scripts with Node's; runs the protocol's, the
+client's and the worker's tests under Node (the worker over MessageChannel
+ports, the gateway's fake engine behind the engine's binary call), and
+builds the worker around a stub engine to keep its size in check (921 KiB
+minified, from 476 modules). `sandbox-worker` opens the bundle in headless
+Chromium, every other host unreachable: with a canned engine, one
+SharedWorker for every tab, a tab of another build, and the dedicated
+workers with their lock; then with the engine's own side and files, the
+business book's §14.1 from the console's tab to the site's (marketing writes
+the pass and cannot sign it, finance signs it, the fault is armed on its
+publish step, the skip to its launch runs it through the fault, and the site
+shows it at €2.99), the data kept when every tab closed, and the start over
+every tab hears. It also tries the measuring tool once.
+
+`npm run measure -w sandbox` measures the worker as the demo ships it, from
+the site's tab, in headless Chromium, the files served from 127.0.0.1 with
+gzip and a static host's cache headers. On 25 October 2026, three runs on a
+virtual machine with 8 cores of an Intel Core i7-10700 and 12 GB under
+Windows 10, Node 24.19, Chromium 151, while other work ran on it: a first
+visit from an empty browser is ready in 4.7 s (the median; the worker's own
+start 4.4 s) after 18.9 MB downloaded, and in 13.2 s through 20 Mbit/s with
+40 ms of latency; a read through the gateway takes 97 ms (the first 173 ms),
+a write 100 ms; a second tab is ready in 19 ms; a later visit, once every tab
+closed, is ready in 4.3 s with the files from the browser's cache and the
+data from IndexedDB. The report, with the runs, is
+`reports/sandbox-worker-measure.json`.
 
 ## Tests
 
