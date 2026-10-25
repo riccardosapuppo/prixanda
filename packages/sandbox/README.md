@@ -161,8 +161,22 @@ through 20 Mbit/s with 40 ms of latency. They write the machine and the
 conditions beside the numbers, in `reports/sandbox-measure.json` and
 `reports/sandbox-worker-measure.json`.
 
-⟨On a machine doing nothing else (the machine): a first visit is ready in ⟨…⟩
-s after ⟨…⟩ MB downloaded, and in ⟨…⟩ s through 20 Mbit/s with 40 ms of
-latency; a read takes ⟨…⟩ ms and a write ⟨…⟩ ms; a second tab is ready in
-⟨…⟩ ms; a later visit, once every tab closed, in ⟨…⟩ s; the browser holds
-⟨…⟩ MB with two tabs open.⟩
+Measured on 25 October 2026, three runs each and the median given, on an
+Intel Core i7-10700 (8 logical processors) with 12 GB of memory, Windows 10
+Pro, Node.js 24.19 and Chromium 151, running nothing else: before each of
+the two commands 1.4% and 3.1% of the processor was in use, and 4.2 and
+4.1 GB of memory free.
+
+The engine alone (`npm run measure:sandbox`): a first visit is ready in
+4.0 s after 18.7 MB downloaded, and in 14.8 s through 20 Mbit/s with 40 ms
+of latency; a read takes 57 ms (the first one 118 ms) and a write 102 ms; a
+second tab is ready in 109 ms; a later visit, once every tab closed, in
+3.8 s; the browser holds 767 MB with two tabs open. The engine's files are
+36.7 MB, 6.6 MB of them the data's snapshot, and travel gzipped.
+
+The worker as the demo ships it (`npm run measure -w sandbox`), with a read
+of the markets and Italy's plans and a write of a quote, through the gateway
+in the worker: a first visit is ready in 4.5 s after 18.9 MB downloaded, and
+in 13.1 s through the slower network; a read takes 93 ms (the first one
+177 ms) and a write 97 ms; a second tab is ready in 17 ms; a later visit in
+4.0 s.
