@@ -22,7 +22,7 @@ import { formatCount, formatMoney, formatPercent } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { type ReactNode, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, ButtonLink, Callout, Chip, ErrorPanel, Loading, Locked, StateChip } from "../../components/ui.tsx";
@@ -38,6 +38,8 @@ import {
   type ApprovalView, approvesWithoutScheduling, can, conditionSigner, decide, decisionSentence, primaryRole, ROLE_NAME, type Role, sendsBack, signerWords, whoDoes,
 } from "../../lib/permissions.ts";
 import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
+import { recordGuide, useGuideRecord } from "../../lib/react/sandbox.tsx";
+import { SANDBOX_MODE } from "../../lib/sandbox.ts";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
 import { ChangeTabs } from "../campaigns/tabs.tsx";
@@ -373,6 +375,12 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
     approvals: change.approvals.map((approval) => ({ version: approval.version, approverId: approval.approver.id })),
   };
   const decision = decide(view, viewer);
+  // In the demo, "Try this" ticks when the author of its campaign finds no button here (lib/guide.ts).
+  const guide = useGuideRecord();
+  const triedOwn = SANDBOX_MODE && decision.kind === "author" && guide.changeId === change.id && !guide.triedOwn;
+  useEffect(() => {
+    if (triedOwn) recordGuide({ triedOwn: true });
+  }, [triedOwn]);
   // Sending back has its own rule: a role that reviews, not an author (lib/permissions.ts).
   const backable = sendsBack(view, viewer);
   const fingerprint = change.current.fingerprint;

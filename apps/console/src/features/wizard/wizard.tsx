@@ -37,6 +37,8 @@ import {
 } from "../../lib/offer-form.ts";
 import { listeningWords } from "../../lib/diff.ts";
 import { approvalHref } from "../../lib/kinds.ts";
+import { recordGuide } from "../../lib/react/sandbox.tsx";
+import { SANDBOX_MODE } from "../../lib/sandbox.ts";
 import { asRole, can, conditionSigner, primaryRole, signatureWords, signerWords, whoDoes } from "../../lib/permissions.ts";
 import { useClock } from "../../lib/react/clock.tsx";
 import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
@@ -265,6 +267,8 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
         return null;
       }
       await refresh();
+      // In the demo, "Try this" follows the campaign created here (lib/guide.ts).
+      if (SANDBOX_MODE) recordGuide({ changeId: result.id });
       // Checking opens the new change only once its validation is stored (onCheck).
       if (options.open !== false) onCreated(result.id);
       return { id: result.id, version: result.currentVersion, created: true };
