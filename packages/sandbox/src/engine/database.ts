@@ -183,7 +183,8 @@ export type OpenOptions = {
   /** The build's snapshot, fetched only when the data is not there yet; none for the build itself, which starts
    * from a new cluster (build/snapshot.ts). */
   readonly snapshot?: () => Promise<Blob>;
-  readonly migrations: readonly Migration[];
+  /** This build's migrations: given as they come, so that their download goes with the snapshot's. */
+  readonly migrations: readonly Migration[] | Promise<readonly Migration[]>;
   readonly progress?: (step: string) => void;
   /** Whether the data is there already; the browser asks IndexedDB (idb.ts). */
   readonly exists?: () => Promise<boolean>;
@@ -204,6 +205,8 @@ export type Opened = {
   readonly latestEventMs: number;
   /** The first saving of the data opened, which nothing waits for but the first write. */
   readonly saved: Promise<void>;
+  /** PostgreSQL's version, as PGlite runs it. */
+  readonly postgres: string;
 };
 
 /** Opens the database, from IndexedDB or from the build's snapshot, applies the migrations missing, and sets the session. */
@@ -226,13 +229,13 @@ export async function openDatabase(options: OpenOptions): Promise<Opened> {
     await pg.transaction(async (tx) => {
       await tx.exec(ROLES);
     });
-    const migrated = await migrate(pg, options.migrations);
+    const migrated = await migrate(pg, await options.migrations);
     options.mark?.("migrations checked");
     const clock = await pg.transaction(async (tx) => {
       await tx.exec(DEMO_SCHEMA);
-      const read = await tx.query<[string, string]>(
-        "select offset_ms::text, coalesce((select (extract(epoch from max(at)) * 1000)::bigint from audit_event), 0)::text "
-        + "from demo.clock", [], { rowMode: "array" });
+      const read = await tx.query<[string, string, string]>(
+        "select offset_ms::text, coalesce((select (extract(epoch from max(at)) * 1000)::bigint from audit_event), 0)::text, "
+        + "current_setting('server_version') from demo.clock", [], { rowMode: "array" });
       // The session the engine works in, kept when the transaction commits: the server pool's time zone, its role.
       await tx.exec("set time zone 'UTC'; set role commerce");
       return read;
@@ -240,8 +243,8 @@ export async function openDatabase(options: OpenOptions): Promise<Opened> {
     const session = new Session(pg);
     const saved = session.save();
     saved.then(() => options.mark?.("saved in this browser"), () => {});
-    const [offsetMs, latestEventMs] = (clock.rows[0] ?? ["0", "0"]).map(Number) as [number, number];
-    return { session, loaded, migrated, offsetMs, latestEventMs, saved };
+    const [offset, latest, postgres] = clock.rows[0] ?? ["0", "0", ""];
+    return { session, loaded, migrated, offsetMs: Number(offset), latestEventMs: Number(latest), saved, postgres };
   } catch (error) {
     await pg.close().catch(() => {});
     throw error;

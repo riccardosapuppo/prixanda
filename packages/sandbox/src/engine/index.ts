@@ -210,7 +210,8 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
   const log = deps.onLog ?? ((line: string) => console.debug(line));
   const pythonLoading = loadPython(deps.python, say);
   pythonLoading.catch(() => {});
-  const migrations = await deps.migrations();
+  const migrations = deps.migrations();
+  migrations.catch(() => {});
 
   const open = async (fresh: boolean): Promise<Opened> => {
     const options = {
@@ -237,19 +238,22 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
   mark("Python ready");
   say("Starting the engine");
   const module = pyodide.pyimport("commerce.browser.sandbox") as unknown as { Sandbox: (...args: unknown[]) => PySandbox };
+  const Sandbox = module.Sandbox;
   const save = (session: Session) => (offsetMs: number) => session.asOwner(async (tx) => {
     await tx.query("update demo.clock set offset_ms = $1, moved_at = now()", [offsetMs]);
   });
   const startClock = (opened: Opened) => new DemoClock(Math.max(opened.offsetMs, opened.latestEventMs - Date.now(), 0), save(opened.session));
   let clock = startClock(db);
-  const sandboxOn = (opened: Opened) => module.Sandbox(opened.session, () => clock.nowMs(), deps.token, log);
+  const sandboxOn = (opened: Opened) => Sandbox(opened.session, () => clock.nowMs(), deps.token, log);
   let sandbox = sandboxOn(db);
   mark("engine ready");
   const versions = JSON.parse(pyodide.runPython(
     "import json, sys, google.protobuf; json.dumps({'python': sys.version.split()[0], 'protobuf': google.protobuf.__version__})",
   ) as string) as { python: string; protobuf: string };
-  const postgres = (await db.session.pg.query<{ v: string }>("select current_setting('server_version') as v")).rows[0]?.v ?? "";
+  const postgres = db.postgres;
   const gate = new Gate();
+  // One pass of the jobs at a time: a tick asked during another runs after it, on what that one left.
+  let ticking: Promise<unknown> = Promise.resolve();
 
   const engine: SandboxEngine = {
     info: {
@@ -259,18 +263,30 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
       versions: { ...versions, postgres },
       steps,
     },
-    call: (service, method, metadata, request) => gate.shared(async () => {
-      const pending = sandbox.call(`${service}/${method}`, JSON.stringify(metadata), request);
-      const answer = await pending;
+    call: (service, method, metadata, request) => gate.shared(async (): Promise<EngineReply> => {
+      // An answer always: what the engine could not serve comes back with gRPC's INTERNAL, as from the server.
+      let pending: PyProxyLike | Promise<PyProxyLike> | null = null;
       try {
-        const [code, message, response] = answer.toJs() as [number, string, Uint8Array];
-        return code === 0 ? { ok: true, response } : { ok: false, code, message };
+        pending = sandbox.call(`${service}/${method}`, JSON.stringify(metadata), request);
+        const answer = await pending;
+        try {
+          const [code, message, response] = answer.toJs() as [number, string, Uint8Array];
+          return code === 0 ? { ok: true, response } : { ok: false, code, message };
+        } finally {
+          settle(answer);
+        }
+      } catch (error) {
+        log(JSON.stringify({ level: "error", event: "rpc_failed", method: `${service}/${method}`, error: String(error) }));
+        return { ok: false, code: 13, message: "the engine in this browser failed on this call; its log has the details" };
       } finally {
-        settle(answer);
         settle(pending);
       }
     }),
-    tick: () => gate.shared(async () => JSON.parse(await sandbox.tick()) as { ran: number; changed: Changed[] }),
+    tick: () => {
+      const pass = ticking.then(() => gate.shared(async () => JSON.parse(await sandbox.tick()) as { ran: number; changed: Changed[] }));
+      ticking = pass.catch(() => {});
+      return pass;
+    },
     clock: {
       now: () => clock.now(),
       advanceTo: (instant) => clock.advanceTo(instant),
