@@ -147,6 +147,31 @@ runs the end-to-end tests on the whole system with a throwaway database; the
 last runs the console's suites with their floors. Playwright and Storybook
 run headless, and every request leaving 127.0.0.1 is refused.
 
+## The demo in the browser
+
+The same site and console run with no server at all in the demo (stage 8):
+the engine's Python code in Pyodide over PGlite, with the same migrations,
+and the gateway's core, in one worker that every tab of the address shares.
+`npm run demo:build` builds the three parts with `SANDBOX=1` and assembles
+them in `dist/demo/` (the site at `/`, the console at `/console/`, the
+sandbox at `/sandbox/`); `npm run demo:serve` serves it on
+http://127.0.0.1:4651. The check's suite `demo` builds it, serves it and
+drives headless Chromium through its journeys; it reports itself as not run
+while a part cannot be built yet. On a busy 8-core virtual machine, a first
+visit to the site has its home ready in about 5 seconds and a second tab in
+under one; the measures, with the machine and the conditions, are in
+[apps/site/README.md](apps/site/README.md).
+
+On a push to main, and when the workflow is run by hand from main, the CI
+publishes on GitHub Pages the demo its checks have just built and tried (job
+`pages` of `.github/workflows/ci.yml`), and only while the repository is
+public: nothing is published from a private repository. The demo wants the
+root of its domain, since every app of it opens its worker at
+`/sandbox/backend.js`, so on GitHub Pages it needs a custom domain rather
+than the repository's address under github.io: the owner chooses the
+subdomain, and sets it in the repository's Pages settings, when the demo is
+published.
+
 ## Layout
 
 | Folder | What |

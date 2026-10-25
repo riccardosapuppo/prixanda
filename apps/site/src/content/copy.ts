@@ -270,6 +270,23 @@ export const copy = {
       choiceApplies: `${service}'s choice for this market applies, as written below.`,
     },
   },
+  /**
+   * The demo's sandbox starting in this browser (stage 8): its steps are the
+   * worker's own words. The line at the foot and the panel about the sandbox
+   * are the two apps' shared words (design's SANDBOX).
+   */
+  sandbox: {
+    starting: "Starting the demo in this browser",
+    firstVisit: "The first visit takes a few seconds: the database, Python and the engine start here, on your device.",
+    step: (done: number, of: number) => `Step ${done} of ${of}`,
+    waiting: "Waiting for the demo to start",
+    failedTitle: "The demo can't start in this browser",
+    missing: (what: string) => `This browser does not offer ${what}, which the demo needs to run here.`,
+    worker: (reason: string) => `The demo stopped while starting: ${reason}`,
+    advice: "Open it in a normal window of a recent Chrome, Edge, Firefox or Safari: a private window may refuse the storage the demo needs.",
+    otherBuild: "Another version of the demo is open in another tab of this browser. Close the other tabs of the demo, then reload this one.",
+    reload: "Reload",
+  },
   /** DEMONSTRATION MODE: the entrance picks one of the demo's invented listeners. Not a sign-in. */
   entrance: {
     title: "Enter as a demo listener",

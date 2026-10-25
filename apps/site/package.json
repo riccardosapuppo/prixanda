@@ -14,14 +14,16 @@
     "graphql": "node scripts/graphql.ts",
     "typecheck": "node scripts/next.ts typegen && tsc -p tsconfig.json && tsc -p tsconfig.node.json",
     "test": "node --test \"test/**/*.test.ts\"",
-    "e2e": "node scripts/e2e.ts"
+    "e2e": "node scripts/e2e.ts",
+    "photos": "node scripts/photos.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.1",
     "design": "file:../../packages/design",
     "next": "16.4.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "sandbox": "file:../../packages/sandbox"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

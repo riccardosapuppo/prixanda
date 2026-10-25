@@ -3,6 +3,8 @@
 // for each address, /campaign/ as campaign/index.html, 404.html for the rest.
 // Nothing else: no proxy, no rewrite, no header the build does not set. The
 // end-to-end tests use it, so they test the files that would be published.
+// The assembled demo (tools/demo.ts) is served the same way, with the types
+// its sandbox needs (WebAssembly, Python's archives and wheels, PGlite's data).
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -22,6 +24,16 @@ const TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
   ".ico": "image/x-icon",
   ".png": "image/png",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".wasm": "application/wasm",
+  ".zip": "application/zip",
+  ".whl": "application/zip",
+  ".tar": "application/x-tar",
+  ".gz": "application/gzip",
+  ".tgz": "application/gzip",
+  ".data": "application/octet-stream",
+  ".webmanifest": "application/manifest+json",
 };
 
 async function fileFor(root: string, pathname: string): Promise<string | null> {
