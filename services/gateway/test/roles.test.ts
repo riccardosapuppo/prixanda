@@ -1,7 +1,7 @@
 // The role matrix (src/core/roles.ts) against what it must say: the rows of
 // the business book's §12, quoted below and checked against the book itself,
-// and the table the coordinator fixed for the engine and the gateway
-// (BRIEF-TAPPE-2-3.md, §4), transcribed below on its own. If the book or the
+// and the table of who may call each method, for the engine and the gateway
+// (proto/README.md), transcribed below on its own. If the book or the
 // matrix changes, one of these fails until the other is read again.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -55,12 +55,12 @@ const ALL = ["marketing", "commercial_lead", "finance", "catalog_manager", "on_c
 type PerKind = { offer: string[]; listPrice: string[]; priceMigration: string[]; prepaid: string[] };
 
 /**
- * The coordinator's table, method by method; for the methods that depend on
- * the kind of change, offers, list prices, price migrations and prepaid
+ * The table of proto/README.md, method by method; for the methods that depend
+ * on the kind of change, offers, list prices, price migrations and prepaid
  * passes apart. Stage 7: only the commercial lead writes and schedules a
  * migration, and the commercial lead or the on-call engineer cancels it
- * (BRIEF-TAPPA-7.md, behaviour 1); a prepaid pass goes as a list price does,
- * written by the commercial lead and signed by finance (§14.4).
+ * (§14.3); a prepaid pass goes as a list price does, written by the
+ * commercial lead and signed by finance (§14.4).
  */
 const TABLE: Record<string, string[] | PerKind> = {
   CreateChange: { offer: ["marketing"], listPrice: ["commercial_lead"], priceMigration: ["commercial_lead"], prepaid: ["commercial_lead"] },
@@ -112,7 +112,7 @@ describe("the role matrix", () => {
     assert.deepEqual([...ROLES], ALL);
   });
 
-  test("says, method by method, what the coordinator's table says", () => {
+  test("says, method by method, what the table of proto/README.md says", () => {
     assert.deepEqual(Object.keys(matrix).sort(), Object.keys(TABLE).sort());
     for (const [method, expected] of Object.entries(TABLE)) {
       const actual = matrix[method];
@@ -200,7 +200,7 @@ describe("the role matrix", () => {
     assert.deepEqual([...PUBLIC_METHODS].sort(), [
       "GetPriceList", "GetQuote", "ListDemoListeners", "ListMarkets", "ListOffers", "ListPeople", "ListPlans", "ListPrepaidPasses",
     ]);
-    // The brief of stage 5: these act for the listener of the site's session, with no x-actor.
+    // Since stage 5, these act for the listener of the site's session, with no x-actor (convention 2, proto/README.md).
     assert.deepEqual([...SUBSCRIBER_METHODS].sort(), [
       "ActivatePrepaidPass", "AnswerPriceChange", "BuyPrepaidPass", "ConfirmQuote", "GetAccount", "VerifyStudent",
     ]);

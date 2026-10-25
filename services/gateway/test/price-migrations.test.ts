@@ -5,8 +5,8 @@
 // it, and the commercial lead or the on-call engineer cancels it; its
 // simulation has the numbers of §8.7; each market's policy keeps the law and
 // the commercial choice in fields apart; a migration that started shows where
-// its subscribers stand. The fake engine follows the coordinator's behaviours
-// for the engine's §14.3 service.
+// its subscribers stand. The fake engine follows the engine's behaviours
+// (proto/README.md) for its §14.3 service.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { ChangeState } from "contracts/commerce/v1/changes";
