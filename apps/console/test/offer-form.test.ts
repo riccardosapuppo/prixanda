@@ -167,3 +167,24 @@ describe("the fans of an artist (§14.2)", () => {
     for (const field of ["fans", "artist", "hours", "days"]) assert.equal(stepOfField(field), 0, field);
   });
 });
+
+describe("a time's seconds (the contract's way: minutes, and seconds only when there are some)", () => {
+  const withSeconds: OfferContent = { ...FANS, periods: [{ market: "IT", startsLocal: "2026-11-02T09:00:10", endsLocal: "2026-11-30T00:00:20" }] };
+  const moved = (form: ReturnType<typeof formFromContent>, patch: Partial<{ startsLocal: string; endsLocal: string }>) =>
+    ({ ...form, markets: form.markets.map((market) => ({ ...market, ...patch })) });
+
+  it("a change of seconds alone is a new version, at the start and at the end", () => {
+    const form = formFromContent(withSeconds);
+    assert.equal(differsFrom(form, withSeconds, FACTS), false);
+    assert.equal(differsFrom(moved(form, { startsLocal: "2026-11-02T09:00:50" }), withSeconds, FACTS), true);
+    assert.equal(differsFrom(moved(form, { endsLocal: "2026-11-30T00:00:40" }), withSeconds, FACTS), true);
+    const typed = toInput(moved(form, { startsLocal: "2026-11-02T09:00:50" }), FACTS);
+    assert.ok("input" in typed);
+    assert.equal(typed.input.periods[0]?.startsLocal, "2026-11-02T09:00:50");
+  });
+
+  it("zero seconds are no seconds", () => {
+    const form = formFromContent(FANS);
+    assert.equal(differsFrom(moved(form, { startsLocal: "2026-11-02T09:00:00", endsLocal: "2026-11-30T00:00:00" }), FANS, FACTS), false);
+  });
+});

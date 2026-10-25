@@ -13,7 +13,7 @@
 // validation (its findings price, dates and overlap), shown in the last step.
 import { minorUnits, parseAmount } from "design";
 import { LIMITS, type MarketFacts, type Money, type Problem } from "./offer-form.ts";
-import { addLocalDays, formatLocalValue, localToInstant, nextWeekday, parseLocal, partsIn, zoneCity } from "./time.ts";
+import { addLocalDays, contractLocal, formatLocalValue, localToInstant, nextWeekday, parseLocal, partsIn, zoneCity } from "./time.ts";
 
 export type MigrationForm = {
   readonly title: string;
@@ -90,8 +90,8 @@ export function migrationFromContent(content: MigrationContent): MigrationForm {
     plan: content.plan,
     market: content.market,
     amount: plain(content.amount),
-    noticesLocal: content.noticesLocal.slice(0, 16),
-    startsLocal: content.startsLocal.slice(0, 16),
+    noticesLocal: contractLocal(content.noticesLocal),
+    startsLocal: contractLocal(content.startsLocal),
   };
 }
 
@@ -160,7 +160,7 @@ function checkDates(form: MigrationForm, facts: MarketFacts, now: Date): Problem
   }
   const starts = checkTime("startsLocal", form.startsLocal, zone, "from when new subscribers pay the new price");
   if (starts) problems.push(starts);
-  else if (notices === null && form.startsLocal.slice(0, 16) < form.noticesLocal.slice(0, 16)) {
+  else if (notices === null && contractLocal(form.startsLocal) < contractLocal(form.noticesLocal)) {
     problems.push({ field: "startsLocal", message: "New subscribers pay it from when the existing ones are asked or told, or later." });
   }
   return problems;
@@ -202,8 +202,8 @@ export function toMigrationInput(form: MigrationForm, facts: MarketFacts): { inp
       plan: form.plan,
       market: form.market,
       amount: { amountMinor: (parseAmount(form.amount.trim(), currency) ?? 0n).toString(), currency },
-      noticesLocal: form.noticesLocal.slice(0, 16),
-      startsLocal: form.startsLocal.slice(0, 16),
+      noticesLocal: contractLocal(form.noticesLocal),
+      startsLocal: contractLocal(form.startsLocal),
     },
   };
 }
@@ -219,8 +219,8 @@ export function migrationDiffers(form: MigrationForm, content: MigrationContent 
     plan: input.plan,
     market: input.market,
     amount: { amountMinor: String(minorUnits(input.amount.amountMinor)), currency: input.amount.currency },
-    noticesLocal: input.noticesLocal.slice(0, 16),
-    startsLocal: input.startsLocal.slice(0, 16),
+    noticesLocal: contractLocal(input.noticesLocal),
+    startsLocal: contractLocal(input.startsLocal),
   });
   return same(typed.input) !== same(content);
 }

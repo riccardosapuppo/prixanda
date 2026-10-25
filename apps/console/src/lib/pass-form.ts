@@ -9,7 +9,7 @@
 // signs are the engine's validation, shown in the last step.
 import { minorUnits, parseAmount } from "design";
 import { LIMITS, type MarketFacts, type Money, type Problem } from "./offer-form.ts";
-import { formatLocalValue, localToInstant, nextWeekday, parseLocal, partsIn, zoneCity } from "./time.ts";
+import { contractLocal, formatLocalValue, localToInstant, nextWeekday, parseLocal, partsIn, zoneCity } from "./time.ts";
 
 export type PassMarketForm = {
   readonly market: string;
@@ -125,8 +125,8 @@ export function passFromContent(content: PassContent): PassForm {
       return {
         market,
         price: price ? plain(price.amount) : "",
-        startsLocal: period?.startsLocal.slice(0, 16) ?? "",
-        endsLocal: period?.endsLocal?.slice(0, 16) ?? "",
+        startsLocal: period ? contractLocal(period.startsLocal) : "",
+        endsLocal: period?.endsLocal ? contractLocal(period.endsLocal) : "",
         pageTitle: page?.title ?? "",
         pageText: page?.text ?? "",
         pageTerms: page?.terms ?? "",
@@ -210,7 +210,7 @@ function checkPeriods(form: PassForm, facts: MarketFacts, now: Date): Problem[] 
       const endField = passField(market.market, "endsLocal");
       const ends = parseLocal(market.endsLocal);
       if (ends === null) problems.push({ field: endField, message: "That is not a date and time." });
-      else if (market.endsLocal.slice(0, 16) <= market.startsLocal.slice(0, 16)) problems.push({ field: endField, message: "The end of the sale comes after its start." });
+      else if (contractLocal(market.endsLocal) <= contractLocal(market.startsLocal)) problems.push({ field: endField, message: "The end of the sale comes after its start." });
       else {
         const end = localToInstant(ends, zone);
         if (end.kind !== "single") problems.push({ field: endField, message: `The clocks ${end.kind === "skipped" ? "skip" : "repeat"} that time in ${city} that night: choose another time.` });
@@ -273,7 +273,7 @@ export function toPassInput(form: PassForm, facts: MarketFacts): { input: PassIn
     if (market.startsLocal !== "") {
       if (parseLocal(market.startsLocal) === null) problems.push({ field: passField(market.market, "startsLocal"), message: "That is not a date and time." });
       else if (market.endsLocal !== "" && parseLocal(market.endsLocal) === null) problems.push({ field: passField(market.market, "endsLocal"), message: "That is not a date and time." });
-      else periods.push({ market: market.market, startsLocal: market.startsLocal.slice(0, 16), ...(market.endsLocal ? { endsLocal: market.endsLocal.slice(0, 16) } : {}) });
+      else periods.push({ market: market.market, startsLocal: contractLocal(market.startsLocal), ...(market.endsLocal ? { endsLocal: contractLocal(market.endsLocal) } : {}) });
     }
     if (market.pageTitle.trim() || market.pageText.trim() || market.pageTerms.trim()) {
       pages.push({ market: market.market, title: market.pageTitle.trim(), text: market.pageText.trim(), terms: market.pageTerms.trim(), treatment: market.treatment || TREATMENT });
@@ -310,7 +310,7 @@ function normalise(input: PassInput): string {
   return JSON.stringify({
     ...input,
     prices: byMarket(input.prices).map((price) => ({ market: price.market, amount: { amountMinor: String(minorUnits(price.amount.amountMinor)), currency: price.amount.currency } })),
-    periods: byMarket(input.periods).map((period) => ({ ...period, startsLocal: period.startsLocal.slice(0, 16), ...(period.endsLocal ? { endsLocal: period.endsLocal.slice(0, 16) } : {}) })),
+    periods: byMarket(input.periods).map((period) => ({ ...period, startsLocal: contractLocal(period.startsLocal), ...(period.endsLocal ? { endsLocal: contractLocal(period.endsLocal) } : {}) })),
     pages: byMarket(input.pages),
   });
 }

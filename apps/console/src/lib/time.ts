@@ -31,6 +31,17 @@ export function formatLocalValue(parts: LocalParts): string {
   return parts.second ? `${base}:${two(parts.second)}` : base;
 }
 
+/**
+ * A local time as the contract writes it: "2026-11-02T09:00:00" is
+ * "2026-11-02T09:00", and "2026-11-02T09:00:10" keeps its seconds, which the
+ * engine keeps too. Text that is not a local time comes back as it is. Two
+ * such values compare as text in the order of the times they name.
+ */
+export function contractLocal(text: string): string {
+  const parts = parseLocal(text);
+  return parts === null ? text : formatLocalValue(parts);
+}
+
 /** "Europe/Rome" as "Rome", the way the console names a zone. */
 export function zoneCity(zone: string): string {
   return (zone.split("/").pop() ?? zone).replaceAll("_", " ");

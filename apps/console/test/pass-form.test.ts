@@ -111,3 +111,26 @@ describe("a pass is a gift anyone can hold", () => {
     assert.deepEqual(checkPassStep(example, 4, FACTS, NOW), []);
   });
 });
+
+describe("a time's seconds (the contract's way: minutes, and seconds only when there are some)", () => {
+  const withSeconds: PassContent = {
+    ...GIFT,
+    periods: [{ market: "IT", startsLocal: "2026-10-26T09:00:10", endsLocal: null }, { market: "GB", startsLocal: "2026-10-26T09:00", endsLocal: "2027-01-01T00:00:20" }],
+  };
+  const moved = (form: ReturnType<typeof passFromContent>, market: string, patch: Partial<{ startsLocal: string; endsLocal: string }>) =>
+    ({ ...form, markets: form.markets.map((entry) => (entry.market === market ? { ...entry, ...patch } : entry)) });
+
+  it("keeps them through the form, and a change of seconds alone is a new version", () => {
+    const form = passFromContent(withSeconds);
+    const typed = toPassInput(form, FACTS);
+    assert.ok("input" in typed, JSON.stringify(typed));
+    assert.deepEqual(typed.input.periods, [{ market: "IT", startsLocal: "2026-10-26T09:00:10" }, { market: "GB", startsLocal: "2026-10-26T09:00", endsLocal: "2027-01-01T00:00:20" }]);
+    assert.equal(passDiffers(form, withSeconds, FACTS), false);
+    assert.equal(passDiffers(moved(form, "IT", { startsLocal: "2026-10-26T09:00:50" }), withSeconds, FACTS), true);
+    assert.equal(passDiffers(moved(form, "GB", { endsLocal: "2027-01-01T00:00:40" }), withSeconds, FACTS), true);
+  });
+
+  it("zero seconds are no seconds", () => {
+    assert.equal(passDiffers(moved(passFromContent(GIFT), "IT", { startsLocal: "2026-10-26T09:00:00" }), GIFT, FACTS), false);
+  });
+});
