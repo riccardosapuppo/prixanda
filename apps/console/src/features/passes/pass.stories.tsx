@@ -3,7 +3,8 @@
 // Italy, a code valid 12 months; the plans offered are those anyone can have,
 // so there is no Student pass (§9.3), and the page beside the form writes the
 // price the Italian way. A checked version goes to Finance, condition 1. The
-// on-call engineer reads it locked.
+// on-call engineer reads it locked. While a first save creates the pass, its
+// fields wait for the answer, and the page says so.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { MARKETS, PLANS_IT } from "../../stories/fixtures.ts";
@@ -25,7 +26,21 @@ function gatewayFor(change = giftPass("DRAFT")) {
   });
 }
 
-function Writing({ viewer, gateway, changeId }: { readonly viewer: Viewer; readonly gateway: ReturnType<typeof gatewayFor>; readonly changeId: string | null }) {
+/** A gateway on which creating the pass takes its time: the answer comes when release() says so. */
+function slowCreation() {
+  let release = () => {};
+  const gateway = fakeGateway({
+    Markets: () => ({ markets: MARKETS }),
+    Plans: () => ({ plans: PLANS_IT }),
+    Change: () => ({ change: giftPass("DRAFT") }),
+    CreatePrepaidPass: () => new Promise((resolve) => {
+      release = () => resolve({ createPrepaidPass: { __typename: "Change", ...giftPass("DRAFT") } });
+    }),
+  });
+  return Object.assign(gateway, { release: () => release() });
+}
+
+function Writing({ viewer, gateway, changeId }: { readonly viewer: Viewer; readonly gateway: ReturnType<typeof gatewayFor> & { readonly release?: () => void }; readonly changeId: string | null }) {
   return (
     <StoryProviders gateway={gateway} viewer={viewer}>
       <PassEditor changeId={changeId} />
@@ -93,5 +108,22 @@ export const TheOnCallEngineerReadsItLocked: Story = {
     await expect(await page.findByText(/The commercial lead writes prepaid passes \(§12\)\. As On-call engineer you read this one, with its fields read-only\./)).toBeInTheDocument();
     await expect(page.getByLabelText("Pass name")).toBeDisabled();
     await expect(page.queryByRole("button", { name: "Save draft" })).toBeNull();
+  },
+};
+
+export const WhileThePassIsCreatedItsFieldsWait: Story = {
+  args: { viewer: PEOPLE["lead"]!, gateway: slowCreation(), changeId: null },
+  play: async ({ canvasElement, args }) => {
+    const page = within(canvasElement);
+    await userEvent.click(await page.findByRole("button", { name: "Fill in the three-month gift pass" }));
+    await userEvent.click(page.getByRole("button", { name: "Save draft" }));
+    // No answer yet: what is typed now would be lost when the pass opens on its own page, so the fields wait.
+    await waitFor(() => expect(page.getByLabelText("Pass name")).toBeDisabled());
+    await expect(page.getByText(/^Saving the new prepaid pass as v1\. The fields wait until it is saved/)).toBeInTheDocument();
+    await expect(page.getByLabelText(/^Plan it gives/)).toBeDisabled();
+    args.gateway.release?.();
+    await waitFor(() => expect(args.gateway.calls.filter((call) => call.operation === "CreatePrepaidPass")).toHaveLength(1));
+    const created = args.gateway.calls.find((call) => call.operation === "CreatePrepaidPass")?.variables as { readonly pass: { readonly title: string } };
+    await expect(created.pass.title).toBe("Three-month gift pass");
   },
 };

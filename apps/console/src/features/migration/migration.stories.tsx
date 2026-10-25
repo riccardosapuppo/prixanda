@@ -5,7 +5,8 @@
 // label. The check names what the engine blocks (price, dates, overlap) and
 // sends the author back to the step that fixes each. A checked version is
 // submitted with Finance to sign, conditions 1 and 5. Marketing reads it with
-// the fields read-only.
+// the fields read-only. While a first save creates the migration, its fields
+// wait for the answer, and the page says so.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { MARKETS } from "../../stories/fixtures.ts";
@@ -29,7 +30,22 @@ function gatewayFor(change = germanFamily("DRAFT")) {
   });
 }
 
-function Writing({ viewer, gateway, changeId }: { readonly viewer: Viewer; readonly gateway: ReturnType<typeof gatewayFor>; readonly changeId: string | null }) {
+/** A gateway on which creating the migration takes its time: the answer comes when release() says so. */
+function slowCreation() {
+  let release = () => {};
+  const gateway = fakeGateway({
+    Markets: () => ({ markets: MARKETS }),
+    Plans: () => ({ plans: PLANS_DE }),
+    PriceChangePolicies: () => POLICIES,
+    Change: () => ({ change: germanFamily("DRAFT") }),
+    CreatePriceMigration: () => new Promise((resolve) => {
+      release = () => resolve({ createPriceMigration: { __typename: "Change", ...germanFamily("DRAFT") } });
+    }),
+  });
+  return Object.assign(gateway, { release: () => release() });
+}
+
+function Writing({ viewer, gateway, changeId }: { readonly viewer: Viewer; readonly gateway: ReturnType<typeof gatewayFor> & { readonly release?: () => void }; readonly changeId: string | null }) {
   return (
     <StoryProviders gateway={gateway} viewer={viewer}>
       <MigrationEditor changeId={changeId} />
@@ -118,5 +134,22 @@ export const MarketingReadsItLocked: Story = {
     await expect(page.getByLabelText("New price in Germany, VAT included")).toBeDisabled();
     await expect(page.queryByRole("button", { name: "Save draft" })).toBeNull();
     await expect(page.queryByRole("button", { name: /Fill in/ })).toBeNull();
+  },
+};
+
+export const WhileTheMigrationIsCreatedItsFieldsWait: Story = {
+  args: { viewer: PEOPLE["lead"]!, gateway: slowCreation(), changeId: null },
+  play: async ({ canvasElement, args }) => {
+    const page = within(canvasElement);
+    await userEvent.click(await page.findByRole("button", { name: "Fill in the Family price rise in Germany" }));
+    await userEvent.click(page.getByRole("button", { name: "Save draft" }));
+    // No answer yet: what is typed now would be lost when the migration opens on its own page, so the fields wait.
+    await waitFor(() => expect(page.getByLabelText("Migration name")).toBeDisabled());
+    await expect(page.getByText(/^Saving the new price migration as v1\. The fields wait until it is saved/)).toBeInTheDocument();
+    await expect(page.getByLabelText("New price in Germany, VAT included")).toBeDisabled();
+    args.gateway.release?.();
+    await waitFor(() => expect(args.gateway.calls.filter((call) => call.operation === "CreatePriceMigration")).toHaveLength(1));
+    const created = args.gateway.calls.find((call) => call.operation === "CreatePriceMigration")?.variables as { readonly migration: { readonly title: string } };
+    await expect(created.migration.title).toBe("Family price rise, Germany");
   },
 };

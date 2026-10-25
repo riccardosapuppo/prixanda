@@ -154,7 +154,12 @@ function PassFormView({ change, markets, step, viewerCanEdit, now, onStep, onCre
   const submit = useAction(SubmitChangeDocument, "submit-change");
   // From the click to the check's answer, the version being checked is the only one: no second click creates another.
   const [checking, setChecking] = useState(false);
-  const busy = checking || create.isPending || save.isPending || validate.isPending || submit.isPending;
+  // From the click that creates the change until its own page opens, the
+  // fields wait: that page starts from what was saved, so anything typed
+  // meanwhile would be lost without a word. The page says it is saving.
+  const [creating, setCreating] = useState(false);
+  const busy = checking || creating || create.isPending || save.isPending || validate.isPending || submit.isPending;
+  const locked = !canEdit || creating;
   const failure = create.error ?? save.error ?? validate.error ?? submit.error;
 
   async function persist(options: { readonly open?: boolean } = {}): Promise<{ id: string; version: number; created: boolean } | null> {
@@ -167,8 +172,16 @@ function PassFormView({ change, markets, step, viewerCanEdit, now, onStep, onCre
       return null;
     }
     if (change === null) {
-      const result = (await create.mutateAsync({ pass: typed.input })).createPrepaidPass as ResultUnion;
+      setCreating(true);
+      let result: ResultUnion;
+      try {
+        result = (await create.mutateAsync({ pass: typed.input })).createPrepaidPass as ResultUnion;
+      } catch (error) {
+        setCreating(false);
+        throw error;
+      }
       if (result.__typename === "Refusal") {
+        setCreating(false);
         setRefusal({ code: result.code, reason: result.reason });
         return null;
       }
@@ -276,19 +289,24 @@ function PassFormView({ change, markets, step, viewerCanEdit, now, onStep, onCre
             <h2 id="step-heading" ref={headingRef} tabIndex={-1} className="text-4xl font-bold leading-tight focus-visible:outline-none">{PASS_STEPS[step]}</h2>
             <p className="text-xs text-ink-2">Step {step + 1} of {PASS_STEPS.length}</p>
           </div>
-          {step === 0 ? <StepPass form={form} markets={markets} disabled={!canEdit} shown={shown} touch={touch} update={update} now={now} /> : null}
-          {step === 1 ? <StepPrice form={form} markets={markets} disabled={!canEdit} shown={shown} touch={touch} updateMarket={updateMarket} /> : null}
-          {step === 2 ? <StepOnSale form={form} markets={markets} disabled={!canEdit} shown={shown} touch={touch} updateMarket={updateMarket} /> : null}
-          {step === 3 ? <StepPage form={form} markets={markets} disabled={!canEdit} shown={shown} touch={touch} updateMarket={updateMarket} /> : null}
+          {step === 0 ? <StepPass form={form} markets={markets} disabled={locked} shown={shown} touch={touch} update={update} now={now} /> : null}
+          {step === 1 ? <StepPrice form={form} markets={markets} disabled={locked} shown={shown} touch={touch} updateMarket={updateMarket} /> : null}
+          {step === 2 ? <StepOnSale form={form} markets={markets} disabled={locked} shown={shown} touch={touch} updateMarket={updateMarket} /> : null}
+          {step === 3 ? <StepPage form={form} markets={markets} disabled={locked} shown={shown} touch={touch} updateMarket={updateMarket} /> : null}
           {step === 4 ? (
             <StepCheck change={change} dirty={dirty} canEdit={canEdit} busy={busy} problems={checkPassStep(form, LAST, facts, now)} onCheck={() => void onCheck()} onSubmit={() => void onSubmit()} onGoTo={(next) => onStep(next)} outcome={outcome} />
           ) : null}
           {refusal ? <RefusalCallout refusal={refusal} /> : null}
           {failure ? <ErrorPanel error={failure} /> : null}
           {outcome?.kind === "saved" ? <Callout tone="good" icon="check-circle" role="status">Saved as v{outcome.version}.</Callout> : null}
+          {creating ? (
+            <Callout tone="quiet" icon="hourglass-medium" role="status">
+              Saving the new prepaid pass as v1. The fields wait until it is saved, then it opens on its own page, with nothing typed meanwhile lost.
+            </Callout>
+          ) : null}
           <div className="flex flex-wrap items-center gap-3 border-t border-cord pt-4">
             {step > 0 ? <Button icon="arrow-left" onClick={() => onStep((step - 1) as PassStep)}>Back</Button> : null}
-            {canEdit ? <Button weight="quiet" icon="floppy-disk" busy={create.isPending || save.isPending} onClick={() => void onSave()}>Save draft</Button> : null}
+            {canEdit ? <Button weight="quiet" icon="floppy-disk" busy={creating || save.isPending} onClick={() => void onSave()}>Save draft</Button> : null}
             <span className="flex-1" />
             {step < LAST ? <Button weight="primary" iconAfter="arrow-right" onClick={onContinue}>Continue</Button> : null}
           </div>

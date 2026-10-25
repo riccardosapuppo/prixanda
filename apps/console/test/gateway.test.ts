@@ -135,6 +135,19 @@ describe("an action keeps its idempotency key until its outcome is known", () =>
     }
   });
 
+  it("a refusal is an answer too: approving again after a stale version, or scheduling again, goes with a new key", async () => {
+    // The engine keeps a refusal under its key: the same key would get the same refusal back, whatever changed since.
+    const refused = { data: { approveChange: { __typename: "Refusal", code: "STALE_VERSION", reason: "Version 3 was saved after the version you signed." } } };
+    const { transport, requests } = scripted([() => refused, () => ({ data: { approveChange: { __typename: "Change", state: "APPROVED" } } })]);
+    const client = createGatewayClient({ transport, csrfToken: () => "token", newRequestId });
+    const keys = new ActionKey("approve-change");
+    const approve = { title: "the same variables, the same request" };
+    await runAction(client, CREATE, approve, keys);
+    await runAction(client, CREATE, approve, keys);
+    assert.ok(requests[0]?.idempotencyKey && requests[1]?.idempotencyKey);
+    assert.notEqual(requests[1]?.idempotencyKey, requests[0]?.idempotencyKey);
+  });
+
   it("an answer closes the action: the next one gets a new key; another request gets another key", async () => {
     const keys = new ActionKey("save", (action) => `${action}:${Math.random().toString(36).slice(2, 12)}`);
     const first = keys.keyFor({ title: "A" });

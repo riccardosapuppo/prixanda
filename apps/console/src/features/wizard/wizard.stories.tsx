@@ -1,11 +1,12 @@
 // The guided creation: Continue stops on the first field to fix, with its own
 // message; the example fills the form and the page beside it writes the
 // price the Italian way; a role that only reads finds the fields read-only,
-// no Save draft, and, when it reviews, the way to Approvals; and a save
-// refused late, after the person loaded the newer version, does not bring
-// the conflict back.
+// no Save draft, and, when it reviews, the way to Approvals; a save refused
+// late, after the person loaded the newer version, does not bring the
+// conflict back; and while a first save creates the campaign, its fields wait
+// for the answer, and the page says so.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { type Change, MARKETS, PLANS_IT, studentPass } from "../../stories/fixtures.ts";
 import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
 import type { Viewer } from "../../lib/react/session.tsx";
@@ -45,6 +46,20 @@ function staleGateway() {
       : new Promise((resolve) => {
         release = () => resolve(refused());
       }),
+  });
+  return Object.assign(gateway, { release: () => release() });
+}
+
+/** A gateway on which creating the campaign takes its time: the answer comes when release() says so. */
+function slowCreation() {
+  let release = () => {};
+  const gateway = fakeGateway({
+    Markets: () => ({ markets: MARKETS }),
+    Plans: () => ({ plans: PLANS_IT }),
+    Change: () => ({ change: studentPass("DRAFT") }),
+    CreateOffer: () => new Promise((resolve) => {
+      release = () => resolve({ createOffer: { __typename: "Change", ...studentPass("DRAFT") } });
+    }),
   });
   return Object.assign(gateway, { release: () => release() });
 }
@@ -124,5 +139,22 @@ export const ALateRefusalDoesNotBringTheConflictBack: Story = {
     args.gateway.release?.();
     await new Promise((resolve) => setTimeout(resolve, 300));
     await expect(page.queryByText(/while you were editing/)).toBeNull();
+  },
+};
+
+export const WhileTheCampaignIsCreatedItsFieldsWait: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: slowCreation(), changeId: null },
+  play: async ({ canvasElement, args }) => {
+    const page = within(canvasElement);
+    await userEvent.click(await page.findByRole("button", { name: "Fill in the Student Autumn Pass" }));
+    await userEvent.click(page.getByRole("button", { name: "Save draft" }));
+    // No answer yet: what is typed now would be lost when the campaign opens on its own page, so the fields wait.
+    await waitFor(() => expect(page.getByLabelText("Campaign name")).toBeDisabled());
+    await expect(page.getByText(/^Saving the new campaign as v1\. The fields wait until it is saved/)).toBeInTheDocument();
+    await expect(page.getByRole("checkbox", { name: /^Italy/ })).toBeDisabled();
+    args.gateway.release?.();
+    await waitFor(() => expect(args.gateway.calls.filter((call) => call.operation === "CreateOffer")).toHaveLength(1));
+    const created = args.gateway.calls.find((call) => call.operation === "CreateOffer")?.variables as { readonly offer: { readonly title: string } };
+    await expect(created.offer.title).toBe("Student Autumn Pass");
   },
 };
