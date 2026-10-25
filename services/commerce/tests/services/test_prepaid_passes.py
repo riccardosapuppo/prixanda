@@ -20,6 +20,7 @@ from commerce.engine.errors import InvalidArgument, NotFound
 from commerce.engine.providers import FAILED, ChargeResult, ProviderEvent
 from commerce.server.app import Jobs
 from commerce.engine.logs import JsonLog
+from commerce.invariants import check
 from commerce.v1 import (
     catalog_pb2, changes_pb2, common_pb2, overview_pb2, simulation_pb2, subscriptions_pb2,
 )
@@ -258,6 +259,36 @@ async def test_activation_refusals_and_errors(world):
         await activate(world, 105, "ABCD-EFGH-JKMN")
     with pytest.raises(InvalidArgument):
         await activate(world, 105, "not a code")
+
+
+async def broken(world) -> list[str]:
+    report = await check(world.owner)
+    return [i["name"] for i in report["invariants"] if i["violations"]]
+
+
+async def test_the_invariants_hold_on_an_activated_pass_and_find_one_that_breaks_its_terms(world):
+    """A pass's subscription is checked by the pass's terms (§9.3), not by the list price: never charged, it ends
+    when the pass's months are over, and its code was activated into it. Each term broken by hand, with the guards
+    switched off, is found."""
+    change = await on_sale(world)
+    code = await bought(world, 101, change.id)
+    other = await bought(world, 101, change.id)
+    world.clock.at = at(2026, 11, 2, 9, 0)
+    subscription = (await activate(world, 102, code.code)).subscription.subscription_id
+    assert await broken(world) == []
+    terms = "pass_subscriptions_run_their_months_never_charged"
+    await world.owner.execute("alter table subscription_price disable trigger subscription_price_written_once")
+    await world.owner.execute("update subscription_price set price_minor = 1099 where subscription_id = $1", subscription)
+    assert await broken(world) == [terms]
+    await world.owner.execute("update subscription_price set price_minor = 0 where subscription_id = $1", subscription)
+    await world.owner.execute("alter table prepaid_code disable trigger prepaid_code_guard")
+    await world.owner.execute("update prepaid_code set months = 4 where code = $1", code.code)
+    assert await broken(world) == [terms]
+    await world.owner.execute("update prepaid_code set months = 3 where code = $1", code.code)
+    assert await broken(world) == []
+    # The subscription names a code still waiting: both ends of the link are found.
+    await world.owner.execute("update subscription set prepaid_code = $2 where id = $1", subscription, other.code)
+    assert await broken(world) == ["activated_codes_run_their_pass", terms]
 
 
 # -- the end of codes not used, and finance's figures ------------------------------------

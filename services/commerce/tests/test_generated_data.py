@@ -67,7 +67,7 @@ async def test_generating_twice_into_one_database_is_refused(generated):
 
 async def test_every_invariant_holds_on_the_generated_data(copy):
     report = await check(copy)
-    assert report["checked"] == 17
+    assert report["checked"] == 18
     assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
 
 

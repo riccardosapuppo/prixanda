@@ -119,13 +119,15 @@ INVARIANTS = [
     Invariant(
         "paid_subscriptions_start_at_the_list_price",
         "§4.3: a paid subscription loaded with the data pays the list price in force in its market on the day it "
-        "started (one confirmed from a quote pays the quote, below; a price migration adds a later price)",
+        "started (one confirmed from a quote pays the quote, and one from a pass pays nothing, both below; a price "
+        "migration adds a later price)",
         """
         select s.id as subscription, s.plan_id as plan, s.market, h.price_minor as pays, p.amount_minor as list_price
         from subscription s
         join subscription_price h on h.subscription_id = s.id and h.from_on = s.started_on
         left join list_price p on p.plan_id = s.plan_id and p.market = s.market and p.valid @> s.started_on::timestamp
-        where s.paid and s.quote_id is null and (p.amount_minor is null or p.amount_minor <> h.price_minor)
+        where s.paid and s.quote_id is null and s.prepaid_code is null
+          and (p.amount_minor is null or p.amount_minor <> h.price_minor)
         """,
     ),
     Invariant(
@@ -215,6 +217,20 @@ INVARIANTS = [
         where c.state = 'activated'
           and (s.id is null or s.prepaid_code is distinct from c.code or s.plan_id <> c.plan_id or s.market <> c.market
                or s.started_on <> c.activated_on or s.subscriber_id <> c.activated_by or s.ended_on is null)
+        """,
+    ),
+    Invariant(
+        "pass_subscriptions_run_their_months_never_charged",
+        "§9.3: a subscription from a pass is the one its code was activated into: it pays nothing in any month, and "
+        "it ends when the pass's months are over, on its billing day that many months after it started",
+        """
+        select s.id as subscription, c.id as prepaid, c.state, c.months, s.started_on, s.ended_on,
+               (select max(h.price_minor) from subscription_price h where h.subscription_id = s.id) as pays
+        from subscription s join prepaid_code c on c.code = s.prepaid_code
+        where c.state <> 'activated' or c.subscription_id is distinct from s.id
+           or s.ended_on is distinct from
+              (date_trunc('month', s.started_on::timestamp) + make_interval(months => c.months))::date + (s.billing_day - 1)
+           or exists (select from subscription_price h where h.subscription_id = s.id and h.price_minor <> 0)
         """,
     ),
 ]

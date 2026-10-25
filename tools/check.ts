@@ -50,7 +50,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 18, contractFiles: 47, migrations: 17, pythonTests: 782, invariants: 17, generatedSubscribers: 5_000,
+  typecheckedFiles: 18, contractFiles: 47, migrations: 17, pythonTests: 782, invariants: 18, generatedSubscribers: 5_000,
   faultsInjected: 12, measuredQueries: 7,
   // npm's lockfile lists every platform's packages; the Python environment
   // has one more on Windows (colorama, for pytest).
