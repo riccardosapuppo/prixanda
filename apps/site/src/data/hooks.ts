@@ -4,15 +4,16 @@
 // page asking the same thing share one request. Mutations that change the
 // demo listener's session or account update or refresh what the pages read.
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import { LABELS, RELEASES } from "../content/editorial.ts";
+import { WaitRounds } from "../lib/rounds.ts";
 import {
   SiteActivatePrepaidPass, SiteAnswerPriceChange, SiteBuyPrepaidPass, SiteConfirmSubscription, SiteDemoListeners, SiteMarkets, SiteMe,
   type SiteMeQuery, SiteOffers, type SiteOffersQuery, SitePlans, SitePrepaidPasses, type SitePrepaidPassesQuery, SiteRequestQuote,
   type SiteRequestQuoteMutationVariables, SiteVerifyStudent,
 } from "../graphql/generated.ts";
 import type { SiteApi } from "./api.ts";
-import { OFFERS_REFRESH_MS } from "./config.ts";
+import { OFFERS_REFRESH_MS, PAYMENT_POLL_LIMIT_MS, PAYMENT_POLL_MS } from "./config.ts";
 import { keys } from "./keys.ts";
 import { isSiteMarket, SITE_MARKETS, type SiteMarket } from "./markets.ts";
 import { useSiteApi } from "./provider.tsx";
@@ -138,6 +139,33 @@ export function useMe({ readAgain }: { readonly readAgain?: (me: Me | null | und
     // The session lives in a cookie: every tab reads it from the API.
     refetchOnWindowFocus: true,
   });
+}
+
+/**
+ * The listener's account while something of it waits for the payment
+ * provider (a first month's payment, a code bought): read again every
+ * PAYMENT_POLL_MS, in rounds of PAYMENT_POLL_LIMIT_MS (src/lib/rounds.ts).
+ * When a round runs out the page stops asking and says the provider has not
+ * answered yet; each check again opens a new round of the same length.
+ */
+export function useMeWhileWaiting(isWaiting: (me: Me | null | undefined) => boolean) {
+  const [, changed] = useReducer((count: number) => count + 1, 0);
+  const rounds = useRef<WaitRounds | null>(null);
+  rounds.current ??= new WaitRounds(PAYMENT_POLL_LIMIT_MS, changed);
+  const held = rounds.current;
+  const me = useMe({ readAgain: (read) => (isWaiting(read) && held.asking ? PAYMENT_POLL_MS : false) });
+  const waiting = isWaiting(me.data);
+
+  useEffect(() => {
+    held.follow(waiting);
+  }, [held, waiting]);
+  useEffect(() => () => held.dispose(), [held]);
+
+  const checkAgain = () => {
+    held.checkAgain();
+    void me.refetch();
+  };
+  return { me, timedOut: held.timedOut, checkAgain };
 }
 
 export function useDemoListeners() {

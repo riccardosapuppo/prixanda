@@ -12,11 +12,14 @@
 //   4. Another listener activates the code: three months of Individual, never
 //      charged and never renewed, then Free; a third cannot use it again; the
 //      code is in no line the engine or the gateway logged.
-//   5. A second code, sent while the payment provider has not answered yet,
-//      is refused; once the payment settled, the same code, sent again from
-//      the same page without a reload, is activated: an answer, success or
-//      refusal, spends the key it was asked with, and the next attempt takes
-//      a new one, which the engine answers afresh.
+//   5. A second code, bought while the payment provider has not answered
+//      yet: after thirty seconds of asking, the page of the purchase and then
+//      the account say the provider has not answered, and each check again
+//      asks for thirty seconds more and says so again at their end. Sent
+//      meanwhile, the code is refused; once the payment settled, the same
+//      code, sent again from the same page without a reload, is activated: an
+//      answer, success or refusal, spends the key it was asked with, and the
+//      next attempt takes a new one, which the engine answers afresh.
 //   6. Two price migrations launched: Family in Germany, Individual in Italy.
 //      The engine's clock reaches the morning the subscribers are told.
 //   7. The Family subscriber in Germany is asked: two answers of the same
@@ -36,6 +39,7 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import { PAYMENT_POLL_LIMIT_MS } from "../src/data/config.ts";
 import { siteDay } from "../src/lib/dates.ts";
 import { text, Watch } from "./support/browser.ts";
 import { ConsoleSession, giftPass, launchChange, priceMigration } from "./support/console.ts";
@@ -80,6 +84,21 @@ async function codesOf(context: BrowserContext): Promise<Array<{ code: string; s
   });
   const body = await response.json() as { data?: { me?: { account?: { prepaidCodes?: Array<{ code: string; state: string }> } } } };
   return body.data?.me?.account?.prepaidCodes ?? [];
+}
+
+/**
+ * Two rounds of asking for a payment the provider keeps pending, on a page
+ * whose clock the test moves: at the end of each, the page says the provider
+ * has not answered yet, and its check again asks for another round.
+ */
+async function slowRounds(page: Page): Promise<void> {
+  const slow = page.getByText("The payment provider hasn't answered yet.");
+  for (let round = 1; round <= 2; round += 1) {
+    await page.clock.fastForward(PAYMENT_POLL_LIMIT_MS);
+    await slow.waitFor({ timeout: 10_000 });
+    await page.getByRole("button", { name: "Check again" }).click();
+    await slow.waitFor({ state: "hidden", timeout: 10_000 });
+  }
 }
 
 /** The listener of a visitor's session, as the gateway answers for its cookie. */
@@ -244,6 +263,8 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     let answering = false;
     try {
       const buyer = await watch.visitor();
+      // The buyer's page keeps a clock the test moves, to skip the thirty seconds a round of asking lasts.
+      await buyer.page.clock.install();
       await buyer.page.goto(`${SITE_URL}/?market=IT#gift`);
       await buyer.page.getByRole("button", { name: "Get a demo gift code" }).click();
       await buyer.page.getByRole("heading", { name: "Enter as a demo listener" }).waitFor();
@@ -253,6 +274,11 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
       const held = (await codesOf(buyer.context)).find((each) => each.state === "PENDING");
       assert.ok(held, "the code bought is pending while the provider keeps its answer");
       second = held.code;
+      // The provider still silent: the page of the purchase, then the account, ask a limited time after each check.
+      await slowRounds(buyer.page);
+      await buyer.page.goto(`${SITE_URL}/account/`);
+      await buyer.page.locator("[data-code-state='PENDING']").first().waitFor();
+      await slowRounds(buyer.page);
 
       // The code reaches someone else before its payment settled.
       const { page } = await watch.visitor();

@@ -1,12 +1,13 @@
 // The site's pure modules: dates put into words, the markets of an address,
-// who an offer for an artist's listeners is for, and the geometry of the
-// drawings, held to their rules.
+// who an offer for an artist's listeners is for, the rounds of asking while
+// a payment waits, and the geometry of the drawings, held to their rules.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { canopy, monthsScene } from "../src/components/art/geometry.ts";
 import { copy } from "../src/content/copy.ts";
 import { DEFAULT_MARKET, isSiteMarket, marketFromQuery, marketShort, SITE_MARKETS } from "../src/data/markets.ts";
 import { lastDayBefore, siteDay, siteTime } from "../src/lib/dates.ts";
+import { type RoundTimer, WaitRounds } from "../src/lib/rounds.ts";
 
 describe("dates in words", () => {
   it("writes a day of a market's calendar the English way, in every market", () => {
@@ -134,5 +135,92 @@ describe("the canopy of where money goes", () => {
   it("draws nothing for an empty part and refuses a canopy of no length", () => {
     assert.equal(canopy([{ from: 100n, to: 100n, dye: "saffron" }], 300n).sails.length, 0);
     assert.throws(() => canopy([], 0n), RangeError);
+  });
+});
+
+describe("the rounds of asking while a payment waits", () => {
+  const LIMIT = 30_000;
+
+  /** A clock of the test's own: its timers fire when the test moves it. */
+  function testClock() {
+    let now = 0;
+    let made = 0;
+    const timers = new Map<number, { readonly at: number; readonly done: () => void }>();
+    const timer: RoundTimer = {
+      start(done, ms) {
+        made += 1;
+        timers.set(made, { at: now + ms, done });
+        return made;
+      },
+      stop: (handle) => void timers.delete(handle as number),
+    };
+    const advance = (ms: number) => {
+      now += ms;
+      for (const [handle, each] of [...timers].sort(([, a], [, b]) => a.at - b.at)) {
+        if (each.at > now) continue;
+        timers.delete(handle);
+        each.done();
+      }
+    };
+    return { timer, advance, running: () => timers.size };
+  }
+
+  function rounds() {
+    const clock = testClock();
+    let changes = 0;
+    const held = new WaitRounds(LIMIT, () => (changes += 1), clock.timer);
+    return { held, clock, changes: () => changes };
+  }
+
+  it("asks for the length of a round once something waits, then says the provider has not answered", () => {
+    const { held, clock, changes } = rounds();
+    held.follow(true);
+    assert.deepEqual({ asking: held.asking, timedOut: held.timedOut }, { asking: true, timedOut: false });
+    clock.advance(LIMIT - 1);
+    assert.equal(held.timedOut, false);
+    clock.advance(1);
+    assert.deepEqual({ asking: held.asking, timedOut: held.timedOut }, { asking: false, timedOut: true });
+    assert.equal(changes(), 1, "the page is told once");
+  });
+
+  it("opens a new round with each check again, which runs out in its turn and is said again", () => {
+    const { held, clock } = rounds();
+    held.follow(true);
+    clock.advance(LIMIT);
+    assert.equal(held.timedOut, true);
+    for (let round = 2; round <= 3; round += 1) {
+      held.checkAgain();
+      assert.deepEqual({ asking: held.asking, timedOut: held.timedOut }, { asking: true, timedOut: false }, `round ${round} asks`);
+      clock.advance(LIMIT - 1);
+      assert.equal(held.timedOut, false, `round ${round} lasts its length`);
+      clock.advance(1);
+      assert.deepEqual({ asking: held.asking, timedOut: held.timedOut }, { asking: false, timedOut: true }, `round ${round} runs out`);
+    }
+  });
+
+  it("counts a round from the check again, not from the round before", () => {
+    const { held, clock } = rounds();
+    held.follow(true);
+    clock.advance(20_000);
+    held.checkAgain();
+    clock.advance(20_000);
+    assert.equal(held.timedOut, false);
+    clock.advance(10_000);
+    assert.equal(held.timedOut, true);
+    assert.equal(clock.running(), 0, "one round at a time");
+  });
+
+  it("ends when nothing waits any more, and opens nothing for a check again then, nor after the page went", () => {
+    const { held, clock } = rounds();
+    held.follow(true);
+    held.follow(false);
+    assert.equal(clock.running(), 0);
+    clock.advance(LIMIT * 2);
+    assert.deepEqual({ asking: held.asking, timedOut: held.timedOut }, { asking: true, timedOut: false });
+    held.checkAgain();
+    assert.equal(clock.running(), 0, "nothing waits: no round");
+    held.follow(true);
+    held.dispose();
+    assert.equal(clock.running(), 0, "no round outlives the page");
   });
 });

@@ -143,8 +143,8 @@ is, it says where one is sold, and the header offers the way to it only
 then. Buying is a demonstration in steps, like a subscription: the entrance,
 the confirmation with the disclaimer, then the code. The code comes back
 pending; the page reads the account every second, for thirty seconds at
-most, until the simulated provider settles the payment, and only then shows
-the code as one that works. The account lists the codes the listener
+most and thirty more after each check again, until the simulated provider
+settles the payment, and only then shows the code as one that works. The account lists the codes the listener
 bought, and takes a code, bought or given: activated, it gives the pass's
 months of its plan from that day, never charged and never renewed, then
 Free. A code is like money: it reaches only the browser of the listener who
@@ -191,7 +191,10 @@ code typed in the wrong shape is said at once and never sent.
 - **The payment settles later.** The confirmation leaves the first month's
   payment pending; the account reads it again every second, for 30 seconds at
   most, until it succeeds or fails, then says plainly that the provider has
-  not answered yet and offers to check again.
+  not answered yet and offers to check again. Each check again asks for 30
+  seconds more, and says so again if the provider is still silent
+  (`useMeWhileWaiting`, over the rounds of `src/lib/rounds.ts`): a payment
+  that stays pending is never asked about without end.
 
 ## The editorial catalogue
 
@@ -245,9 +248,9 @@ npm run e2e -w site -- gift         # one of them alone: student, gift or album
 
 | Suite | What it checks | Floor |
 |---|---|---|
-| `site-types` | `tsc` over the pages and components as Next.js builds them, then over what Node runs | 48 and 41 files |
+| `site-types` | `tsc` over the pages and components as Next.js builds them, then over what Node runs | 49 and 41 files |
 | `site-codegen` | every operation validates against the public schema, and the generated types equal a fresh generation | 14 operations |
-| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit, who an offer for an artist's listeners is for, and the listener of before's offers for an artist's listeners dropped on an entry or an exit, the tab and the sandbox's worker over their protocol (with a fake worker), a worker that failed said as an API out of reach, an idempotency key spent by an answer and kept only to retry after an error | 91 tests |
+| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit, who an offer for an artist's listeners is for, and the listener of before's offers for an artist's listeners dropped on an entry or an exit, the tab and the sandbox's worker over their protocol (with a fake worker), a worker that failed said as an API out of reach, an idempotency key spent by an answer and kept only to retry after an error, the rounds of asking while a payment waits, a new one with each check again | 95 tests |
 | `site-build` | the static export, every page in it, the API it calls written in | 5 pages |
 | `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 9 tests, 9 audit events, axe on 9 pages, 20 pages fitted |
 | `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a code refused while its payment is pending and activated once it settled, a request for consent in Germany answered, a notice in Italy, below | 10 tests, 8 audit events, axe on 10 pages, 10 pages fitted |
@@ -279,8 +282,11 @@ payment and gets the demo receipt; another listener activates the code and
 has three months of Individual, never charged, then Free; a third cannot use
 it again, and the code is in no line the engine or the gateway logged. Then
 the engine's payment provider is kept from answering, as a real one may take
-its time: a second code, bought meanwhile, stays pending, and the third
-listener who types it is refused; once the provider answered and the payment
+its time: a second code, bought meanwhile, stays pending. On the page of the
+purchase, then on the account, the page's own clock is moved over the thirty
+seconds of a round: the page says the provider has not answered yet, its
+check again asks for thirty seconds more, and at their end says so again.
+The third listener who types the code meanwhile is refused; once the provider answered and the payment
 settled, the same code sent again from the same page, without a reload, is
 activated, with a new idempotency key: the refusal spent the first one. Two
 price migrations follow, Family in Germany and Individual in Italy: the
