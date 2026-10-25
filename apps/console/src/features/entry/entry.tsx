@@ -12,12 +12,7 @@ import { PeopleDocument } from "../../graphql/generated.ts";
 import { primaryRole, TEAM } from "../../lib/permissions.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useSession } from "../../lib/react/session.tsx";
-
-/** Only a path inside the console: the entry never sends anyone elsewhere. */
-export function safeNext(next: string | null): string {
-  if (next === null || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/sign-in")) return "/";
-  return next;
-}
+import { safeNext } from "../../lib/safe-next.ts";
 
 export function Entry() {
   const session = useSession();
