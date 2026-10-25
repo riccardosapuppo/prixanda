@@ -110,8 +110,8 @@ const ALLOWED = [
   "Market.name: String!",
   "Market.currency: String!",
   "Market.timeZone: String!",
-  // Public by the coordinator's decision of 24 October: where a price goes is
-  // the promise of §1.2 and §5, which the site shows its visitors. The floor,
+  // Public, because where a price goes is the promise of §1.2 and §5 of the
+  // business book, which the site shows its visitors. The floor,
   // the thresholds and the simulations stay the console's.
   // The VAT rate the prices include (§3.1), which the breakdown's VAT follows from.
   "Market.vatBasisPoints: Int!",
@@ -221,10 +221,9 @@ const ALLOWED = [
 ];
 
 /**
- * Names of the internal vocabulary that the site shows by the coordinator's
- * decision of 24 October, each with its reason: where a price goes is the
- * promise of §1.2 and §5. The floor, the thresholds and the simulations are
- * not among them.
+ * Names of the internal vocabulary that the site shows, each with its reason:
+ * where a price goes is the promise of §1.2 and §5 of the business book. The
+ * floor, the thresholds and the simulations are not among them.
  */
 const PUBLIC_BY_DECISION: Record<string, string> = {
   "Market.vatBasisPoints": "the VAT rate the prices include (§3.1)",

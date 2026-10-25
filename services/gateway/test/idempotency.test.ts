@@ -1,6 +1,6 @@
 // Idempotency: a mutation names its action with an Idempotency-Key, the
 // gateway passes it to the engine untouched, and the engine answers a repeat
-// with what it answered the first time (the engine's behaviour 2). The
+// with what it answered the first time (the engine's behaviour 2, proto/README.md). The
 // gateway never makes a key up, and one request carries one mutation.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";

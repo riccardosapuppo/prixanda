@@ -1,4 +1,4 @@
-// Identifiers that travel with a request (the coordinator's convention 5):
+// Identifiers that travel with a request (convention 5 of proto/README.md):
 // the request id, born in the site or the console and carried through the
 // gateway and the engine to the audit log (§11.1), and the idempotency key of
 // a mutation. Both have the same shape, which stays under the 100 characters

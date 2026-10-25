@@ -2,10 +2,10 @@
 // contract, in memory, served over real gRPC (HTTP/2) on 127.0.0.1:4613
 // (CHECK_FAKE_ENGINE_PORT moves it).
 //
-// It mirrors the engine's behaviours as the coordinator fixed them on 24
-// October (BRIEF-TAPPE-2-3.md, §4): the gRPC codes, the metadata rules, the
-// idempotency store, the refusals, the role matrix. That matrix is written
-// here again from the brief's table, not imported from the gateway's
+// It mirrors the engine's behaviours of the contract's conventions
+// (proto/README.md): the gRPC codes, the metadata rules, the idempotency
+// store, the refusals, the role matrix. That matrix is written here again
+// from the table of proto/README.md, not imported from the gateway's
 // roles.ts: a test that checked the gateway against its own copy would agree
 // with itself whatever it said. Its business rules are a small subset, enough
 // to drive the gateway; the real engine replaces it when the branches merge.
@@ -68,7 +68,7 @@ const KIND_NUMBER: Record<Kind, ChangeKind> = {
 
 /** What a version of a change holds. */
 type Content = OfferContent | ListPriceContent | PriceMigrationContent | PrepaidPassContent;
-/** The coordinator's table (§4 of the brief), transcribed here on its own. */
+/** The table of who may call each method (proto/README.md), transcribed here on its own. */
 const MAY: Record<string, (role: string, kind: Kind | null) => boolean> = {
   // An offer is marketing's; a list price, a price migration and a prepaid pass are the commercial lead's (§12, §14.3, §14.4).
   CreateChange: (role, kind) => (kind === "offer" ? role === "marketing" : role === "commercial_lead"),
@@ -594,7 +594,7 @@ export class FakeEngine {
   /** The prepaid passes' codes sold, by code (§9). */
   readonly prepaidCodes = new Map<string, StoredCode>();
   #nextCode = 1;
-  /** Idempotency keys and what they answered (the engine's behaviour 2). */
+  /** Idempotency keys and what they answered (the engine's behaviour 2, proto/README.md). */
   readonly #idempotency = new Map<string, { method: string; actor: string; role: string; fingerprint: string; response: UnaryResponse }>();
   readonly #faults = new Map<string, { code: Code; message: string }>();
   readonly #delays = new Map<string, number>();
@@ -1452,7 +1452,7 @@ export class FakeEngine {
     });
   }
 
-  /** A role check on a method with an outcome: a refusal, never an error (the engine's behaviour 6). */
+  /** A role check on a method with an outcome: a refusal, never an error (the engine's behaviour 6, proto/README.md). */
   #mayNot(method: string, context: HandlerContext, kind: Kind | null): { outcome: { case: "refusal"; value: Refusal } } | null {
     const role = context.requestHeader.get("x-actor-role") ?? "";
     return MAY[method]?.(role, kind) ? null : this.#refuse(RefusalCode.ROLE_NOT_ALLOWED, `The ${role} role may not do this.`, { role });
