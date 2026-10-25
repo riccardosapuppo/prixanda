@@ -2,7 +2,10 @@
 // adapter as in the browser, on PGlite, behind the contract's bytes. The
 // browser's own (IndexedDB, the worker, the network) is in browser.test.ts.
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { loadPyodide } from "pyodide";
 import { AuditService } from "contracts/commerce/v1/audit";
 import { CatalogService } from "contracts/commerce/v1/catalog";
 import { ChangeService } from "contracts/commerce/v1/changes";
@@ -10,7 +13,9 @@ import { RefusalCode } from "contracts/commerce/v1/common";
 import { LaunchService, LaunchState } from "contracts/commerce/v1/launches";
 import { QuoteService } from "contracts/commerce/v1/quotes";
 import { SubscriberService } from "contracts/commerce/v1/subscriptions";
-import { FINANCE, MARKETING, nodeEngine, type NodeEngine, ON_CALL, PUBLIC, romeLocal, rpc, RpcError } from "./support.ts";
+import { pyodideDir } from "../../src/engine/build/wheels.ts";
+import { loadPython } from "../../src/engine/python.ts";
+import { assetsDir, FINANCE, MARKETING, nodeEngine, type NodeEngine, ON_CALL, PUBLIC, romeLocal, rpc, RpcError } from "./support.ts";
 
 let on: NodeEngine;
 
@@ -44,6 +49,29 @@ test("the engine starts on the build's snapshot, with the versions it was built 
   assert.deepEqual(markets.markets.map((m) => m.code).sort(), ["DE", "FR", "GB", "IT"]);
   const listeners = await rpc(on, SubscriberService.method.listDemoListeners, {});
   assert.equal(listeners.listeners.length, 6);
+});
+
+test("every module of the package imports in Pyodide, which has neither grpc nor asyncpg", async () => {
+  const assets = assetsDir();
+  const zip = await readFile(join(assets, "engine", on.manifest.engine));
+  const pyodide = await loadPython({
+    loadPyodide, indexURL: pyodideDir(), packageBaseUrl: `${join(assets, "pyodide").replaceAll("\\", "/")}/`,
+    engine: async () => zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer,
+  });
+  const imported = JSON.parse(pyodide.runPython(`
+import importlib, json, pkgutil, commerce, commerce.v1
+# commerce.v1, the contract's messages, is a namespace package, which walk_packages does not go into.
+names = sorted({m.name for m in pkgutil.walk_packages(commerce.__path__, "commerce.")}
+               | {m.name for m in pkgutil.iter_modules(commerce.v1.__path__, "commerce.v1.")})
+for name in names:
+    importlib.import_module(name)
+missing = [name for name in ("grpc", "asyncpg") if importlib.util.find_spec(name) is not None]
+json.dumps({"modules": names, "missing": missing})
+`) as string) as { modules: string[]; missing: string[] };
+  assert.deepEqual(imported.missing, [], "Pyodide has no grpc and no asyncpg, so nothing could import them");
+  assert.ok(imported.modules.length >= 50, imported.modules.join(" "));
+  assert.ok(!imported.modules.some((name) => /^commerce\.(server|adapters|generate|compat|invariants|measure)\b|_grpc$|snapshot$/.test(name)),
+    imported.modules.join(" "));
 });
 
 test("the calls the server refuses are refused with gRPC's codes", async () => {
