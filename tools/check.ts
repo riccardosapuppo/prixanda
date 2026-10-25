@@ -815,7 +815,7 @@ async function nodeTests(suite: string, files: string[], floor: number, env: Rec
 // where the end-to-end test starts it (CHECK_GATEWAY_PUBLIC_PORT).
 const siteDir = join(repoRoot, "apps", "site");
 const SITE_FLOOR = {
-  files: 45, nodeFiles: 34, operations: 14, unitTests: 72, e2eTests: 9, e2eAuditEvents: 9, e2ePagesChecked: 9, e2eLayoutChecks: 20,
+  files: 48, nodeFiles: 39, operations: 14, unitTests: 83, e2eTests: 9, e2eAuditEvents: 9, e2ePagesChecked: 9, e2eLayoutChecks: 20,
   e2e7Tests: 9, e2e7AuditEvents: 5, e2e7PagesChecked: 9, e2e7LayoutChecks: 10,
 };
 const SITE_PAGES = ["index.html", "campaign/index.html", "account/index.html", "session/index.html", "404.html"];
