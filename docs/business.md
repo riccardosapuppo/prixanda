@@ -497,6 +497,17 @@ been charged. In Germany, without a yes, the account moves to the Free plan
 on the first billing date on or after the consent deadline's day (and not
 before the start date), with nothing charged that day (§8.2).
 
+§8.9 **One price change at a time.** A later migration of the same plan in
+the same market asks or tells existing subscribers only once the last one's
+window has ended. It also leaves out a subscription that still waits for an
+earlier migration: one whose request from it is not settled yet, or whose new
+price from it takes over on or after the first day the later price could.
+Both prices would otherwise fall on the same charge, as when an offer's
+months hold both back to the day the offer ends. That subscription keeps the
+price already set, and a migration after it can reach it once that price
+applies. The launch counts the subscriptions it leaves out, and the
+simulation leaves them out of the existing subscribers and says how many.
+
 ## 9. Prepaid passes
 
 §9.1 A prepaid pass is a different product: three months of Individual paid

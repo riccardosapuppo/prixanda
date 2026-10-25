@@ -323,6 +323,53 @@ async def test_in_italy_a_notice_applies_the_price_unless_the_listener_leaves(wo
     assert len(set(told.values())) == 1 and next(iter(told.values())).endswith("-settlement")
 
 
+async def test_a_second_rise_leaves_for_later_a_subscription_whose_first_new_price_waits_for_its_offer(world):
+    """§8.9: 101 is on the Student Autumn Pass until 28 January 2027, so the first rise's price takes over that day; a
+    second rise, whose notice runs out on 3 January, would take over the same day. It does not reach 101, who keeps the
+    first rise's price, and its launch counts 101 as left for later; 103, whose first new price took over on
+    10 December, is told."""
+    pass_ = await scheduled(world, student_autumn(), MARKETING, FINANCE)
+    world.clock.at = at(2026, 10, 26, 7, 59, 30)
+    await world.engine.run_launches()
+    world.clock.at = at(2026, 10, 31, 9, 0)
+    quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="student", market="IT", offer_id=pass_.id,
+                                                                     subscriber_id=101), PUBLIC)).quote
+    await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(quote_id=quote.quote_id, subscriber_id=101), PUBLIC)
+    await scheduled(world, family_migration(title="Student price, Italy", plan="student", market="IT", amount=eur(649)),
+                    LEAD, FINANCE)
+    world.clock.at = at(2026, 11, 2, 7, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    world.clock.at = at(2026, 12, 2, 23, 0)
+    assert [s.dates for s in await world.engine.settle_migrations()] == [
+        {"new_price_from": "2026-12-10"}, {"new_price_from": "2027-01-28"}]
+    world.clock.at = at(2026, 12, 3, 9, 0)
+    again = await scheduled(world, family_migration(title="Student price again, Italy", plan="student", market="IT",
+                                                    amount=eur(699), notices_local="2026-12-04T09:00",
+                                                    starts_local="2027-01-01T00:00"), LEAD, FINANCE)
+    simulated = (await world.call("SimulateMigration", simulation_pb2.SimulateMigrationRequest(change_id=again.id),
+                                  LEAD)).result
+    assert {a.name: (a.value, a.source) for a in simulated.assumptions}["existing"] == (
+        1, "counted in the data at 2026-12-03T09:00:00Z, leaving out 1 waiting for an earlier migration's price (§8.9)")
+    world.clock.at = at(2026, 12, 4, 7, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    asked = await world.owner.fetch("select subscriber_id, old_price_minor from price_change_request where change_id = $1",
+                                    again.id)
+    assert [tuple(r) for r in asked] == [(103, 649)]
+    activated = [json.loads(e["body"]) for e in await world.events("change.activated")][-1]
+    assert (activated["change"], activated["asked"], activated["left_for_later"]) == (again.id, 1, 1)
+    # Its notice runs out: 103 pays it from its next charge, and 101 the first rise's price after the offer.
+    world.clock.at = at(2027, 1, 3, 23, 0)
+    paying = await world.owner.fetchval("select id from subscription where subscriber_id = 103 and paid")
+    assert [(s.subscription, s.dates) for s in await world.engine.settle_migrations()] == [
+        (paying, {"new_price_from": "2027-01-10"})]
+    on_offer = await world.owner.fetchval("select id from subscription where subscriber_id = 101 and paid")
+    history = await world.owner.fetch("select from_on::text, price_minor from subscription_price where subscription_id = $1 "
+                                      "order by from_on", on_offer)
+    assert [tuple(r) for r in history] == [("2026-10-31", 299), ("2027-01-28", 649)]
+
+
 # -- the simulation -----------------------------------------------------------------------
 
 async def test_the_simulation_counts_the_existing_subscribers_and_says_where_each_assumption_comes_from(world):
