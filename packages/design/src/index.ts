@@ -5,7 +5,7 @@
 //   import "design/fonts/archivo.css"    Archivo, the site's voice and the console's titles
 //   import "design/fonts/atkinson.css"   Atkinson Hyperlegible Next, the console's text and figures
 // and the icons as a React component: import { Icon } from "design/icon".
-export { BRAND, DISCLAIMER, SIMULATED_LABEL } from "./brand.ts";
+export { BRAND, DISCLAIMER, SANDBOX, SIMULATED_LABEL, SOURCE_URL } from "./brand.ts";
 export { contrast, luminance } from "./contrast.ts";
 export { ICONS, type IconName } from "./icons.ts";
 export {

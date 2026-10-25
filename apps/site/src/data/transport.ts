@@ -3,10 +3,9 @@
 // their own; they go through the data layer (api.ts), which goes through a
 // transport.
 //
-// Today the transport is HTTP to the gateway's public endpoint
-// (httpTransport). In stage 8 the browser sandbox hands the same data layer a
-// transport that executes the same schema inside the page: nothing above this
-// file changes.
+// The transport is HTTP to the gateway's public endpoint (httpTransport), or,
+// in the demo's sandbox (stage 8), messages to the worker that runs the same
+// schema in the browser (sandbox.ts): nothing above the transport changes.
 
 export type GraphqlRequest = {
   readonly operationName: string;
@@ -70,26 +69,34 @@ export function httpTransport(endpoint: string, options: HttpOptions): Transport
         if (signal?.aborted) throw error;
         throw new TransportFailure(error instanceof Error ? error.message : String(error));
       }
-      const text = await response.text();
-      let body: unknown = null;
-      try {
-        body = text ? JSON.parse(text) : null;
-      } catch {
-        body = null;
-      }
-      const record = isRecord(body) ? body : {};
-      const extensions = isRecord(record["extensions"]) ? record["extensions"] : {};
-      const errors = Array.isArray(record["errors"]) ? record["errors"].filter(isGraphqlError) : [];
-      const fromExtensions = typeof extensions["requestId"] === "string" ? extensions["requestId"] : null;
-      const retryAfter = Number(response.headers.get("retry-after"));
-      return {
-        status: response.status,
-        data: "data" in record ? record["data"] : null,
-        errors,
-        requestId: response.headers.get("x-request-id") ?? fromExtensions,
-        retryAfter: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
-      };
+      return readAnswer(response.status, (name) => response.headers.get(name), await response.text());
     },
+  };
+}
+
+/**
+ * What came back from the API, as the gateway answers over HTTP or as the
+ * sandbox's worker imitates it: the status, the headers (read by their name
+ * in lower case) and the JSON body.
+ */
+export function readAnswer(status: number, header: (name: string) => string | null, text: string): GraphqlResponse {
+  let body: unknown = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
+  }
+  const record = isRecord(body) ? body : {};
+  const extensions = isRecord(record["extensions"]) ? record["extensions"] : {};
+  const errors = Array.isArray(record["errors"]) ? record["errors"].filter(isGraphqlError) : [];
+  const fromExtensions = typeof extensions["requestId"] === "string" ? extensions["requestId"] : null;
+  const retryAfter = Number(header("retry-after"));
+  return {
+    status,
+    data: "data" in record ? record["data"] : null,
+    errors,
+    requestId: header("x-request-id") ?? fromExtensions,
+    retryAfter: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
   };
 }
 

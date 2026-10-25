@@ -16,3 +16,12 @@ export const OFFERS_REFRESH_MS = 10_000;
 /** How often the account is read again while the first month's payment is pending, and for how long at most. */
 export const PAYMENT_POLL_MS = 1_000;
 export const PAYMENT_POLL_LIMIT_MS = 30_000;
+
+/**
+ * Built for the demo's sandbox (SANDBOX=1, BRIEF-TAPPA-8-DEMO.md): the
+ * requests go to the sandbox's worker in this browser, not to a gateway.
+ */
+export const SANDBOX_MODE: boolean = process.env.SITE_SANDBOX === "1";
+
+/** The demo build's fingerprint (SANDBOX_BUILD): a tab whose worker belongs to another build reloads. */
+export const SANDBOX_BUILD: string = process.env.SITE_SANDBOX_BUILD || "dev";

@@ -14,7 +14,7 @@
 // sent again if the same action is retried. Each step takes the focus when it
 // appears, so a keyboard or a screen reader follows the flow; the panel enters
 // with a 4 px fade, which the keyboard and reduced motion switch off.
-import { formatSitePrice, type MoneyLike } from "design";
+import { formatSitePrice, type IconName, type MoneyLike } from "design";
 import { Icon } from "design/icon";
 import type { Route } from "next";
 import Link from "next/link";
@@ -45,7 +45,7 @@ export type Target = {
   readonly listPrice: MoneyLike | null;
 };
 
-type Level = 2 | 3;
+export type Level = 2 | 3;
 
 export function Checkout({ target, onClose, level = 2 }: { readonly target: Target; readonly onClose: () => void; readonly level?: Level }) {
   const me = useMe();
@@ -110,7 +110,7 @@ function OtherMarket({ me, target, level }: { readonly me: Me; readonly target: 
 }
 
 /** Who the steps act for, and the way to be someone else. */
-function Who({ me }: { readonly me: Me }) {
+export function Who({ me }: { readonly me: Me }) {
   const signOut = useSignOut();
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-cord pb-3">
@@ -130,7 +130,7 @@ function Who({ me }: { readonly me: Me }) {
 }
 
 /** A step's heading takes the focus when the step appears. */
-function StepHeading({ children, icon, level }: { readonly children: ReactNode; readonly icon?: "identification-card" | "info"; readonly level: Level }) {
+export function StepHeading({ children, icon, level }: { readonly children: ReactNode; readonly icon?: IconName; readonly level: Level }) {
   const head = useRef<HTMLHeadingElement>(null);
   useEffect(() => head.current?.focus(), []);
   const Tag = level === 2 ? "h2" : "h3";
@@ -265,7 +265,7 @@ function Confirm({ quote, target, me, level, onAskAgain }: {
   );
 }
 
-function Refusal({ title, reason, children }: { readonly title?: string; readonly reason: string; readonly children?: ReactNode }) {
+export function Refusal({ title, reason, children }: { readonly title?: string; readonly reason: string; readonly children?: ReactNode }) {
   return (
     <div role="status" className="grid gap-3">
       {title ? <p className="m-0 font-semibold">{title}</p> : null}

@@ -3,12 +3,20 @@
 // sent back, an Idempotency-Key for every change and an X-Request-Id of the
 // test's own, to be found again in the audit log.
 //
-// The site's end-to-end test launches its offer through here while the
-// console of stage 4 is being built; once the two are joined, the launch goes
-// through the console's pages instead.
+// The site's end-to-end tests launch their changes through here (an offer, a
+// prepaid pass, a price migration): the console's own pages have tests of
+// their own, and the site's tests are about the site.
 import { randomUUID } from "node:crypto";
 
 export type Answer = { readonly status: number; readonly body: any; readonly text: string };
+
+/** One of the demo's people, signed in on the console's API: over HTTP here, through the sandbox's worker in the demo's test. */
+export type Session = {
+  graphql(query: string, variables?: Record<string, unknown>, headers?: Record<string, string>): Promise<Answer>;
+};
+
+/** How a launch gets a person's session: by default, over HTTP to the console's API at that address. */
+export type Sessions = string | ((person: string) => Promise<Session>);
 
 export class ConsoleSession {
   readonly url: string;
@@ -88,15 +96,65 @@ export type Launched = {
 };
 
 /**
+ * A prepaid pass (§9, §14.4) as the commercial lead writes it: three months
+ * of Individual for 29,99 € in Italy, on sale from `startsLocal`, its code
+ * good for twelve months.
+ */
+export function giftPass(startsLocal: string) {
+  return {
+    title: "Three-month gift pass",
+    plan: "individual",
+    months: 3,
+    prices: [{ market: "IT", amount: { amountMinor: "2999", currency: "EUR" } }],
+    periods: [{ market: "IT", startsLocal }],
+    codeValidMonths: 12,
+    pages: [{
+      market: "IT",
+      title: "Give three months",
+      text: "Three months of Individual, 29,99 € paid once. The code never renews, and later price changes don't touch it.",
+      terms: "A single-use code, valid for twelve months from the day it is bought. Activated, it gives three months of Individual, then Free.",
+    }],
+  };
+}
+
+/** A price migration (§8, §14.3): a higher price for one plan in one market, existing subscribers asked or told from `noticesLocal`. */
+export function priceMigration(title: string, plan: string, market: string, amountMinor: string, noticesLocal: string, startsLocal: string) {
+  return { title, plan, market, amount: { amountMinor, currency: market === "GB" ? "GBP" : "EUR" }, noticesLocal, startsLocal };
+}
+
+/** Each kind of change: the mutation that creates it, its input type, who writes it, and why it is wanted. */
+const KINDS = {
+  offer: { create: "createOffer", argument: "offer", input: "OfferInput", author: "marketing-1",
+    reason: "We are buying students for the autumn: the pass pays for itself from the second year." },
+  prepaid: { create: "createPrepaidPass", argument: "pass", input: "PrepaidPassInput", author: "commercial-lead-1",
+    reason: "A gift for the holidays that brings new listeners in, paid in advance and never renewed." },
+  migration: { create: "createPriceMigration", argument: "migration", input: "PriceMigrationInput", author: "commercial-lead-1",
+    reason: "The plan's costs rose: the artists' share and the payment costs follow the price, and the margin holds." },
+} as const;
+
+/**
  * Marketing creates, validates and submits the offer; finance approves the
  * exact version and fingerprint; marketing schedules it. The engine then
  * activates it at its start, on its own.
  */
-export async function launchOffer(consoleUrl: string, offer: Record<string, unknown>, tag = randomUUID().slice(0, 8)): Promise<Launched> {
-  const marketing = await new ConsoleSession(consoleUrl, "marketing-1").signIn();
-  const finance = await new ConsoleSession(consoleUrl, "finance-1").signIn();
+export async function launchOffer(sessions: Sessions, offer: Record<string, unknown>, tag = randomUUID().slice(0, 8)): Promise<Launched> {
+  return launchChange(sessions, "offer", offer, tag);
+}
+
+/**
+ * Its author creates, validates and submits the change; finance approves the
+ * exact version and fingerprint; the author schedules it. The engine then
+ * starts it on its own: an offer or a pass goes on sale, a migration asks or
+ * tells the existing subscribers.
+ */
+export async function launchChange(sessions: Sessions, kind: keyof typeof KINDS, content: Record<string, unknown>, tag = randomUUID().slice(0, 8)): Promise<Launched> {
+  const how = KINDS[kind];
+  const open = typeof sessions === "string" ? (person: string) => new ConsoleSession(sessions, person).signIn() : sessions;
+  const author = await open(how.author);
+  const finance = await open("finance-1");
+  const marketing = author;
   const requestIds: Record<string, string> = {};
-  const step = async (session: ConsoleSession, action: string, query: string, variables: Record<string, unknown>) => {
+  const step = async (session: Session, action: string, query: string, variables: Record<string, unknown>) => {
     const requestId = `e2e-${action.replace("change.", "")}-${tag}`;
     requestIds[action] = requestId;
     const answer = await session.graphql(query, variables, { "x-request-id": requestId });
@@ -104,13 +162,13 @@ export async function launchOffer(consoleUrl: string, offer: Record<string, unkn
     if (result?.__typename !== "Change") throw new Error(`${action} did not go through: ${answer.text}`);
     return result;
   };
-  const created = await step(marketing, "change.created", `mutation ($o: OfferInput!) { createOffer(offer: $o) { ${CHANGE} } }`, { o: offer });
+  const created = await step(marketing, "change.created", `mutation ($o: ${how.input}!) { ${how.create}(${how.argument}: $o) { ${CHANGE} } }`, { o: content });
   const changeId: string = created.id;
   const validated = await step(marketing, "change.validated", `mutation ($id: ID!) { validateChange(changeId: $id, version: 1) { ${CHANGE} } }`, { id: changeId });
-  if (validated.state !== "VALIDATED") throw new Error(`the offer did not validate: ${JSON.stringify(validated)}`);
+  if (validated.state !== "VALIDATED") throw new Error(`the ${kind} did not validate: ${JSON.stringify(validated)}`);
   await step(marketing, "change.submitted",
-    `mutation ($id: ID!) { submitChange(changeId: $id, version: 1, authorReason: "We are buying students for the autumn: the pass pays for itself from the second year.") { ${CHANGE} } }`,
-    { id: changeId });
+    `mutation ($id: ID!, $why: String!) { submitChange(changeId: $id, version: 1, authorReason: $why) { ${CHANGE} } }`,
+    { id: changeId, why: how.reason });
   const fingerprint: string = validated.current.fingerprint;
   const approved = await step(finance, "change.approved",
     `mutation ($id: ID!, $fp: Sha256!) { approveChange(changeId: $id, version: 1, fingerprint: $fp) { ${CHANGE} } }`, { id: changeId, fp: fingerprint });

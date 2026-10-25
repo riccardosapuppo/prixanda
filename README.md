@@ -101,15 +101,18 @@ dataset and checks every invariant on it, then stops the cluster and removes
 it. Each suite must reach a written minimum number of checks: a suite that
 checked nothing does not pass.
 
-The site's suites (stage 5) check its types, its GraphQL operations against
-the public schema, its unit tests, its static build, and, end to end, the
-whole system with a headless Chromium: the Student Autumn Pass launched, on
-the site within a measured time, a student subscribed at the right price,
+The site's suites (stages 5 and 7) check its types, its GraphQL operations
+against the public schema, its unit tests, its static build, and, end to end,
+the whole system with a headless Chromium: the Student Autumn Pass launched,
+on the site within a measured time, a student subscribed at the right price,
 every step in the audit log, the same journey on the keyboard alone, and the
-pages fitted at five widths. Run them alone with
-`npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e`;
-the end-to-end test needs Playwright's Chromium (`npx playwright install
-chromium`, a download) and is reported as not run without it. Details in
+pages fitted at five widths (site-e2e); a gift pass bought and activated,
+the Family subscriber in Germany asked for consent and the Individual
+subscriber in Italy told in advance, each with the engine's dates, and the
+code in no log line (site-e2e-7). Run them alone with
+`npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e,site-e2e-7`;
+the end-to-end tests need Playwright's Chromium (`npx playwright install
+chromium`, a download) and are reported as not run without it. Details in
 [apps/site/README.md](apps/site/README.md).
 
 A local development database, kept between runs in `.data`:
@@ -141,6 +144,18 @@ console on 127.0.0.1:4631; the second writes the static export; the third
 runs the end-to-end tests on the whole system with a throwaway database; the
 last runs the console's suites with their floors. Playwright and Storybook
 run headless, and every request leaving 127.0.0.1 is refused.
+
+## The demo in the browser
+
+The same site and console run with no server at all in the demo (stage 8):
+the engine's Python code in Pyodide over PGlite, with the same migrations,
+and the gateway's core, in one worker that every tab of the address shares.
+`npm run demo:build` builds the three parts with `SANDBOX=1` and assembles
+them in `dist/demo/` (the site at `/`, the console at `/console/`, the
+sandbox at `/sandbox/`); `npm run demo:serve` serves it on
+http://127.0.0.1:4651. The check's suite `demo` builds it, serves it and
+drives headless Chromium through its journeys; it reports itself as not run
+while a part cannot be built yet.
 
 ## Layout
 

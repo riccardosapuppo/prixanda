@@ -1,8 +1,10 @@
 // The site is a static build: HTML, CSS and JavaScript that any web server can
 // serve (output: "export"). Nothing runs on a server of the site's own. Every
 // figure a page shows is asked for by the browser, from the gateway's public
-// schema, through the transport in src/data/transport.ts; in stage 8 the same
-// build runs with the schema executed in the browser instead.
+// schema, through the transport in src/data/transport.ts. Built with
+// SANDBOX=1 (the demo, stage 8), the same pages ask the sandbox's worker in
+// the browser instead (src/data/sandbox.ts); SANDBOX_BUILD names the demo's
+// build, so a tab and a worker of two different deploys know each other.
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
@@ -16,8 +18,12 @@ const config: NextConfig = {
   reactStrictMode: true,
   typedRoutes: true,
   poweredByHeader: false,
-  // The shared identity is TypeScript and CSS, not a built package.
-  transpilePackages: ["design"],
+  // The shared identity and the sandbox's protocol are TypeScript, not built packages.
+  transpilePackages: ["design", "sandbox"],
+  env: {
+    SITE_SANDBOX: process.env["SANDBOX"] === "1" ? "1" : "0",
+    SITE_SANDBOX_BUILD: process.env["SANDBOX_BUILD"] ?? "dev",
+  },
   images: { unoptimized: true },
   devIndicators: false,
   // next dev would otherwise write instructions for coding tools into the

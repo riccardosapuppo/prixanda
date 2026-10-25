@@ -5,7 +5,7 @@
 // decorative: the figures they stand for are always written next to them.
 import { COLOR } from "design";
 import { useId } from "react";
-import type { Canopy, MonthsScene, Part, PromiseFigure } from "./geometry.ts";
+import type { Canopy, MonthsScene, Part, PassScene, PromiseFigure } from "./geometry.ts";
 
 const PIGMENT: Record<Part, string> = {
   madder: COLOR["pig-madder"], saffron: COLOR["pig-saffron"], indigo: COLOR["pig-indigo"], neutral: COLOR["stone-2"],
@@ -86,6 +86,35 @@ export function PromiseDrawing({ figure }: { readonly figure: PromiseFigure }) {
         </g>
       ))}
       <line x1={0} y1={figure.cordY} x2={figure.cordTo} y2={figure.cordY} stroke={DEEP.madder} strokeWidth={2} strokeDasharray="7 4" />
+    </svg>
+  );
+}
+
+/** A prepaid pass's months, paid once: saffron sails on a rope that stops, with a dashed end. */
+export function PassDrawing({ scene }: { readonly scene: PassScene }) {
+  const { width, height, rope, ropeTo } = scene;
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} aria-hidden="true" focusable="false" className="block h-auto w-full">
+      <g style={{ isolation: "isolate" }}>
+        {scene.sails.map((sail) => <path key={sail.path} d={sail.path} fill={PIGMENT.saffron} style={multiply} />)}
+      </g>
+      {scene.sails.map((sail) => (
+        <line key={`hem-${sail.a}`} x1={sail.a} y1={rope} x2={sail.b} y2={rope} stroke={DEEP.saffron} strokeWidth={2.4} />
+      ))}
+      <line x1={0} y1={rope} x2={ropeTo} y2={rope} stroke={COLOR.ink} strokeWidth={1.3} />
+      {scene.sails.map((sail) => <circle key={`tie-${sail.a}`} cx={sail.a} cy={rope} r={3.2} fill={COLOR.stone} stroke={COLOR.ink} strokeWidth={1.3} />)}
+      <circle cx={ropeTo} cy={rope} r={3.2} fill={COLOR.stone} stroke={COLOR.ink} strokeWidth={1.3} />
+      <path d={`M${ropeTo + 4} ${rope}h10M${ropeTo + 24} ${rope}h6`} stroke={COLOR.ink} strokeWidth={1.3} strokeDasharray="2 3" />
+    </svg>
+  );
+}
+
+/** A sheet over a period of a subscription, as deep as its price; the free plan leaves the rope bare. */
+export function PeriodSheet({ depth, free }: { readonly depth: number; readonly free: boolean }) {
+  return (
+    <svg className="path-sheet" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      {depth > 0 ? <path d={`M0 1H100V${depth.toFixed(2)}Q50 ${(depth - 6).toFixed(2)} 0 ${depth.toFixed(2)}Z`} fill={COLOR["silk-indigo"]} /> : null}
+      <line x1={0} y1={1} x2={100} y2={1} stroke={free ? COLOR["ink-2"] : COLOR.indigo} strokeWidth={2} vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }

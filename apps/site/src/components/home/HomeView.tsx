@@ -3,7 +3,8 @@
 // market the visitor is looking at, and that label's listening session.
 // Then the promise to the artists, plan by plan, in a band of its own; then
 // the plans, the one chosen open on where its money goes; then the labels'
-// new records and their listening sessions.
+// new records and their listening sessions; last, while one is on sale, the
+// prepaid pass to give.
 //
 // The market and the plan are in the address (?market=FR&plan=duo), so a
 // link can open the page on a plan. A listener who has entered and comes on
@@ -14,6 +15,7 @@ import { useMarkets, useMe, usePlans, usePrefetchPlans } from "../../data/hooks.
 import { DEFAULT_MARKET, isSiteMarket, marketFromQuery, type SiteMarket } from "../../data/markets.ts";
 import { ArtistsPromise } from "./ArtistsPromise.tsx";
 import { Releases, Sessions } from "./Catalogue.tsx";
+import { GiftPass } from "./GiftPass.tsx";
 import { Hero } from "./Hero.tsx";
 import { FIRST_PLAN, planFromQuery } from "./plan-order.ts";
 import { Plans } from "./Plans.tsx";
@@ -72,6 +74,13 @@ export function HomeView() {
     window.history.replaceState(null, "", `${address.pathname}${address.search}${address.hash}`);
   };
 
+  const chooseMarket = (next: SiteMarket) => {
+    setMarket(next);
+    setPicked(true);
+    setMoved(true);
+    remember(next, plan);
+  };
+
   return (
     <>
       <Hero market={market} changed={moved} />
@@ -80,12 +89,7 @@ export function HomeView() {
         market={market}
         plan={plan}
         moved={moved}
-        onMarket={(next) => {
-          setMarket(next);
-          setPicked(true);
-          setMoved(true);
-          remember(next, plan);
-        }}
+        onMarket={chooseMarket}
         onPlan={(next) => {
           setPlan(next);
           setMoved(true);
@@ -94,6 +98,7 @@ export function HomeView() {
       />
       <Releases />
       <Sessions />
+      <GiftPass market={market} onMarket={chooseMarket} />
     </>
   );
 }

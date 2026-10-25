@@ -31,7 +31,8 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
 import { AxeBuilder } from "@axe-core/playwright";
-import { type Browser, type BrowserContext, chromium, type Locator, type Page } from "playwright";
+import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import { misfits, type Seen, tabTo, text, WIDTHS } from "./support/browser.ts";
 import { ConsoleSession, launchOffer, studentAutumnPass } from "./support/console.ts";
 import { CONSOLE_API, PUBLIC_API, SITE_URL, type Stack, startStack } from "./support/stack.ts";
 
@@ -43,12 +44,9 @@ const BEFORE = "2026-10-26T07:58:00Z";
 const PAST_THE_START = "2026-10-26T08:00:05Z";
 /** How long an open page may take to show a launched campaign: its refresh, the activation, a margin. */
 const SITE_LIMIT_MS = 30_000;
-/** The widths every page must fit: desktop, laptop, 1440 at 200 % zoom, phone, narrow phone. */
-const WIDTHS = [1440, 1280, 720, 390, 320] as const;
 
 const SUMMARY = process.env["SITE_E2E_SUMMARY"] ?? "";
 
-type Seen = { operation: string; requestId: string; variables: Record<string, unknown> };
 
 let stack: Stack | null = null;
 let browser: Browser | null = null;
@@ -114,44 +112,6 @@ async function publicOffers(): Promise<Array<{ id: string }>> {
   });
   const body = await response.json() as { data?: { offers?: Array<{ id: string }> } };
   return body.data?.offers ?? [];
-}
-
-/** The page's main text, with the no-break spaces a price is written with read as spaces. */
-const text = async (page: Page) => (await page.locator("main").innerText()).replace(/[  ]/g, " ");
-
-/** Presses Tab until the target has the focus, as a visitor on the keyboard would. */
-async function tabTo(page: Page, target: Locator, most = 80): Promise<void> {
-  for (let presses = 0; presses < most; presses += 1) {
-    if (await target.evaluate((element) => element === document.activeElement)) return;
-    await page.keyboard.press("Tab");
-  }
-  assert.fail(`${String(target)} is not reached with Tab in ${most} presses`);
-}
-
-/** What does not fit the window: a sideways scroll, text past its edge, text cut off by its box. */
-async function misfits(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const root = document.documentElement;
-    const found: string[] = [];
-    if (root.scrollWidth > root.clientWidth) found.push(`the page scrolls sideways by ${root.scrollWidth - root.clientWidth} px`);
-    const name = (element: Element) => `${element.tagName.toLowerCase()}${[...element.classList].map((each) => `.${each}`).join("")}`;
-    for (const element of document.querySelectorAll<HTMLElement>("body *")) {
-      if (element.closest("svg, [class*='sr-only']")) continue;
-      const style = getComputedStyle(element);
-      if (style.display === "none" || style.visibility === "hidden") continue;
-      const words = [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "");
-      if (!words) continue;
-      const box = element.getBoundingClientRect();
-      if (box.width === 0 || box.height === 0) continue;
-      if (box.right > root.clientWidth + 1 || box.left < -1) found.push(`past the edge: ${name(element)} "${(element.textContent ?? "").trim().slice(0, 40)}"`);
-      const hidesX = style.overflowX === "hidden" || style.overflowX === "clip";
-      const hidesY = style.overflowY === "hidden" || style.overflowY === "clip";
-      if ((hidesX && element.scrollWidth > element.clientWidth + 1) || (hidesY && element.scrollHeight > element.clientHeight + 1)) {
-        found.push(`cut off: ${name(element)} "${(element.textContent ?? "").trim().slice(0, 40)}"`);
-      }
-    }
-    return found;
-  });
 }
 
 describe("the Student Autumn Pass from its launch to a student's demo subscription (§14.1)", () => {

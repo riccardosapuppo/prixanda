@@ -20,6 +20,7 @@ import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { buildConsole, GATEWAY_URL as E2E_GATEWAY_URL, runEndToEnd } from "../apps/console/e2e/run.ts";
 import { nestedSegmentFiles } from "../apps/site/scripts/segments.ts";
+import { buildDemo, DEMO_URL, missingParts, serveDemo } from "./demo.ts";
 import { licenseInventory, writeReport } from "./licenses.ts";
 import { flyway } from "./lib/flyway.ts";
 import { measure } from "./lib/measure.ts";
@@ -508,27 +509,10 @@ const SUITES: Suite[] = [
       if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
       if (!(await chromiumInstalled())) return notRun("no Chromium for playwright 1.62.1: npx playwright install chromium (it downloads the browser)");
       const database = "commerce_site_e2e";
-      await createDatabase(cluster, database, TEMPLATE);
       try {
-        const commerce = join(repoRoot, "services", "commerce");
-        const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), "--size", "small", "--seed", "7"], {
-          cwd: commerce, env: { ...process.env, PYTHONPATH: join(commerce, "src") },
-        });
-        if (generated.code !== 0) return failed("-", generated.output.slice(-3000));
-        const summaryFile = join(reports, "site-e2e.json");
-        await rm(summaryFile, { force: true });
-        const report = join(reports, "site-e2e.xml");
-        const ran = await run(process.execPath, ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`,
-          "--test-reporter=spec", "--test-reporter-destination=stdout", join("e2e", "student-autumn.e2e.ts")], {
-          cwd: siteDir,
-          echo: true,
-          env: { ...process.env, SITE_E2E_DATABASE_URL: cluster.url(database, "app"), SITE_E2E_SUMMARY: summaryFile },
-        });
-        if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
-        const xml = await readFile(report, "utf8");
-        const tests = [...xml.matchAll(/<testcase\b/g)].length;
-        const failures = [...xml.matchAll(/<failure\b/g)].length;
-        if (!existsSync(summaryFile)) return failed(`${tests} tests, ${failures} failed`, "the test wrote no summary");
+        const e2e = await siteEndToEnd(cluster, database, "student-autumn.e2e.ts", "site-e2e");
+        if ("failure" in e2e) return e2e.failure;
+        const { ran, tests, failures, summaryFile } = e2e;
         const summary = JSON.parse(await readFile(summaryFile, "utf8")) as {
           activationMs: number | null; siteMs: number | null; paymentMs: number | null; auditEvents: number; pagesChecked: number;
           layoutChecks: number; seriousViolations: number; otherViolations: number; externalRequests: number; engineExit: number | null;
@@ -542,6 +526,42 @@ const SUITES: Suite[] = [
         if (summary.auditEvents < SITE_FLOOR.e2eAuditEvents) return failed(counted, `fewer than ${SITE_FLOOR.e2eAuditEvents} audit events of the journey`);
         if (summary.pagesChecked < SITE_FLOOR.e2ePagesChecked) return failed(counted, `axe ran on fewer than ${SITE_FLOOR.e2ePagesChecked} pages`);
         if (summary.layoutChecks < SITE_FLOOR.e2eLayoutChecks) return failed(counted, `fewer than ${SITE_FLOOR.e2eLayoutChecks} pages fitted to the widths`);
+        if (summary.externalRequests > 0) return failed(counted, `${summary.externalRequests} requests to other hosts`);
+        if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
+        return passed(counted);
+      } finally {
+        await cluster.sql("postgres", `drop database if exists ${database} with (force)`);
+      }
+    },
+  },
+  {
+    name: "site-e2e-7",
+    what: "the whole system and a real browser for stage 7: §14.4's gift pass bought and activated, §14.3's Family price change in Germany answered and a notice in Italy, every step in the audit log, the code in no log line, axe and five widths",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      if (!(await chromiumInstalled())) return notRun("no Chromium for playwright 1.62.1: npx playwright install chromium (it downloads the browser)");
+      const database = "commerce_site_e2e_7";
+      try {
+        const e2e = await siteEndToEnd(cluster, database, "gift-and-price.e2e.ts", "site-e2e-7");
+        if ("failure" in e2e) return e2e.failure;
+        const { ran, tests, failures, summaryFile } = e2e;
+        const summary = JSON.parse(await readFile(summaryFile, "utf8")) as {
+          passOnPageMs: number | null; codeReadyMs: number | null; auditEvents: number; codeInLogs: boolean; pagesChecked: number;
+          layoutChecks: number; seriousViolations: number; otherViolations: number; externalRequests: number; engineExit: number | null;
+        };
+        const seconds = (ms: number | null) => (ms === null ? "never" : `${(ms / 1000).toFixed(1)} s`);
+        const counted = `${tests} tests, ${failures} failed; the pass on the open page ${seconds(summary.passOnPageMs)} after its start;`
+          + ` the code ready ${seconds(summary.codeReadyMs)} after the purchase; ${summary.auditEvents} audit events;`
+          + ` the code in ${summary.codeInLogs ? "the logs" : "no log line"}; axe on ${summary.pagesChecked} pages,`
+          + ` ${summary.seriousViolations} serious, ${summary.otherViolations} other; ${summary.layoutChecks} pages fitted at 5 widths`;
+        if (ran.code !== 0 || failures > 0) return failed(counted, `node --test exited ${ran.code}`);
+        if (tests < SITE_FLOOR.e2e7Tests) return failed(counted, `fewer than ${SITE_FLOOR.e2e7Tests} tests`);
+        if (summary.auditEvents < SITE_FLOOR.e2e7AuditEvents) return failed(counted, `fewer than ${SITE_FLOOR.e2e7AuditEvents} audit events of the listeners`);
+        if (summary.pagesChecked < SITE_FLOOR.e2e7PagesChecked) return failed(counted, `axe ran on fewer than ${SITE_FLOOR.e2e7PagesChecked} pages`);
+        if (summary.layoutChecks < SITE_FLOOR.e2e7LayoutChecks) return failed(counted, `fewer than ${SITE_FLOOR.e2e7LayoutChecks} pages fitted to the widths`);
+        if (summary.codeInLogs) return failed(counted, "a prepaid code was written in a log line");
         if (summary.externalRequests > 0) return failed(counted, `${summary.externalRequests} requests to other hosts`);
         if (summary.engineExit !== 0) return failed(counted, `the engine did not stop in order (exit ${summary.engineExit})`);
         return passed(counted);
@@ -678,6 +698,77 @@ const SUITES: Suite[] = [
       }
     },
   },
+  // The demo in the browser (stage 8): the three parts built for the
+  // sandbox and assembled in dist/demo/, served on DEMO_PORT (4651), and
+  // headless Chromium on its journeys. It comes last: it leaves the apps'
+  // out/ folders built for the sandbox.
+  {
+    name: "demo",
+    what: "the demo in the browser, assembled: the site at /, the console at /console/, the sandbox at /sandbox/, served on 127.0.0.1:4651; headless Chromium on its journeys, no request leaving the origin, axe",
+    needsDatabase: false,
+    async run() {
+      if (!(await chromiumInstalled())) return notRun("no Chromium for playwright 1.62.1: npx playwright install chromium (it downloads the browser)");
+      const missing = missingParts();
+      if (missing.length > 0) return notRun(`not built yet: ${missing.map((part) => `${part.name}, by ${part.owner}`).join("; ")}`);
+      try {
+        await buildDemo({ echo: false });
+      } catch (error) {
+        return failed("-", error instanceof Error ? error.message.slice(-3000) : String(error));
+      }
+      const server = await serveDemo();
+      try {
+        const counted: string[] = [];
+        for (const journey of DEMO_JOURNEYS) {
+          const report = join(reports, `demo-${journey.name}.xml`);
+          const summary = join(reports, `demo-${journey.name}.json`);
+          await rm(summary, { force: true });
+          const ran = await run(process.execPath, [...journey.args(report)], {
+            cwd: journey.cwd, echo: true, env: { ...process.env, DEMO_URL, [journey.summaryVariable]: summary },
+          });
+          if (!existsSync(report)) return failed(counted.join("; ") || "0", `${journey.name}: node --test wrote no report (exit ${ran.code})`);
+          const xml = await readFile(report, "utf8");
+          const tests = [...xml.matchAll(/<testcase\b/g)].length;
+          const failures = [...xml.matchAll(/<failure\b/g)].length;
+          const said = existsSync(summary) ? journey.describe(JSON.parse(await readFile(summary, "utf8"))) : "no summary";
+          counted.push(`${journey.name}: ${tests} tests, ${failures} failed; ${said}`);
+          if (ran.code !== 0 || failures > 0) return failed(counted.join("; "), `${journey.name}: node --test exited ${ran.code}`);
+          if (tests < journey.floor) return failed(counted.join("; "), `${journey.name}: fewer than ${journey.floor} tests`);
+        }
+        return passed(counted.join("; "));
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+  },
+];
+
+/**
+ * The journeys of the suite demo, one after the other, on the demo served on
+ * DEMO_URL. Each writes a JUnit report and a summary of what it measured.
+ * The console's journey, the recruiter's with two tabs (the site and the
+ * console), goes in this list next to the site's.
+ */
+type DemoJourney = {
+  readonly name: string;
+  readonly cwd: string;
+  readonly args: (report: string) => readonly string[];
+  readonly summaryVariable: string;
+  readonly floor: number;
+  readonly describe: (summary: Record<string, unknown>) => string;
+};
+const seconds = (ms: unknown) => (typeof ms === "number" ? `${(ms / 1000).toFixed(1)} s` : "never");
+const DEMO_JOURNEYS: readonly DemoJourney[] = [
+  {
+    name: "site",
+    cwd: join(repoRoot, "apps", "site"),
+    args: (report) => ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`, "--test-reporter=spec", "--test-reporter-destination=stdout", join("e2e", "demo.e2e.ts")],
+    summaryVariable: "SITE_DEMO_SUMMARY",
+    floor: 6,
+    describe: (summary) => `first start ${seconds(summary["coldReadyMs"])}, second tab ${seconds(summary["secondTabMs"])},`
+      + ` the campaign on the site ${seconds(summary["offerOnSiteMs"])} after the launch, a reload ${seconds(summary["reloadMs"])},`
+      + ` the worker again ${seconds(summary["restartMs"])}, start over ${seconds(summary["startOverMs"])};`
+      + ` axe on ${String(summary["pagesChecked"])} pages, ${String(summary["seriousViolations"])} serious; ${String(summary["externalRequests"])} requests elsewhere`,
+  },
 ];
 
 // pytest's JUnit report: the totals of its test suites.
@@ -729,9 +820,40 @@ async function nodeTests(suite: string, files: string[], floor: number, env: Rec
 // where the end-to-end test starts it (CHECK_GATEWAY_PUBLIC_PORT).
 const siteDir = join(repoRoot, "apps", "site");
 const SITE_FLOOR = {
-  files: 41, nodeFiles: 30, operations: 10, unitTests: 63, e2eTests: 9, e2eAuditEvents: 9, e2ePagesChecked: 9, e2eLayoutChecks: 20,
+  files: 48, nodeFiles: 39, operations: 14, unitTests: 83, e2eTests: 9, e2eAuditEvents: 9, e2ePagesChecked: 9, e2eLayoutChecks: 20,
+  e2e7Tests: 9, e2e7AuditEvents: 5, e2e7PagesChecked: 9, e2e7LayoutChecks: 10,
 };
 const SITE_PAGES = ["index.html", "campaign/index.html", "account/index.html", "session/index.html", "404.html"];
+/**
+ * One file of the site's end-to-end tests on a database of its own, made
+ * from the template and filled by the generator: its JUnit report and the
+ * summary it writes, or the failure that stopped it before.
+ */
+async function siteEndToEnd(cluster: Cluster, database: string, file: string, name: string): Promise<
+  { readonly failure: Omit<Result, "suite" | "seconds"> } | { readonly ran: { code: number | null }; readonly tests: number; readonly failures: number; readonly summaryFile: string }
+> {
+  await createDatabase(cluster, database, TEMPLATE);
+  const commerce = join(repoRoot, "services", "commerce");
+  const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), "--size", "small", "--seed", "7"], {
+    cwd: commerce, env: { ...process.env, PYTHONPATH: join(commerce, "src") },
+  });
+  if (generated.code !== 0) return { failure: failed("-", generated.output.slice(-3000)) };
+  const summaryFile = join(reports, `${name}.json`);
+  await rm(summaryFile, { force: true });
+  const report = join(reports, `${name}.xml`);
+  const ran = await run(process.execPath, ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`,
+    "--test-reporter=spec", "--test-reporter-destination=stdout", join("e2e", file)], {
+    cwd: siteDir,
+    echo: true,
+    env: { ...process.env, SITE_E2E_DATABASE_URL: cluster.url(database, "app"), SITE_E2E_SUMMARY: summaryFile },
+  });
+  if (!existsSync(report)) return { failure: failed("0", `node --test wrote no report (exit ${ran.code})`) };
+  const xml = await readFile(report, "utf8");
+  const tests = [...xml.matchAll(/<testcase\b/g)].length;
+  const failures = [...xml.matchAll(/<failure\b/g)].length;
+  if (!existsSync(summaryFile)) return { failure: failed(`${tests} tests, ${failures} failed`, "the test wrote no summary") };
+  return { ran, tests, failures, summaryFile };
+}
 const SITE_CHECK_API = `http://127.0.0.1:${PORTS.gatewayCheckPublic}/graphql`;
 
 /** Whether the Chromium of the site's Playwright is on this machine: the check never downloads it. */

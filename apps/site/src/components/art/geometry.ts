@@ -207,3 +207,52 @@ export function promiseSails(
   });
   return { width, height, rope, sails, cordY: y(minimum), cordTo: width * area };
 }
+
+// ---------------------------------------------------------------------------
+// A prepaid pass: its months as saffron sails tied along a rope that stops
+// after the last one, with a dashed end: paid once, the code never renews.
+// The scale under it has one column per month and a wider one for the end,
+// so the sails and the scale share their widths.
+
+export type PassScene = {
+  readonly width: number;
+  readonly height: number;
+  readonly rope: number;
+  readonly sails: readonly { readonly a: number; readonly b: number; readonly path: string }[];
+  /** Where the rope stops, at the last month's end. */
+  readonly ropeTo: number;
+  /** The share of the width the end's column takes, after the months' columns. */
+  readonly endShare: number;
+};
+
+export const PASS_END_SHARE = 1.2;
+
+export function passScene(months: number): PassScene {
+  if (!Number.isInteger(months) || months < 1 || months > 24) throw new RangeError(`a pass lasts 1 to 24 months, not ${months}`);
+  const width = 600;
+  const height = 80;
+  const rope = 14;
+  const slot = width / (months + PASS_END_SHARE);
+  const sails = Array.from({ length: months }, (_, i) => {
+    const a = i * slot + (i === 0 ? 4 : 1);
+    const b = (i + 1) * slot - 1;
+    const bottom = 66;
+    return {
+      a,
+      b,
+      path: `M${f1(a)} ${rope}L${f1(b)} ${rope}Q${f1(b - 3)} 40 ${f1(b)} ${bottom}Q${f1((a + b) / 2)} 54 ${f1(a)} ${bottom}Q${f1(a + 3)} 40 ${f1(a)} ${rope}Z`,
+    };
+  });
+  return { width, height, rope, sails, ropeTo: months * slot, endShare: PASS_END_SHARE };
+}
+
+/**
+ * The depth of a sheet over a period of a subscription, in a drawing 24
+ * units deep: as deep as the period's price against the price paid now, so
+ * a higher price hangs lower; a period on the free plan leaves the rope bare.
+ */
+export function sheetDepth(priceMinor: bigint, nowMinor: bigint): number {
+  if (nowMinor <= 0n) throw new RangeError("the price paid now is above zero");
+  if (priceMinor <= 0n) return 0;
+  return Math.min(23, (15 * Number(priceMinor)) / Number(nowMinor));
+}

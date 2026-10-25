@@ -20,6 +20,9 @@ test-results/
 # Next.js (stages 4 and 5)
 .next/
 out/
+
+# The assembled demo (stage 8, npm run demo:build)
+dist/
 next-env.d.ts
 *.tsbuildinfo
 

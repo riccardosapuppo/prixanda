@@ -25,9 +25,9 @@ function words({ year, month, day }: Pick<Parts, "year" | "month" | "day">, with
   return withYear ? `${day} ${name} ${year}` : `${day} ${name}`;
 }
 
-/** A day of a market's calendar, or the day of a local time: "26 October 2026". */
-export function siteDay(local: string): string {
-  return words(parts(local));
+/** A day of a market's calendar, or the day of a local time: "26 October 2026", or "26 October" without the year. */
+export function siteDay(local: string, { withYear = true }: { readonly withYear?: boolean } = {}): string {
+  return words(parts(local), withYear);
 }
 
 /**
