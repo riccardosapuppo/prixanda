@@ -10,3 +10,5 @@ tools/engine.ts        # hands the development cluster's password to Flyway befo
 apps/console/e2e/run.ts          # the console's end-to-end stack hands its throwaway cluster's password to Flyway
 apps/console/scripts/stack.ts    # the console's local stack hands its development cluster's password to Flyway
 apps/site/e2e/support/stack.ts   # the site's end-to-end stack hands its throwaway cluster's password to Flyway
+tools/lib/measure.ts   # the measurements hand their throwaway cluster's password to Flyway
+tools/start.ts         # npm start hands the development cluster's password to Flyway
