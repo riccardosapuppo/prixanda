@@ -43,7 +43,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 15, contractFiles: 47, migrations: 17, pythonTests: 740, invariants: 17, generatedSubscribers: 5_000,
+  typecheckedFiles: 15, contractFiles: 47, migrations: 17, pythonTests: 743, invariants: 17, generatedSubscribers: 5_000,
   faultsInjected: 12, measuredQueries: 7,
   // npm's lockfile lists every platform's packages; the Python environment
   // has one more on Windows (colorama, for pytest).
@@ -58,7 +58,7 @@ const COMPAT = { before: "11", expansion: "12" };
 // (services), the calls over gRPC with a real server (e2e), the properties
 // Hypothesis generates cases for (properties), and the faults injected in a
 // launch with the engine's real process (faults).
-const AREA_FLOOR: Record<string, number> = { database: 112, domain: 235, golden: 44, services: 295, e2e: 30, properties: 10, faults: 14 };
+const AREA_FLOOR: Record<string, number> = { database: 112, domain: 235, golden: 44, services: 297, e2e: 31, properties: 10, faults: 14 };
 // What tests/faults writes: every fault injected in a launch, and what it left.
 type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 
@@ -754,7 +754,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 52, coreFiles: 19, generated: 3, schemaTests: 23, tests: 249, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
+  files: 52, coreFiles: 19, generated: 3, schemaTests: 26, tests: 249, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
 };
 
 /**

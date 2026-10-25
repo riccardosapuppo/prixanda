@@ -58,7 +58,7 @@ test("Marketing aims a campaign at the fans of an artist, the engine counts them
   await expect(page.getByRole("radio", { name: /^Doppelfenster/ })).toHaveAccessibleName(/Kellerlicht · Germany · Nordflur, 6 November 2026/);
   await page.getByLabel("Hours played").fill("3");
   await expect(page.getByLabel("Window")).toHaveValue("30");
-  await expect(page.getByText("Listeners on Free in Germany who played Doppelfenster for more than 3 hours in the last 30 days.")).toBeVisible();
+  await expect(page.getByText("Listeners on Free in Germany who played Doppelfenster for more than 3 hours in the last 30 days.", { exact: true })).toBeVisible();
   await expect(page.getByText(/the engine counts in the data once the version is saved and checked, in step 5/)).toBeVisible();
   await page.getByLabel("Group", { exact: true }).fill(`release-${RUN}`);
   await page.getByLabel("Cap on redemptions").fill("1500");
@@ -126,7 +126,7 @@ test("Marketing aims a campaign at the fans of an artist, the engine counts them
   await page.goto(`/campaigns/edit/?id=${changeId}&step=1`);
   await expect(page.locator(".state").filter({ hasText: "Live" }).first()).toBeVisible();
   // Live, the campaign reads its rule back as it was approved.
-  await expect(page.getByText("Listeners on Free in Germany who played Doppelfenster for more than 3 hours in the last 30 days.")).toBeVisible();
+  await expect(page.getByText("Listeners on Free in Germany who played Doppelfenster for more than 3 hours in the last 30 days.", { exact: true })).toBeVisible();
   await axe(page, "a live campaign for the fans of an artist");
 
   expect(local.refused()).toEqual([]);
