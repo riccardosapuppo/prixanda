@@ -130,12 +130,13 @@ function Rail({ section }: { readonly section: Section }) {
             ) : null}
           </p>
           <div className={`${open ? "flex" : "hidden"} flex-wrap items-center gap-2 lg:flex`}>
-            <button type="button" className="rail-link min-h-9 w-auto px-0 text-xs underline underline-offset-4" onClick={() => void session.signOut()}>
+            <button type="button" className="rail-link min-h-9 w-auto px-0 text-xs underline underline-offset-4 pointer-coarse:min-h-11" onClick={() => void session.signOut()}>
               <Icon name="sign-out" size={16} />
               Leave the demo
             </button>
           </div>
-          <p className={`${open ? "block" : "hidden"} text-2xs leading-snug text-rail-ink-2 lg:block`}>{DISCLAIMER}</p>
+          {/* Said on every page at every width (§13.3): on a narrow screen too, where the menu is closed. */}
+          <p className="text-2xs leading-snug text-rail-ink-2">{DISCLAIMER}</p>
           {role ? <span className="sr-only">Acting as {ROLE_NAME[role]}</span> : null}
         </div>
       </div>

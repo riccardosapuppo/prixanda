@@ -107,7 +107,7 @@ function Simulator({ change, market, sold, marketNames }: { readonly change: Cha
             <span className="text-sm text-ink-2">Market</span>
             <div className="inline-flex rounded-control border border-edge bg-stone-0" role="group" aria-label="Market">
               {sold.map((code) => (
-                <button key={code} type="button" aria-pressed={code === market} onClick={() => router.replace(`/campaigns/simulation/?id=${change.id}&market=${code}`, { scroll: false })} className={`min-h-9 px-3 text-sm font-semibold [&+&]:border-l [&+&]:border-edge ${code === market ? "bg-ink text-stone-0" : "hover:bg-stone-2"}`}>
+                <button key={code} type="button" aria-pressed={code === market} onClick={() => router.replace(`/campaigns/simulation/?id=${change.id}&market=${code}`, { scroll: false })} className={`min-h-9 pointer-coarse:min-h-11 px-3 text-sm font-semibold [&+&]:border-l [&+&]:border-edge ${code === market ? "bg-ink text-stone-0" : "hover:bg-stone-2"}`}>
                   {marketName(marketNames, code)}
                 </button>
               ))}

@@ -152,7 +152,7 @@ export function LaunchesScreen() {
                   type="button"
                   aria-pressed={filter === entry.id}
                   onClick={() => setFilter(entry.id)}
-                  className={`min-h-9 rounded-control border px-3 text-sm font-semibold ${filter === entry.id ? "border-ink bg-ink text-stone-0" : "border-edge bg-stone-0 hover:bg-stone-2"}`}
+                  className={`min-h-9 pointer-coarse:min-h-11 rounded-control border px-3 text-sm font-semibold ${filter === entry.id ? "border-ink bg-ink text-stone-0" : "border-edge bg-stone-0 hover:bg-stone-2"}`}
                 >
                   {entry.label}
                 </button>
@@ -177,7 +177,7 @@ export function LaunchesScreen() {
               {upcoming.data.overview.launchesNext7Days.map((launch) => (
                 <li key={`${launch.change.id}-${launch.starts.market}`} className="grid gap-1.5 border-b border-cord py-3">
                   <span className="flex flex-wrap items-center justify-between gap-3">
-                    <Link href={approvalHref(launch.change.kind, launch.change.id)} className="font-bold">{launch.title} v{launch.change.currentVersion}</Link>
+                    <Link href={approvalHref(launch.change.kind, launch.change.id)} className="font-bold pointer-coarse:-my-3 pointer-coarse:py-3">{launch.title} v{launch.change.currentVersion}</Link>
                     <StateChip state={launch.state} />
                   </span>
                   <span className="text-sm text-ink-2">{marketName(upcoming.data.markets, launch.starts.market)}: {formatLocalWithUtc(launch.starts.local, marketZone(upcoming.data.markets, launch.starts.market))}</span>
@@ -205,7 +205,7 @@ export function LaunchesScreen() {
                 {listed.map((change) => (
                   <li key={change.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-cord py-3">
                     <span className="grid gap-1">
-                      <Link href={approvalHref(change.kind, change.id)} className="font-bold">{change.title} v{change.currentVersion}</Link>
+                      <Link href={approvalHref(change.kind, change.id)} className="font-bold pointer-coarse:-my-3 pointer-coarse:py-3">{change.title} v{change.currentVersion}</Link>
                       <span className="text-xs text-ink-2">{change.markets.map((code) => marketName(markets.data?.markets ?? [], code)).join(", ")} · last change {formatInstantIn(change.updatedAt, CONSOLE_ZONE)}</span>
                     </span>
                     <StateChip state={change.state} />

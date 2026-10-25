@@ -290,7 +290,7 @@ function Verify({ exported }: { readonly exported: Head | null }) {
   return (
     <div className="grid gap-3">
       <details className="grid gap-2">
-        <summary className="cursor-pointer font-semibold text-indigo">Check against an exported head</summary>
+        <summary className="cursor-pointer font-semibold text-indigo pointer-coarse:py-3">Check against an exported head</summary>
         <div className="mt-2 grid gap-3 md:grid-cols-[8rem_minmax(0,1fr)]">
           <label className="grid gap-1"><span className="label">Event #</span><input className="input" inputMode="numeric" value={seq} onChange={(event) => edit({ seq: event.target.value.replace(/\D/g, "") })} /></label>
           <label className="grid gap-1"><span className="label">Its hash (64 hexadecimal digits)</span><input className="input" value={hash} onChange={(event) => edit({ hash: event.target.value.trim().toLowerCase() })} /></label>

@@ -202,13 +202,23 @@
   .skeleton { background: var(--color-stone-2); border-radius: var(--radius-control); }
 
   /* ---------- the confirmation of an irreversible action ---------- */
+  /* In the middle of the window, as a modal dialog is: the reset of every margin would put it in the top left corner. */
   dialog.confirm {
-    width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto;
+    width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow: auto; margin: auto;
     padding: 0; border: 1px solid var(--color-ink); border-radius: var(--radius-control);
     background: var(--color-stone-0); color: var(--color-ink);
   }
   dialog.confirm::backdrop { background: rgb(27 31 51 / 0.42); }
   dialog.confirm[open] { animation: dialog-in var(--duration-ui) var(--ease-out); }
+
+  /* ---------- a finger, not a pointer: on a touch screen every control is at least 44 px tall ---------- */
+  @media (pointer: coarse) {
+    .btn, .btn--small, .rail-link, .rail-select, .input { min-height: 2.75rem; }
+    /* a choice on one line: the card takes the tap, its words in its middle */
+    .choice-card { min-height: 2.75rem; align-content: center; }
+    /* the breadcrumbs: what a finger can hit grows, the line stays where it is */
+    .crumbs a { padding-block: 0.875rem; margin-block: -0.875rem; }
+  }
 }
 
 @keyframes dialog-in { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }

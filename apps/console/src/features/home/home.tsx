@@ -157,7 +157,7 @@ const SHOWN = 3;
 function MoreLink({ href, count, what }: { readonly href: string; readonly count: number; readonly what: string }) {
   return (
     <p className="text-sm">
-      <Link href={href} className="inline-flex items-center gap-1.5 font-semibold">
+      <Link href={href} className="inline-flex items-center gap-1.5 font-semibold pointer-coarse:-my-3 pointer-coarse:py-3">
         {count} more {what}
         <Icon name="arrow-right" size={15} />
       </Link>
@@ -251,7 +251,7 @@ function IncidentsZone({ incidents }: { readonly incidents: Overview["incidentsT
                 <p className="text-sm">{incident.title}: {incident.summary}</p>
                 {incident.resolution ? <p className="text-sm text-ink-2">{incident.resolution}</p> : null}
                 <p className="text-sm">
-                  <Link href={incidentHref(incident)} className="inline-flex items-center gap-1.5 font-semibold">
+                  <Link href={incidentHref(incident)} className="inline-flex items-center gap-1.5 font-semibold pointer-coarse:-my-3 pointer-coarse:py-3">
                     See what happened<span className="sr-only">: {incident.title}</span>
                     <Icon name="arrow-right" size={15} />
                   </Link>

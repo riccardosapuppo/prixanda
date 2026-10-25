@@ -150,7 +150,7 @@ function ChangesScreen({ list }: { readonly list: ListOf }) {
                   type="button"
                   aria-pressed={filter === entry.id}
                   onClick={() => setFilter(entry.id)}
-                  className={`min-h-9 rounded-control border px-3 text-sm font-semibold ${filter === entry.id ? "border-ink bg-ink text-stone-0" : "border-edge bg-stone-0 hover:bg-stone-2"}`}
+                  className={`min-h-9 pointer-coarse:min-h-11 rounded-control border px-3 text-sm font-semibold ${filter === entry.id ? "border-ink bg-ink text-stone-0" : "border-edge bg-stone-0 hover:bg-stone-2"}`}
                 >
                   {entry.label}
                 </button>

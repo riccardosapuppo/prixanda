@@ -379,7 +379,7 @@ function Events({ launch, zone }: { readonly launch: LaunchDetail; readonly zone
     <section className="grid content-start gap-3" aria-labelledby="launch-events">
       <div className="zone-head">
         <h2 id="launch-events">Audit events</h2>
-        <Link href={`/audit/?change=${launch.change.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold"><Icon name="scroll" size={16} />Open the audit log</Link>
+        <Link href={`/audit/?change=${launch.change.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold pointer-coarse:-my-3 pointer-coarse:py-3"><Icon name="scroll" size={16} />Open the audit log</Link>
       </div>
       {byChange.isError ? <ErrorPanel error={byChange.error} /> : byLaunch.isError ? <ErrorPanel error={byLaunch.error} /> : events.length === 0 && unread.length === 0 ? (
         <p className="text-sm text-ink-2">{launch.startedAt ? "None yet: the steps write their events when they commit." : "The launch has not begun: it begins a minute before the start."}</p>
@@ -387,7 +387,7 @@ function Events({ launch, zone }: { readonly launch: LaunchDetail; readonly zone
         <ul role="list" className="grid">
           {events.map((event) => (
             <li key={event.seq} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-3 border-t border-cord py-2 text-sm first:border-t-0">
-              <Link href={`/audit/?seq=${event.seq}`} className="font-bold tabular-nums">#{event.seq}</Link>
+              <Link href={`/audit/?seq=${event.seq}`} className="font-bold tabular-nums pointer-coarse:-mx-3.5 pointer-coarse:p-3.5">#{event.seq}</Link>
               <span>
                 <b>{event.action}</b> <span className="text-ink-2">{formatInstantIn(event.at, zone, { seconds: true })}</span>
                 {event.reason ? <span className="block text-ink-2">{event.reason}</span> : null}
@@ -396,7 +396,7 @@ function Events({ launch, zone }: { readonly launch: LaunchDetail; readonly zone
             </li>
           ))}
           {unread.map((seq) => (
-            <li key={seq} className="border-t border-cord py-2 text-sm"><Link href={`/audit/?seq=${seq}`} className="font-bold tabular-nums">#{seq}</Link> <span className="text-ink-2">in the log</span></li>
+            <li key={seq} className="border-t border-cord py-2 text-sm"><Link href={`/audit/?seq=${seq}`} className="font-bold tabular-nums pointer-coarse:-mx-3.5 pointer-coarse:p-3.5">#{seq}</Link> <span className="text-ink-2">in the log</span></li>
           ))}
         </ul>
       )}
