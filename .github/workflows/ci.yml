@@ -38,12 +38,13 @@ jobs:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: services/commerce/requirements*.txt
-      # Flyway's jars and the Java runtime, pinned by checksum in the lock file:
-      # downloaded once per version of the lock, then restored.
+      # Flyway's jars, the Java runtime and the sandbox's two Python wheels,
+      # pinned by checksum in their locks: downloaded once per version of the
+      # locks, then restored.
       - uses: actions/cache@v6.1.0
         with:
           path: .tools
-          key: tools-${{ runner.os }}-${{ hashFiles('tools/flyway-lock.json') }}
+          key: tools-${{ runner.os }}-${{ hashFiles('tools/flyway-lock.json', 'packages/sandbox/src/engine/build/wheels.ts') }}
       # The commands of the README, as it gives them.
       - run: npm ci
       - run: npm run setup
@@ -60,7 +61,7 @@ jobs:
       # job, from the Linux run alone, under the same condition as that job.
       - name: Keep the demo for GitHub Pages
         if: runner.os == 'Linux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.event.repository.private == false && github.event.repository.visibility == 'public'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v3.0.1
         with:
           path: dist/demo
       - name: Keep the reports of a failed run
@@ -97,4 +98,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5.0.1
