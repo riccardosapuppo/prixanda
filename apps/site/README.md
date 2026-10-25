@@ -73,9 +73,9 @@ from `dist/demo/` on 127.0.0.1, with no throttling. A first visit from an
 empty browser had the home ready in 5.3 s, the worker's steps shown
 meanwhile; a second tab was ready in 0.6 s. From another tab, a Student
 Autumn Pass written, signed and scheduled through the console's API, then
-the skip to its launch: the worker ran the launch's five steps in 2.6 s, and
-the site's open tab showed the campaign at the same moment, 2.6 s after the
-skip. A reload had the home ready in 4.9 s; with every tab closed, the
+the skip to its launch: the worker moved its clock, ran the launch's five
+steps and answered in 2.6 s, and the site's open tab showed the campaign at
+the same moment, 2.6 s after the skip. A reload had the home ready in 4.9 s; with every tab closed, the
 worker started again on the data it kept in 5.1 s; Start over put every tab
 back as the demo was built in 6.3 s. axe on 2 pages with no violation, and
 no request left the address. The summary of the run, with the machine and
@@ -226,7 +226,7 @@ npm run e2e -w site -- gift         # stage 7's alone
 |---|---|---|
 | `site-types` | `tsc` over the pages and components as Next.js builds them, then over what Node runs | 48 and 39 files |
 | `site-codegen` | every operation validates against the public schema, and the generated types equal a fresh generation | 14 operations |
-| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit, the tab and the sandbox's worker over their protocol (with a fake worker) | 83 tests |
+| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit, the tab and the sandbox's worker over their protocol (with a fake worker), a worker that failed said as an API out of reach | 84 tests |
 | `site-build` | the static export, every page in it, the API it calls written in | 5 pages |
 | `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 9 tests, 9 audit events, axe on 9 pages, 20 pages fitted |
 | `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a request for consent in Germany answered, a notice in Italy, below | 9 tests, 5 audit events, axe on 9 pages, 10 pages fitted |
