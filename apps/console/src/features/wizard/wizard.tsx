@@ -41,7 +41,7 @@ import { recordGuide } from "../../lib/react/sandbox.tsx";
 import { SANDBOX_MODE } from "../../lib/sandbox.ts";
 import { asRole, can, conditionSigner, primaryRole, signatureWords, signerWords, whoDoes } from "../../lib/permissions.ts";
 import { useClock } from "../../lib/react/clock.tsx";
-import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
+import { useAction, useGatewayQueries, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatLocalValue, formatLocalWithUtc, nextWeekday, parseLocal, partsIn, zoneCity } from "../../lib/time.ts";
 import { CampaignTabs } from "../campaigns/tabs.tsx";
@@ -217,11 +217,13 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
   const dirty = canEdit && differsFrom(form, saved, facts);
   const role = primaryRole(viewer.roles);
 
-  const plansIt = useGatewayQuery(PlansDocument, { market: form.markets[0]?.market ?? "IT" }, { staleTime: 5 * 60_000 });
+  // The plans of every market the campaign is for: the page beside the form shows any of them.
+  const plansByMarket = useGatewayQueries(PlansDocument, form.markets.map((entry) => ({ market: entry.market })), { staleTime: 5 * 60_000 });
   const previewPlans: Record<string, readonly PreviewPlan[]> = {};
-  if (plansIt.data && form.markets[0]) {
-    previewPlans[form.markets[0].market] = plansIt.data.plans.map((plan) => ({ code: plan.code, name: plan.name, listPrice: plan.listPrice, needsStudentCheck: plan.entitlements.needsStudentCheck }));
-  }
+  form.markets.forEach((entry, index) => {
+    const plans = plansByMarket[index]?.data?.plans;
+    if (plans) previewPlans[entry.market] = plans.map((plan) => ({ code: plan.code, name: plan.name, listPrice: plan.listPrice, needsStudentCheck: plan.entitlements.needsStudentCheck }));
+  });
 
   useEffect(() => {
     if (firstRender.current) {
