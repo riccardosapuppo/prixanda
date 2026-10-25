@@ -499,7 +499,12 @@ after an offer's months, it pays the price before the change. A no to a
 notice ends the paid subscription on the day the new price would first have
 been charged. In Germany, without a yes, the account moves to the Free plan
 on the first billing date on or after the consent deadline's day (and not
-before the start date), with nothing charged that day (§8.2).
+before the start date), with nothing charged that day (§8.2). The consent
+window and the notice count in days from the day the notices are due to go
+out, or from the day they actually go out when that is later, and end at
+23:59 of their last day in the market's time: a launch that opens a minute
+early, the evening before notices due at midnight, does not end them a day
+sooner than the migration approved, and a late one gives them whole.
 
 §8.9 **One price change at a time.** A later migration of the same plan in
 the same market asks or tells existing subscribers only once the last one's

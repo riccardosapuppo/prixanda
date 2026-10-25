@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any
 
 from commerce.domain import billing
@@ -115,9 +115,13 @@ async def open_requests(tx: Connection, *, change_id: int, content: PriceMigrati
     waits for an earlier migration or for its first payment (§8.9), which is counted as left for later.
     Called before the new list price enters the price list, so that what a subscription pays without the change, after
     its offer's months too, is read as it stands."""
-    assert content.plan and content.amount is not None
+    assert content.plan and content.amount is not None and content.notices is not None
     today = market.today(now)
-    window_ends_local = policy.window_ends(to_local(now, market.zone))
+    # The window counts from the day the notices were to go out, or from the day they do when that is later (§8.8): a
+    # launch that opens a minute ahead of notices at midnight publishes the day before, and must not end the window a
+    # day before the one approved; a late launch gives it whole. Only the days count (window_ends reads the date).
+    sent_on = max(content.notices.date(), to_local(now, market.zone).date())
+    window_ends_local = policy.window_ends(datetime.combine(sent_on, time()))
     window_ends_at = to_instant(window_ends_local, market.zone)
     rows = await tx.fetch(
         "select s.id, s.subscriber_id, s.started_on::text as started_on, s.billing_day, s.offer_months, "

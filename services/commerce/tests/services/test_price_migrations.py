@@ -336,6 +336,55 @@ async def test_a_job_that_fails_holds_up_none_of_the_jobs_after_it(world, monkey
 
 # -- a notice market ---------------------------------------------------------------------
 
+async def italian_rise_billed_on_the_2nd(world) -> changes_pb2.Change:
+    """109 pays Individual in Italy, billed on the 2nd; a rise there is told from 00:00 on 2 November in Rome."""
+    await world.owner.execute("insert into subscriber (id, market, joined_on) values (109, 'IT', '2026-04-02')")
+    await add_subscription(world.owner, 109, "IT", "individual", 1049, "2026-04-02", subscription=109, billing_day=2)
+    return await scheduled(world, family_migration(title="Individual price, Italy", plan="individual", market="IT",
+                                                   amount=eur(1199), notices_local="2026-11-02T00:00",
+                                                   starts_local="2026-12-01T00:00"), LEAD, FINANCE)
+
+
+async def window_of(world, subscriber: int) -> tuple[str, str]:
+    row = await world.owner.fetchrow(
+        "select to_char(window_ends_local, 'YYYY-MM-DD\"T\"HH24:MI') as local, "
+        "to_char(window_ends_at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as utc "
+        "from price_change_request where subscriber_id = $1", subscriber)
+    return row["local"], row["utc"]
+
+
+async def test_notices_published_a_minute_early_across_midnight_keep_the_window_approved(world):
+    """§8.8: the launch opens a minute ahead of the notices at 00:00 on 2 November, so it publishes at 23:59 on
+    1 November in Rome. The window still counts from 2 November, as the simulation said and finance signed: it ends on
+    2 December at 23:59, and 109, billed on the 2nd, pays the new price from 2 January, not a cycle early on
+    2 December."""
+    rise = await italian_rise_billed_on_the_2nd(world)
+    simulated = (await world.call("SimulateMigration", simulation_pb2.SimulateMigrationRequest(change_id=rise.id),
+                                  LEAD)).result
+    assert (simulated.window_ends.local, simulated.window_ends.utc) == ("2026-12-02T23:59", "2026-12-02T22:59:00Z")
+    world.clock.at = at(2026, 11, 1, 22, 59, 30)  # 23:59:30 in Rome
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    assert await window_of(world, 109) == (simulated.window_ends.local, simulated.window_ends.utc)
+    [change] = (await account(world, 109)).price_changes
+    assert (change.window_ends.local, change.applies_from) == ("2026-12-02T23:59", "2027-01-02")
+    world.clock.at = at(2026, 12, 2, 23, 0)  # the notice runs out at midnight in Rome
+    paying = {s.subscription: s.dates for s in await world.engine.settle_migrations()}
+    assert paying[109] == {"new_price_from": "2027-01-02"}
+
+
+async def test_notices_launched_late_give_the_whole_window_from_the_day_they_go_out(world):
+    """§8.8: the engine was down, and the notices due at 00:00 on 2 November go out on 3 November at 10:00 in Rome: the
+    window counts from that day, whole, and ends on 3 December at 23:59."""
+    await italian_rise_billed_on_the_2nd(world)
+    world.clock.at = at(2026, 11, 3, 9, 0)
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    assert await window_of(world, 109) == ("2026-12-03T23:59", "2026-12-03T22:59:00Z")
+    [change] = (await account(world, 109)).price_changes
+    assert change.applies_from == "2027-01-02"
+
+
 async def test_in_italy_a_notice_applies_the_price_unless_the_listener_leaves(world):
     # 101 takes the Student Autumn Pass on 31 October: €2.99 for three months, billed on the 28th, the list price
     # from 28 January 2027. 103 is a Student subscriber billed on the 10th.

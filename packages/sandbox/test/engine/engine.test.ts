@@ -2,9 +2,13 @@
 // adapter as in the browser, on PGlite, behind the contract's bytes. The
 // browser's own (IndexedDB, the worker, the network) is in browser.test.ts.
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { PGlite, type PGliteOptions } from "@electric-sql/pglite";
+import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { loadPyodide } from "pyodide";
 import { AuditService } from "contracts/commerce/v1/audit";
 import { CatalogService } from "contracts/commerce/v1/catalog";
@@ -290,6 +294,46 @@ test("a start over that fails once the data is closed: calls say so with UNAVAIL
   await on.engine.reset();
   assert.equal((await rpc(on, CatalogService.method.listMarkets, {})).markets.length, 4);
   assert.ok(Math.abs(on.engine.clock.now().getTime() - Date.parse(on.manifest.story)) < 60_000, "the clock is back at the story's start");
+});
+
+test("a start that fails once the database is open closes it, and the next start on the same data opens it", async () => {
+  // The data on disk, in a folder of its own, as IndexedDB keeps it in the browser; PGlite's instances kept, to look
+  // at them after the start.
+  const dir = await mkdtemp(join(tmpdir(), "sandbox-engine-start-"));
+  const opened: PGlite[] = [];
+  const modules = {
+    PGlite: { create: async (options: PGliteOptions) => {
+      const pg = await PGlite.create(options);
+      opened.push(pg);
+      return pg;
+    } } as unknown as typeof PGlite,
+    btree_gist,
+  };
+  const exists = async () => existsSync(join(dir, "PG_VERSION"));
+  const assets = assetsDir();
+  const python = {
+    loadPyodide: (async () => {
+      throw new Error("/sandbox/pyodide/pyodide.asm.wasm answered 503");
+    }) as unknown as typeof loadPyodide,
+    indexURL: pyodideDir(), packageBaseUrl: `${join(assets, "pyodide").replaceAll("\\", "/")}/`,
+    engine: async () => new ArrayBuffer(0),
+  };
+  try {
+    await assert.rejects(nodeEngine(assets, { modules, python, dataDir: dir, exists }), /pyodide\.asm\.wasm answered 503/);
+    assert.equal(opened.length, 1, "the database was open when Python failed");
+    assert.equal(opened[0]?.closed, true, "the failed start closed it");
+    const again = await nodeEngine(assets, { modules, dataDir: dir, exists });
+    try {
+      assert.equal(again.engine.info.loaded, false, "the second start opens the data the first one wrote");
+      assert.equal((await rpc(again, CatalogService.method.listMarkets, {})).markets.length, 4);
+    } finally {
+      await again.engine.close();
+    }
+  } finally {
+    // An instance a start left open would keep this process alive, and its files busy.
+    for (const pg of opened) if (!pg.closed) await pg.close().catch(() => {});
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("the engine's log has a line for each call, in JSON, and none on the console", async () => {
