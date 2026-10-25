@@ -39,7 +39,7 @@ import { writeFile } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import { failedAnswer, misfits, operationOf, type Seen, tabTo, text, WIDTHS } from "./support/browser.ts";
+import { animationsDone, failedAnswer, misfits, operationOf, type Seen, tabTo, text, WIDTHS } from "./support/browser.ts";
 import { ConsoleSession, launchOffer, studentAutumnPass } from "./support/console.ts";
 import { CONSOLE_API, PUBLIC_API, SITE_URL, type Stack, startStack } from "./support/stack.ts";
 
@@ -139,8 +139,9 @@ async function listenerOf(context: BrowserContext): Promise<string> {
   return body.data?.me?.title ?? "";
 }
 
-/** axe on the page as it is now: serious and critical violations fail the test. */
+/** axe on the page as it is now, once its animations have ended: serious and critical violations fail the test. */
 async function accessible(page: Page, where: string): Promise<void> {
+  await animationsDone(page);
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
   summary.pagesChecked += 1;
   const serious = result.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical");

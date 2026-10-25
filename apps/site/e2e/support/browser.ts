@@ -39,6 +39,21 @@ export function failedAnswer(request: Request) {
   };
 }
 
+/**
+ * Waits for the animations under way on the page that end by themselves (a
+ * step fading in, a record cross-fading, a button giving under the press) to
+ * end, so that axe reads the page at rest: a colour read halfway through a
+ * fade has a contrast it does not keep. An animation that repeats without
+ * end is not waited for, and one cancelled meanwhile is let go.
+ */
+export async function animationsDone(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const ending = document.getAnimations().filter((animation) =>
+      animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().iterations ?? Number.POSITIVE_INFINITY));
+    await Promise.all(ending.map((animation) => animation.finished.then(() => undefined, () => undefined)));
+  });
+}
+
 /** Presses Tab until the target has the focus, as a visitor on the keyboard would. */
 export async function tabTo(page: Page, target: Locator, most = 80): Promise<void> {
   for (let presses = 0; presses < most; presses += 1) {
@@ -133,8 +148,9 @@ export class Watch {
     return page;
   }
 
-  /** axe on the page as it is now: serious and critical violations fail the test. */
+  /** axe on the page as it is now, once its animations have ended: serious and critical violations fail the test. */
   async accessible(page: Page, where: string): Promise<void> {
+    await animationsDone(page);
     const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
     this.pagesChecked += 1;
     const serious = result.violations.filter((violation) => violation.impact === "serious" || violation.impact === "critical");

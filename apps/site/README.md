@@ -288,8 +288,10 @@ verified student then takes the pass from the home on the keyboard alone,
 with nothing moving while they do. The home, the campaign, a listening
 session and the account are loaded at 1440, 1280, 720 (1440 at 200 %), 390
 and 320 pixels, and none may scroll sideways or cut off a line of text. axe
-runs on every page and state (no serious or critical violation), and no page
-may ask another host for anything.
+runs on every page and state once what was entering has come to rest, since
+a colour read halfway through a fade has a contrast it does not keep (no
+serious or critical violation), and no page may ask another host for
+anything.
 
 `site-e2e-7` starts the same system on a database of its own. The
 commercial lead's gift pass is launched through the console's API, and the
