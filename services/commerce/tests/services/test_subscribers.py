@@ -318,6 +318,39 @@ async def test_a_declined_payment_ends_the_paid_plan_at_the_end_of_the_day(world
     assert (tomorrow.subscription.plan, tomorrow.HasField("payment")) == ("free", False)
 
 
+async def broken(world) -> list[str]:
+    report = await check(world.owner)
+    return [i["name"] for i in report["invariants"] if i["violations"]]
+
+
+async def test_the_invariants_follow_a_confirmation_s_payment_pending_taken_or_declined(world, monkeypatch):
+    """A confirmation commits before its payment settles (§4.5): no receipt while the payment is pending, one for the
+    quoted price once it is taken, none ever once it is declined. A receipt for a payment declined is found."""
+    taken = await quote(world, plan="individual", market="FR", subscriber_id=401)
+    await confirm(world, taken.quote_id, 401)
+    assert await broken(world) == []
+    await world.engine.deliver_outbox()
+    assert await world.owner.fetchval("select state from payment") == "succeeded"
+    assert await broken(world) == []
+
+    async def decline(charge):
+        event = ProviderEvent("simulated", "evt_declined_0105", FAILED, charge.payment_id, "sim-pay-declined",
+                              world.clock.now(), "The card was declined.")
+        return ChargeResult("simulated", "sim-pay-declined", (event,))
+
+    monkeypatch.setattr(world.engine.payments, "charge", decline)
+    declined = await quote(world, plan="individual", market="IT", subscriber_id=105)
+    await confirm(world, declined.quote_id, 105)
+    await world.engine.deliver_outbox()
+    assert await world.owner.fetchval("select state from payment where subscriber_id = 105") == "failed"
+    assert await broken(world) == []
+    await world.owner.execute(
+        "insert into receipt (id, subscription_id, quote_id, subscriber_id, amount_minor, currency, issued_at, provider, "
+        "provider_reference, note) select 'r_' || repeat('b', 32), subscription_id, quote_id, subscriber_id, amount_minor, "
+        "currency, '2026-10-24 09:00+00', 'simulated', 'sim-pay-declined', 'By hand.' from payment where subscriber_id = 105")
+    assert await broken(world) == ["confirmed_subscriptions_pay_their_quote"]
+
+
 async def test_a_free_plan_that_started_today_cannot_end_today(world):
     await world.owner.execute("insert into subscriber (id, market, joined_on) values (402, 'FR', '2026-10-24')")
     await add_subscription(world.owner, 402, "FR", "free", 0, "2026-10-24", subscription=90002, billing_day=24)

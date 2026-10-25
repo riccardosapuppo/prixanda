@@ -133,15 +133,21 @@ INVARIANTS = [
     Invariant(
         "confirmed_subscriptions_pay_their_quote",
         "§4.5: a subscription confirmed from a quote is the quoted plan, market and offer, pays the quoted price for "
-        "the quoted months, and has its demonstration receipt for that amount",
+        "the quoted months, and has its payment for that amount, asked for after the confirmation committed: its "
+        "demonstration receipt for that amount once the payment succeeded, and none while it is pending or once it "
+        "was declined",
         """
-        select s.id as subscription, h.price_minor as pays, q.price_minor as quoted, r.amount_minor as receipt
+        select s.id as subscription, h.price_minor as pays, q.price_minor as quoted, p.state as payment,
+               p.amount_minor as asked, r.amount_minor as receipt
         from subscription s join quote q on q.id = s.quote_id
         join subscription_price h on h.subscription_id = s.id and h.from_on = s.started_on
+        left join payment p on p.subscription_id = s.id
         left join receipt r on r.subscription_id = s.id
         where h.price_minor <> q.price_minor or s.plan_id <> q.plan_id or s.market <> q.market
            or s.offer_change_id is distinct from q.offer_change_id or coalesce(s.offer_months, 0) <> q.months_at_price
-           or r.amount_minor is distinct from q.price_minor
+           or p.id is null or p.amount_minor <> q.price_minor
+           or (p.state = 'succeeded' and r.amount_minor is distinct from q.price_minor)
+           or (p.state <> 'succeeded' and r.id is not null)
         """,
     ),
     Invariant(
