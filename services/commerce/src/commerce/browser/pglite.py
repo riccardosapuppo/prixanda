@@ -30,10 +30,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 
@@ -124,6 +125,20 @@ def _float(text: str) -> float:
     return float(text)
 
 
+_INTERVAL = re.compile(r"^(?:(?P<years>[+-]?\d+) years? ?)?(?:(?P<months>[+-]?\d+) mons? ?)?(?:(?P<days>[+-]?\d+) days? ?)?"
+                       r"(?:(?P<sign>[+-])?(?P<hours>\d+):(?P<minutes>\d\d):(?P<seconds>\d\d(?:\.\d+)?))?$")
+
+
+def _interval(text: str) -> timedelta:
+    """PostgreSQL's interval as asyncpg reads it: a year is 365 days, a month 30."""
+    match = _INTERVAL.match(text)
+    if match is None or not text:
+        raise ValueError(f"an interval PostgreSQL did not write in its own style: {text!r}")
+    part = {name: int(match[name] or 0) for name in ("years", "months", "days", "hours", "minutes")}
+    clock = timedelta(hours=part["hours"], minutes=part["minutes"], seconds=float(match["seconds"] or 0))
+    return timedelta(days=part["years"] * 365 + part["months"] * 30 + part["days"]) + (-clock if match["sign"] == "-" else clock)
+
+
 SCALARS: dict[int, Callable[[str], Any]] = {
     16: lambda text: text == "t",  # bool
     17: _bytea,
@@ -131,7 +146,7 @@ SCALARS: dict[int, Callable[[str], Any]] = {
     20: int, 21: int, 23: int, 26: int,  # int8, int2, int4, oid
     114: str, 3802: str,  # json and jsonb: text, as asyncpg gives them
     700: _float, 701: _float,
-    1082: _date, 1114: _timestamp, 1184: _timestamptz,
+    1082: _date, 1114: _timestamp, 1184: _timestamptz, 1186: _interval,
     1700: Decimal,
     2278: lambda text: None,  # void, what a function returning nothing gives
     2950: uuid.UUID,
@@ -141,9 +156,9 @@ ARRAYS: dict[int, int] = {  # array type -> element type
     1028: 26, 199: 114, 3807: 3802, 1021: 700, 1022: 701, 1182: 1082, 1115: 1114, 1185: 1184, 1231: 1700, 2951: 2950,
 }
 # Types asyncpg turns into objects of its own, or that the engine never reads: refused, so that a test finds the
-# statement to render them as text instead (an interval, a range, a time of day, money, a record).
+# statement to render them as text instead (a range, a time of day, money, a record).
 REFUSED: dict[int, str] = {
-    1083: "time", 1266: "timetz", 1186: "interval", 790: "money", 2249: "record",
+    1083: "time", 1266: "timetz", 790: "money", 2249: "record",
     3904: "int4range", 3906: "numrange", 3908: "tsrange", 3910: "tstzrange", 3912: "daterange", 3926: "int8range",
 }
 

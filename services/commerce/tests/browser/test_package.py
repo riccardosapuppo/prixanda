@@ -9,7 +9,7 @@ import ast
 import asyncio
 import json
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -85,6 +85,9 @@ def test_the_status_codes_are_grpcs():
     (17, "\\x00ff10", b"\x00\xff\x10"),
     (2950, "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", uuid.UUID("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")),
     (2278, "", None),
+    (1186, "00:30:00", timedelta(minutes=30)), (1186, "-1 days +02:03:04", timedelta(days=-1, seconds=7384)),
+    (1186, "1 year 2 mons 3 days 04:05:06.5", timedelta(days=428, seconds=14706.5)),
+    (1186, "-1 years -2 mons", timedelta(days=-425)), (1186, "-00:00:01.5", timedelta(seconds=-1.5)),
     (1007, "{1,2,NULL}", [1, 2, None]),
     (1009, '{plain,"with space","quote \\" inside",NULL,"NULL"}', ["plain", "with space", 'quote " inside', None, "NULL"]),
     (1007, "{{1,2},{3,4}}", [[1, 2], [3, 4]]),
@@ -101,7 +104,7 @@ def test_values_come_back_as_asyncpg_gives_them(oid, text, expected):
         assert got == expected and type(got) is type(expected)
 
 
-@pytest.mark.parametrize(("oid", "name"), [(1186, "interval"), (3908, "tsrange"), (1083, "time"), (790, "money")])
+@pytest.mark.parametrize(("oid", "name"), [(3908, "tsrange"), (1083, "time"), (790, "money")])
 def test_the_types_asyncpg_makes_objects_of_are_refused(oid, name):
     with pytest.raises(TypeError, match=name):
         pglite.value(oid, "anything")

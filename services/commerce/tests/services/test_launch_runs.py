@@ -279,6 +279,7 @@ async def test_the_alarm_waits_five_minutes_after_the_start(world):
     assert [h for h in await world.engine.run_launches() if h.event == "incident_opened"] == []  # one is open already
 
 
+@pytest.mark.postgresql_only("a second connection holds the launch's lock while the alarm is looked for")
 async def test_an_alarm_is_never_opened_on_a_launch_that_stopped_meanwhile(world):
     """The alarm reads the late launches, then opens their incidents: a launch cancelled in between must not get an
     incident that nobody would close. Here the cancellation holds the launch while the alarm runs."""

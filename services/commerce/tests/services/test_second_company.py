@@ -14,6 +14,7 @@ import uuid
 from datetime import UTC, date, datetime
 
 import asyncpg
+import pytest
 import pytest_asyncio
 
 from commerce.domain.economics import Book
@@ -22,6 +23,8 @@ from commerce.v1 import catalog_pb2, changes_pb2, overview_pb2, quotes_pb2, subs
 from conftest import ADMIN_URL, APP_URL, TEMPLATE, _admin, on_database
 from engine_support import FINANCE, MARKETING, PUBLIC, World, apply, eur, scheduled, student_autumn
 from helpers import T0, add_people, add_subscription, sqlstate_of
+
+pytestmark = pytest.mark.postgresql_only("a database of its own, made from the migrated template")
 
 # A software company pays no artists: no pool, no minimum, so no floor (§5 is the music service's).
 SOFTWARE = Book(pool_share_bp=0, minimum={"EUR": 0, "GBP": 0})

@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
+import pytest
+
 from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, quotes_pb2
 from engine_support import (
     FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, approved, family_rise, scheduled, student_autumn,
@@ -230,6 +232,7 @@ async def test_a_list_price_in_force_is_not_suspended(world):
     assert response.refusal.code == REFUSAL.REFUSAL_CODE_WRONG_STATE and response.refusal.facts["kind"] == "list_price"
 
 
+@pytest.mark.postgresql_only("a suspension on a second connection, while the launch's step holds its transaction")
 async def test_a_snapshot_prepared_before_a_suspension_is_built_again(world):
     # The launch prepared its snapshot with the first offer in it; then, before it publishes, a suspension
     # takes the first offer off the site, five minutes later. The prepared snapshot must not go live: the

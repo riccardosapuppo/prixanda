@@ -42,7 +42,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 14, contractFiles: 47, migrations: 17, pythonTests: 721, invariants: 17, generatedSubscribers: 5_000,
+  typecheckedFiles: 14, contractFiles: 47, migrations: 17, pythonTests: 781, invariants: 17, generatedSubscribers: 5_000,
   faultsInjected: 12, measuredQueries: 7,
 };
 // The change in two times (migrations V12 and V14): the version of the schema
@@ -52,9 +52,10 @@ const COMPAT = { before: "11", expansion: "12" };
 // database's own rules (tests/), the rules as plain Python (domain), the
 // business book's numbers (golden), every service against PostgreSQL
 // (services), the calls over gRPC with a real server (e2e), the properties
-// Hypothesis generates cases for (properties), and the faults injected in a
-// launch with the engine's real process (faults).
-const AREA_FLOOR: Record<string, number> = { database: 111, domain: 235, golden: 44, services: 277, e2e: 30, properties: 10, faults: 14 };
+// Hypothesis generates cases for (properties), the faults injected in a
+// launch with the engine's real process (faults), and the engine's package for
+// the browser: its imports, its adapter, its simulated fault (browser).
+const AREA_FLOOR: Record<string, number> = { database: 111, domain: 235, golden: 44, services: 280, e2e: 30, properties: 10, faults: 14, browser: 57 };
 // What tests/faults writes: every fault injected in a launch, and what it left.
 type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 
@@ -489,6 +490,38 @@ const SUITES: Suite[] = [
       return passed(counted, `left out: ${LEFT_OUT.join("; ")}`);
     },
   },
+  // The engine's service tests, unchanged, on the browser's database: PGlite
+  // in Node, through the browser's adapter (services/commerce/tests/
+  // pglite_world.py). The tests that need PostgreSQL's many sessions are
+  // marked postgresql_only, with their reason, and skipped there: no other.
+  {
+    name: "sandbox-services",
+    what: "the engine's service tests on PGlite, through the browser's adapter and the browser's session; those that need PostgreSQL's many sessions marked and left to PostgreSQL",
+    needsDatabase: false,
+    async run() {
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const commerce = join(repoRoot, "services", "commerce");
+      const report = join(reports, "pytest-pglite.xml");
+      await rm(report, { force: true });
+      const ran = await run(venvPython, ["-m", "pytest", "-q", "-p", "no:cacheprovider", `--junitxml=${report}`, "tests/services"], {
+        cwd: commerce, env: { ...process.env, COMMERCE_TEST_DATABASE: "pglite" }, echo: true,
+      });
+      if (!existsSync(report)) return failed("0", `pytest wrote no report (exit ${ran.code})`);
+      const xml = await readFile(report, "utf8");
+      const counts = junit(xml);
+      const skips = [...xml.matchAll(/<skipped[^>]*message="([^"]*)"/g)].map((match) => match[1] ?? "");
+      const declared = skips.filter((message) => message.includes("PostgreSQL only:")).length;
+      const passedTests = counts.tests - counts.failures - counts.errors - counts.skipped;
+      const counted = `${passedTests} of ${counts.tests} passed on PGlite, ${counts.skipped} left to PostgreSQL, ${counts.failures + counts.errors} failed`;
+      if (ran.code !== 0 || counts.failures + counts.errors > 0) return failed(counted, `pytest exited ${ran.code}`);
+      if (declared !== counts.skipped) return failed(counted, "a test was skipped without being marked postgresql_only");
+      if (passedTests < SANDBOX_FLOOR.servicesOnPglite) return failed(counted, `fewer than ${SANDBOX_FLOOR.servicesOnPglite} tests passed`);
+      if (counts.skipped > SANDBOX_FLOOR.servicesLeftToPostgresql) {
+        return failed(counted, `more than ${SANDBOX_FLOOR.servicesLeftToPostgresql} tests left to PostgreSQL`);
+      }
+      return passed(counted);
+    },
+  },
   {
     name: "sandbox-node",
     what: "the engine in Pyodide on PGlite in Node, behind the contract's bytes: gRPC's codes, a campaign from draft to subscription through a simulated fault, the skip to the next launch, idempotency, the clock, the reset",
@@ -547,7 +580,8 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The sandbox's engine (stage 8): what its suites must at least have checked.
 const sandboxDir = join(repoRoot, "packages", "sandbox");
 const SANDBOX_FLOOR = {
-  browserFiles: 7, nodeFiles: 19, files: 23, modules: 53, nodeTests: 8, browserTests: 6,
+  browserFiles: 7, nodeFiles: 19, files: 23, modules: 53, nodeTests: 8, browserTests: 6, servicesOnPglite: 274,
+  servicesLeftToPostgresql: 6,
   schema: { relations: 255, columns: 488, constraints: 911, indexes: 163, triggers: 86, functions: 26, history: 17 } as Record<string, number>,
 };
 let sandboxBuilt: ReturnType<typeof buildEngineAssets> | null = null;
