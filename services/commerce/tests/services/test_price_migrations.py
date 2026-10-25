@@ -463,6 +463,19 @@ async def test_a_first_payment_declined_after_a_no_to_a_price_change_moves_the_l
     assert json.loads(failed["body"])["ends_on"] == "2026-11-04"
     report = await check(world.owner)
     assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
+    # The account says the day the paid plan ends, and the end of the window tells 401 the day it is on Free from,
+    # and why, not the day the no would have ended it.
+    [change] = (await account(world, 401)).price_changes
+    assert (change.state, change.leaves_on) == ("declined", "2026-11-04")
+    world.clock.at = at(2026, 12, 2, 23, 0)  # the notice runs out at midnight in Paris
+    [settled] = await world.engine.settle_migrations()
+    assert (settled.state, settled.effect, settled.dates) == (
+        "declined", "left", {"leaves_on": "2026-12-24", "free_from": "2026-11-04"})
+    await world.engine.deliver_outbox()
+    [told] = await world.owner.fetch("select body from subscriber_notice where subscriber_id = 401 and kind = $1",
+                                     migrations.OUTCOME)
+    assert told["body"].startswith("Your first payment was declined, so you are on the free plan from 2026-11-04,")
+    assert "ends on" not in told["body"]
 
 
 # -- the simulation -----------------------------------------------------------------------
