@@ -180,7 +180,11 @@ code typed in the wrong shape is said at once and never sent.
   unknown, after an error; an answer, success or refusal, spends it, and the
   next attempt takes a new one (`ActionKeys`, `src/data/ids.ts`). The engine
   answers a key with its first answer: a code refused while its payment was
-  pending would otherwise be refused again once the payment settled.
+  pending would otherwise be refused again once the payment settled. A key
+  is its listener's, too: the engine binds it to its request, the listener
+  included, so the steps of a subscription, of a purchase and of the account
+  are mounted anew for each listener, and one who enters meanwhile (in
+  another tab, say) starts over with keys of their own.
 - **The session is the gateway's.** Entering as a demo listener sets an
   HttpOnly cookie of the gateway; the browser sends it to the API's origin
   (`credentials: "include"`) and the CSRF token it was given back with every
@@ -252,7 +256,7 @@ npm run e2e -w site -- gift         # one of them alone: student, gift or album
 | `site-codegen` | every operation validates against the public schema, and the generated types equal a fresh generation | 14 operations |
 | `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit, who an offer for an artist's listeners is for, and the listener of before's offers for an artist's listeners dropped on an entry or an exit, the tab and the sandbox's worker over their protocol (with a fake worker), a worker that failed said as an API out of reach, an idempotency key spent by an answer and kept only to retry after an error, the rounds of asking while a payment waits, a new one with each check again | 95 tests |
 | `site-build` | the static export, every page in it, the API it calls written in | 5 pages |
-| `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 9 tests, 9 audit events, axe on 9 pages, 20 pages fitted |
+| `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 10 tests, 9 audit events, axe on 10 pages, 20 pages fitted |
 | `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a code refused while its payment is pending and activated once it settled, a request for consent in Germany answered, a notice in Italy, below | 10 tests, 8 audit events, axe on 10 pages, 10 pages fitted |
 | `site-e2e-fans` | the same for §14.2: the album release shown to its fan at the engine's price, and to none of the listeners outside its audience nor a visitor, below | 8 tests, 3 listeners outside, 8 audit events, axe on 6 pages, 10 pages fitted |
 | `demo` | the assembled demo served on 4651, headless Chromium with one browser and its tabs: the first start, a second tab, a campaign launched from another tab reaching the site, the data after a reload and after the worker started again, Start over in every tab; no request leaving the address, axe | 6 tests for the site |
@@ -267,7 +271,10 @@ yet then enters as a demo listener, is verified by the simulated provider,
 subscribes at 2,99 € a month for 3 months, then 5,79 €, and sees the first
 month settle with a demo receipt; a student who paid before is told the pass
 is not for them. The audit log must hold every step with the request id that
-caused it, the browser's own for the student's, and its chain must hold. A
+caused it, the browser's own for the student's, and its chain must hold. With
+the confirmation open for a verified student, the visitor enters as the
+student who paid before in a second tab; back on the first, the steps start
+over for the new listener, whose quote goes with a key of its own. A
 verified student then takes the pass from the home on the keyboard alone,
 with nothing moving while they do. The home, the campaign, a listening
 session and the account are loaded at 1440, 1280, 720 (1440 at 200 %), 390

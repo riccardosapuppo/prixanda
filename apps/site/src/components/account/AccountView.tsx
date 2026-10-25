@@ -49,12 +49,17 @@ export function AccountView() {
         </div>
       ) : null}
       {me.isSuccess && me.data !== null ? (
-        <Account me={me.data} timedOut={timedOut} onCheckAgain={checkAgain} />
+        <Account key={me.data.id} me={me.data} timedOut={timedOut} onCheckAgain={checkAgain} />
       ) : null}
     </section>
   );
 }
 
+/**
+ * The account of the listener of the session, mounted anew for each listener
+ * (keyed by their id): a code typed, an answer given and the keys they went
+ * with are never sent for another listener.
+ */
 function Account({ me, timedOut, onCheckAgain }: { readonly me: Me; readonly timedOut: boolean; readonly onCheckAgain: () => void }) {
   const market: SiteMarket | null = isSiteMarket(me.market) ? me.market : null;
   const markets = useMarkets();

@@ -17,9 +17,13 @@
 //   5. A student who paid before is told the pass is not for them.
 //   6. The audit log holds every step, each with the request id that caused
 //      it: the console's for the launch, the browser's own for the student.
-//   7. A verified student takes the pass from the home on the keyboard alone,
+//   7. With the confirmation open for one listener, the visitor enters as
+//      another in a second tab of the same browser. Back on the first, the
+//      steps start over for the new listener: the quote is asked again with
+//      a key of its own, and the engine answers it.
+//   8. A verified student takes the pass from the home on the keyboard alone,
 //      and nothing moves while they do.
-//   8. The home, the campaign, a listening session and the account fit 1440,
+//   9. The home, the campaign, a listening session and the account fit 1440,
 //      1280, 720 (1440 at 200 %), 390 and 320 pixels: no sideways scroll, no
 //      text cut off.
 //
@@ -81,7 +85,11 @@ async function newVisitor(width = 1280): Promise<{ context: BrowserContext; page
     }
     await route.continue();
   });
-  const page = await context.newPage();
+  return { context, page: watched(await context.newPage()) };
+}
+
+/** A tab that counts what it must not do, and remembers the site's requests to the API. */
+function watched(page: Page): Page {
   page.on("console", (message) => {
     if (message.type() === "error") summary.pageErrors.push(message.text());
   });
@@ -95,7 +103,28 @@ async function newVisitor(width = 1280): Promise<{ context: BrowserContext; page
       variables: body?.variables ?? {},
     });
   });
-  return { context, page };
+  return page;
+}
+
+/**
+ * The tab seen again, as when the visitor comes back to it. A headless
+ * browser keeps every tab visible, so the test says it the way the browser
+ * does, and the page reads again what may have changed meanwhile, the
+ * listener of the session first.
+ */
+async function seenAgain(page: Page): Promise<void> {
+  await page.bringToFront();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange", { bubbles: true })));
+}
+
+/** The listener of a browser's session, as the gateway answers for its cookie. */
+async function listenerOf(context: BrowserContext): Promise<string> {
+  const response = await context.request.post(PUBLIC_API, {
+    headers: { "content-type": "application/json", origin: SITE_URL },
+    data: { query: "{ me { title } }" },
+  });
+  const body = await response.json() as { data?: { me?: { title?: string } | null } };
+  return body.data?.me?.title ?? "";
 }
 
 /** axe on the page as it is now: serious and critical violations fail the test. */
@@ -285,7 +314,41 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     assert.deepEqual(verifiedChain.body?.data?.verifyAuditChain, { ok: true, brokenAt: null }, verifiedChain.text);
   });
 
-  test("7. on the keyboard alone, a verified student takes the pass from the home, and nothing moves", async () => {
+  test("7. a listener changed in another tab gets steps of their own: the quote is asked again for them, with a new key", async () => {
+    const { context, page } = await newVisitor();
+    await page.goto(`${SITE_URL}/campaign/?market=IT&offer=${summary.changeId}`);
+    await page.getByRole("button", { name: "Check I'm a student" }).click();
+    await page.getByLabel(/Student in Italy, verified/).check();
+    await page.getByRole("button", { name: "Enter as this listener" }).click();
+    await page.getByRole("heading", { name: "Confirm your demo subscription" }).waitFor();
+    const quotes = () => siteRequests.filter((seen) => seen.operation === "SiteRequestQuote");
+    const first = quotes().at(-1)?.idempotencyKey ?? "";
+    assert.notEqual(first, "", "the quote went with a key");
+
+    // In a second tab of the same browser, the visitor enters as someone else.
+    const other = watched(await context.newPage());
+    await other.goto(`${SITE_URL}/account/`);
+    await other.getByRole("button", { name: "Switch listener" }).click();
+    await other.getByLabel(/Student in Italy who paid before/).check();
+    await other.getByRole("button", { name: "Enter as this listener" }).click();
+    await other.getByRole("button", { name: "Switch listener" }).waitFor();
+    assert.match(await listenerOf(context), /who paid before/);
+
+    // Back on the first tab: it reads who is there, and the steps start over for them.
+    const asked = quotes().length;
+    const askedAgain = page.waitForRequest((request) => request.url() === PUBLIC_API
+      && (request.postDataJSON() as { operationName?: string } | null)?.operationName === "SiteRequestQuote", { timeout: 20_000 });
+    await seenAgain(page);
+    assert.notEqual((await askedAgain).headers()["idempotency-key"], first, "the quote of the listener now in the session goes with a key of its own");
+    await page.getByRole("heading", { name: "This offer isn't for this listener" }).waitFor({ timeout: 20_000 });
+    assert.ok(quotes().slice(asked).every((seen) => seen.idempotencyKey !== first), "the key of the listener of before is never sent again");
+    assert.equal(await page.getByRole("button", { name: "Try again" }).count(), 0, "no error on the way");
+    assert.match(await text(page), /It is for: verified students in Italy who have never had a paid plan\./);
+    await accessible(page, "the steps started over for another listener");
+    await context.close();
+  });
+
+  test("8. on the keyboard alone, a verified student takes the pass from the home, and nothing moves", async () => {
     const { page } = await newVisitor();
     await page.goto(`${SITE_URL}/?market=IT`);
     const flag = page.getByRole("link", { name: /Student Autumn Pass/ });
@@ -319,7 +382,7 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     assert.match(account, /Offer\s*Student Autumn Pass: 3 of 3 months left at this price/);
   });
 
-  test("8. the home, the campaign, a listening session and the account fit every width, without a sideways scroll or text cut off", async () => {
+  test("9. the home, the campaign, a listening session and the account fit every width, without a sideways scroll or text cut off", async () => {
     const pages = [
       { path: "/?market=IT&plan=student", ready: ".plan.is-open .decision", axe: "the home with the pass on sale" },
       { path: `/campaign/?market=IT&offer=${summary.changeId}`, ready: "h1", axe: null },
@@ -342,10 +405,10 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     assert.deepEqual(misfit, []);
   });
 
-  test("9. no page asked anything of another host, and none logged an error", () => {
+  test("10. no page asked anything of another host, and none logged an error", () => {
     assert.equal(summary.externalRequests, 0);
     assert.deepEqual(summary.pageErrors, []);
-    assert.ok(summary.pagesChecked >= 9, `axe ran on ${summary.pagesChecked} pages`);
+    assert.ok(summary.pagesChecked >= 10, `axe ran on ${summary.pagesChecked} pages`);
     assert.equal(summary.layoutChecks, WIDTHS.length * 4);
   });
 });
