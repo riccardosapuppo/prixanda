@@ -4,12 +4,14 @@
 // the same rise brings €3,742.20, with €9,400.44 a month at risk; the
 // numbers per subscription are §8.7's. Once the requests went out, the
 // progress says how many were asked, and who waits, accepted or declined;
-// before, when they go out.
+// before, when they go out. Without the markets it shows no time: Berlin's
+// 09:00 read as UTC would be an hour off.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { MARKETS } from "../../stories/fixtures.ts";
 import { familySimulation, germanFamily, MID_WINDOW, POLICIES } from "../../stories/prices.ts";
 import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
+import { GatewayError } from "../../lib/gateway.ts";
 import type { Viewer } from "../../lib/react/session.tsx";
 import { MigrationProgressScreen } from "./progress.tsx";
 import { MigrationSimulationScreen } from "./simulation.tsx";
@@ -22,6 +24,21 @@ function gatewayFor(change = germanFamily("IN_APPROVAL")) {
     SimulateMigration: (variables: { overrides: { name: string; value: number }[] | null }) => ({
       simulateMigration: familySimulation(variables.overrides?.some((entry) => entry.name === "ACCEPTANCE" && entry.value === 9300) ? 9300 : 9000),
     }),
+    LaunchRuns: () => ({ launches: { nodes: [], next: null } }),
+  });
+}
+
+/** A scheduled migration whose markets fail to load the first time, and load when the person tries again. */
+function marketsFailOnce(change = germanFamily("SCHEDULED", { signed: true })) {
+  let asked = 0;
+  return fakeGateway({
+    Markets: () => {
+      asked += 1;
+      if (asked === 1) throw new GatewayError("UNREACHABLE", "The gateway did not answer.", "console:markets-1");
+      return { markets: MARKETS };
+    },
+    Change: () => ({ change }),
+    PriceChangePolicies: () => POLICIES,
     LaunchRuns: () => ({ launches: { nodes: [], next: null } }),
   });
 }
@@ -103,5 +120,18 @@ export const BeforeTheRequestsGoOut: Story = {
     const page = within(canvasElement);
     await expect(await page.findByText(/Scheduled: the requests go out Mon 02 Nov 2026, 09:00 Berlin \(08:00 UTC\)\./)).toBeInTheDocument();
     await expect(page.queryByRole("img", { name: /^Of / })).toBeNull();
+  },
+};
+
+export const WithoutTheMarketsTheProgressShowsNoTime: Story = {
+  args: { viewer: PEOPLE["lead"]!, gateway: marketsFailOnce(), view: "progress" },
+  parameters: { route: { pathname: "/price-migrations/progress/", query: { id: "21" } } },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement);
+    await expect(await page.findByText(/^The markets did not load, and with them their time zones/)).toBeInTheDocument();
+    await expect(page.queryByText(/UTC\)/)).toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "Try again" }));
+    // With the markets, Berlin's 09:00 is 08:00 UTC that day.
+    await expect(await page.findByText(/Scheduled: the requests go out Mon 02 Nov 2026, 09:00 Berlin \(08:00 UTC\)\./)).toBeInTheDocument();
   },
 };

@@ -42,6 +42,7 @@ import { recordGuide, useGuideRecord } from "../../lib/react/sandbox.tsx";
 import { SANDBOX_MODE } from "../../lib/sandbox.ts";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
+import { MarketsUnavailable } from "../../components/change-parts.tsx";
 import { ChangeTabs } from "../campaigns/tabs.tsx";
 import { MigrationInShort } from "../migration/in-short.tsx";
 import { MarketPolicy } from "../migration/policy.tsx";
@@ -78,6 +79,9 @@ export function ApprovalScreen() {
   if (change.isPending || markets.isPending) return <>{head}<PageBody><Loading what="the change" lines={10} /></PageBody></>;
   if (change.isError) return <>{head}<PageBody><ErrorPanel error={change.error} retry={() => void change.refetch()} /></PageBody></>;
   if (data === null) return <>{head}<PageBody><Callout tone="error" icon="warning">There is no change #{id}. <Link href="/approvals/">Back to the approvals</Link>.</Callout></PageBody></>;
+  // Without the markets, no time of this change can be read in its market's zone, nor its launch scheduled.
+  const known = markets.data?.markets;
+  if (known === undefined) return <>{head}<PageBody><MarketsUnavailable error={markets.error} retry={() => void markets.refetch()} /></PageBody></>;
   return (
     <>
       {head}
@@ -85,10 +89,10 @@ export function ApprovalScreen() {
         <ChangeTabs kind={data.kind} changeId={data.id} current="approval" />
         <div className="grid grid-cols-1 items-start gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,23rem)] xl:gap-12">
           <div className="order-2 grid min-w-0 content-start gap-8 xl:order-1">
-            <Evidence change={data} events={events.data?.auditEvents.nodes ?? []} markets={markets.data?.markets ?? []} />
+            <Evidence change={data} events={events.data?.auditEvents.nodes ?? []} markets={known} />
           </div>
           <div className="order-1 xl:sticky xl:top-4 xl:order-2">
-            <DecisionPanel change={data} markets={markets.data?.markets ?? []} />
+            <DecisionPanel change={data} markets={known} />
           </div>
         </div>
       </PageBody>

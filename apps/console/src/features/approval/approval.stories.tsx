@@ -2,10 +2,13 @@
 // why; the commercial lead cannot sign what only Finance may, and still sends
 // it back to its author with a reason (sending back is not signing); Finance
 // signs v3 by its fingerprint after the confirmation, with one idempotency key.
+// Without the markets the page shows no time and schedules nothing: a start
+// read in UTC instead of Rome's would be an hour off.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { FINGERPRINT_V3, MARKETS, simulation, studentPass } from "../../stories/fixtures.ts";
 import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
+import { GatewayError } from "../../lib/gateway.ts";
 import type { Viewer } from "../../lib/react/session.tsx";
 import { ApprovalScreen } from "./approval.tsx";
 
@@ -25,6 +28,21 @@ function gatewayFor() {
       sentBack = true;
       return { rejectChange: { __typename: "Change", ...studentPass("DRAFT") } };
     },
+  });
+}
+
+/** An approved campaign whose markets fail to load the first time, and load when the person tries again. */
+function marketsFailOnce() {
+  let asked = 0;
+  return fakeGateway({
+    Change: () => ({ change: studentPass("APPROVED", true) }),
+    AuditEvents: () => ({ auditEvents: { nodes: [], next: null } }),
+    Markets: () => {
+      asked += 1;
+      if (asked === 1) throw new GatewayError("UNREACHABLE", "The gateway did not answer.", "console:markets-1");
+      return { markets: MARKETS };
+    },
+    SimulateOffer: () => ({ simulateOffer: simulation(5500) }),
   });
 }
 
@@ -88,5 +106,19 @@ export const FinanceApprovesByTheFingerprint: Story = {
     await waitFor(() => expect(approvals()).toHaveLength(1));
     await expect(approvals()[0]?.variables).toEqual({ changeId: "7", version: 3, fingerprint: FINGERPRINT_V3 });
     await expect(approvals()[0]?.idempotencyKey).toMatch(/^approve-change:/);
+  },
+};
+
+export const WithoutTheMarketsItShowsNoTimeAndSchedulesNothing: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: marketsFailOnce() },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement);
+    await expect(await page.findByText(/^The markets did not load, and with them their time zones/)).toBeInTheDocument();
+    await expect(page.queryByRole("button", { name: "Schedule the launch" })).toBeNull();
+    await expect(page.queryByText(/UTC\)/)).toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "Try again" }));
+    // With the markets, Italy's 09:00 is 08:00 UTC that day, not 09:00 UTC.
+    await expect(await page.findByText("Approved. It starts only once it is scheduled: Italy: Mon 26 Oct 2026, 09:00 Rome (08:00 UTC).")).toBeInTheDocument();
+    await expect(page.getByRole("button", { name: "Schedule the launch" })).toBeEnabled();
   },
 };

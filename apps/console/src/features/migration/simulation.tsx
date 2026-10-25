@@ -21,6 +21,7 @@ import { can, conditionSigner, otherwiseSigner, whoDoes } from "../../lib/permis
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatLocalWithUtc } from "../../lib/time.ts";
+import { MarketsUnavailable } from "../../components/change-parts.tsx";
 import { ChangeTabs } from "../campaigns/tabs.tsx";
 import { AssumptionField, Fixed, ShareScale, sourceWords } from "../simulation/simulation.tsx";
 import { acceptanceOf, ConditionsList, type MigrationSimulation, signed } from "./in-short.tsx";
@@ -51,6 +52,9 @@ export function MigrationSimulationScreen() {
   if (change.isPending || markets.isPending) return <>{head}<PageBody><Loading what="the price migration" lines={8} /></PageBody></>;
   if (change.isError) return <>{head}<PageBody><ErrorPanel error={change.error} retry={() => void change.refetch()} /></PageBody></>;
   if (data === null || migration === null) return <>{head}<PageBody><Callout tone="error" icon="warning">There is no price migration #{id} to simulate. <Link href="/price-migrations/">Back to the price migrations</Link>.</Callout></PageBody></>;
+  // Without the markets, the day the existing subscribers are asked could not be read in the market's zone.
+  const known = markets.data?.markets;
+  if (known === undefined) return <>{head}<PageBody><MarketsUnavailable error={markets.error} retry={() => void markets.refetch()} /></PageBody></>;
   return (
     <>
       {head}
@@ -59,7 +63,7 @@ export function MigrationSimulationScreen() {
         {!can(viewer.roles, "simulate") ? (
           <Locked>{whoDoes("simulate", { one: "runs simulations", many: "run simulations" })}. The approval page shows this migration's figures in short.</Locked>
         ) : (
-          <Simulator key={`${data.id}-${data.currentVersion}`} change={data} market={marketName(markets.data?.markets ?? [], migration.market)} plan={planName(migration.plan)} markets={markets.data?.markets ?? []} />
+          <Simulator key={`${data.id}-${data.currentVersion}`} change={data} market={marketName(known, migration.market)} plan={planName(migration.plan)} markets={known} />
         )}
       </PageBody>
     </>
