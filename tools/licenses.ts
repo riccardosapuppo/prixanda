@@ -268,7 +268,45 @@ export type Notice = {
   readonly note?: string;
   /** Its licence files, each with the path it was read from. */
   readonly texts: readonly { readonly file: string; readonly text: string }[];
+  /** For a package that ships no licence file: the standard text of each licence it declares, from another package's
+   * own file under that licence (STANDARD_TEXTS). */
+  readonly standard?: readonly { readonly licence: string; readonly from: string; readonly text: string; readonly holder: boolean }[];
 };
+
+/**
+ * Where the standard text of a licence is read, for a package that ships none: another package's own licence file,
+ * under the same licence. MIT and BSD-3-Clause name a copyright holder: the package's own line, built from the author
+ * its package.json declares, replaces the file's. Apache-2.0 and MPL-2.0 name none in their text.
+ */
+const STANDARD_TEXTS: Readonly<Record<string, { readonly from: string; readonly holder: boolean }>> = {
+  "MIT": { from: "node_modules/react/LICENSE", holder: true },
+  "BSD-3-Clause": { from: "node_modules/qs/LICENSE.md", holder: true },
+  "Apache-2.0": { from: "node_modules/@electric-sql/pglite/LICENSE", holder: false },
+  "MPL-2.0": { from: "node_modules/axe-core/LICENSE", holder: false },
+};
+
+/** The standard text of each licence a package declares but ships no file of, with its own copyright line. */
+function standardTexts(expression: string, dir: string, name: string): { licence: string; from: string; text: string; holder: boolean }[] {
+  const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { author?: string | { name?: string; email?: string } };
+  const author = typeof manifest.author === "string" ? manifest.author
+    : manifest.author?.name ? `${manifest.author.name}${manifest.author.email ? ` <${manifest.author.email}>` : ""}` : null;
+  const holder = author ?? `the authors of ${name}`;
+  return [...new Set(alternatives(expression).flat())].map((licence) => {
+    const standard = STANDARD_TEXTS[licence];
+    if (standard === undefined) throw new Error(`${name} declares ${licence} and ships no licence file: tools/licenses.ts has no standard text for it`);
+    const path = join(repoRoot, standard.from);
+    if (!existsSync(path)) throw new Error(`the standard text of ${licence} is read from ${standard.from}, which is not installed: npm install`);
+    let text = readFileSync(path, "utf8").trim();
+    if (standard.holder) {
+      const lines = text.split(/\r?\n/);
+      const at = lines.findIndex((line) => line.startsWith("Copyright"));
+      if (at < 0) throw new Error(`${standard.from} has no copyright line to put ${name}'s in`);
+      lines[at] = `Copyright (c) ${holder}`;
+      text = lines.join("\n");
+    }
+    return { licence, from: standard.from, text, holder: standard.holder };
+  });
+}
 
 function licenceFiles(dir: string, shown: string): { file: string; text: string }[] {
   if (!existsSync(dir)) return [];
@@ -393,7 +431,9 @@ export async function demoNotices(): Promise<Notice[]> {
       }
     }
     if (texts.length === 0 && note === undefined) note = withoutLicenceFile(dir);
-    notices.push({ name: pkg.name, version: pkg.version, license: pkg.license, ...(source ? { source } : {}), ...(note ? { note } : {}), texts });
+    const standard = texts.length === 0 ? standardTexts(pkg.license, dir, pkg.name) : [];
+    notices.push({ name: pkg.name, version: pkg.version, license: pkg.license, ...(source ? { source } : {}), ...(note ? { note } : {}), texts,
+      ...(standard.length ? { standard } : {}) });
   }
   const wheels = lockedWheels();
   const read = await pythonTexts(wheelsHome(repoRoot).dir);
@@ -440,6 +480,10 @@ export function noticesText(notices: readonly Notice[]): string {
     if (notice.note) lines.push(notice.note);
     if (notice.texts.length === 0) lines.push("No licence file was found for it.");
     for (const text of notice.texts) lines.push("", `--- ${text.file}`, "", text.text);
+    for (const text of notice.standard ?? []) {
+      lines.push("", `--- Standard text of the declared licence (${text.licence}); the package ships no licence file of its own. `
+        + `Taken from ${text.from}${text.holder ? ", with the copyright line built from the package's package.json" : ""}.`, "", text.text);
+    }
     lines.push("");
   }
   return `${lines.join("\n")}\n`;
