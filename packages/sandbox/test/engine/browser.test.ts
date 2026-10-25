@@ -17,8 +17,10 @@ import { CatalogService } from "contracts/commerce/v1/catalog";
 import { ChangeService } from "contracts/commerce/v1/changes";
 import { LaunchService, LaunchState } from "contracts/commerce/v1/launches";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import { buildHarness, type Served, serve } from "./browser/server.ts";
+import { buildHarness, laterVisit, type Served, serve } from "./browser/server.ts";
 import { assetsDir, FINANCE, MARKETING, ON_CALL, romeLocal, type Who } from "./support.ts";
+
+const COMMERCIAL_LEAD: Who = ["commercial-lead-1", "commercial_lead"];
 
 const port = Number(process.env["SANDBOX_HARNESS_PORT"] ?? 4651);
 let served: Served;
@@ -98,9 +100,13 @@ async function scheduledOffer(tab: Tab, market: string, title: string): Promise<
   return id;
 }
 
-async function closeAll(context: BrowserContext): Promise<void> {
-  for (const page of context.pages()) await page.close();
-  // The SharedWorker ends with its last tab; a new tab then starts a new one.
+/** A later visit: every tab closed, then the first tab whose worker is a new one (browser/server.ts, laterVisit). */
+async function reopen(context: BrowserContext, query: string, before: string): Promise<{ tab: Tab; info: Info }> {
+  const later = await laterVisit(context, async () => {
+    const tab = await open(context, query);
+    return { tab, info: await harness<Info>(tab, "info") };
+  }, (opened) => opened.info.workerId !== before);
+  return later.opened;
 }
 
 test("a first visit loads Pyodide, PGlite and the snapshot from the page's own origin, in a SharedWorker", async () => {
@@ -137,10 +143,7 @@ test("the data stays in the browser: a tab opened after the last one closed find
     const jumped = Date.parse(await harness<string>(first, "now")) + 2 * 86_400_000;
     await harness(first, "advanceTo", new Date(jumped).toISOString());
     await harness(first, "tick"); // as the demo's worker ticks after each command
-    await closeAll(context);
-    const again = await open(context, "?db=engine-harness-kept");
-    const after = await harness<Info>(again, "info");
-    assert.notEqual(after.workerId, before.workerId, "a new worker");
+    const { tab: again, info: after } = await reopen(context, "?db=engine-harness-kept", before.workerId);
     const resumed = Date.parse(await harness<string>(again, "now"));
     assert.ok(resumed >= jumped && resumed < jumped + 60_000, `the clock resumed at ${new Date(resumed).toISOString()}`);
     assert.equal(after.info.loaded, false);
@@ -148,6 +151,33 @@ test("the data stays in the browser: a tab opened after the last one closed find
     const change = await rpc(again, ChangeService.method.getChange, { changeId: id }, MARKETING);
     assert.equal(change.change.title, "Student Autumn Pass");
     assert.deepEqual([...first.errors, ...again.errors], []);
+  } finally {
+    await context.close();
+  }
+});
+
+test("a later visit after a second tab: the first tab with a new worker finds what the first tab wrote", async () => {
+  const context = await browser.newContext();
+  try {
+    // As the measurements go: a tab writes, a second tab comes, every tab closes. Chromium keeps the worker of
+    // the two a while after the last one closed, and a tab opened at once would find it, still running.
+    const one = await open(context, "?db=engine-harness-two");
+    const { workerId } = await harness<Info>(one, "info");
+    const ids: string[] = [];
+    for (const year of [2030, 2031, 2032]) {
+      const created = await rpc(one, ChangeService.method.createChange, { content: { case: "listPrice", value: {
+        title: `Family price, Germany, ${year}`, plan: "family", market: "DE", amount: { amountMinor: 2099n, currency: "EUR" },
+        startsLocal: `${year}-01-01T00:00` } } }, COMMERCIAL_LEAD);
+      ids.push(created.outcome.value.id as string);
+    }
+    const two = await open(context, "?db=engine-harness-two");
+    assert.equal((await harness<Info>(two, "info")).workerId, workerId);
+    const { tab: again, info } = await reopen(context, "?db=engine-harness-two", workerId);
+    assert.equal(info.info.loaded, false, "the data from IndexedDB, not the snapshot");
+    assert.deepEqual(info.info.applied, []);
+    const change = await rpc(again, ChangeService.method.getChange, { changeId: ids.at(-1) }, MARKETING);
+    assert.equal(change.change.title, "Family price, Germany, 2032");
+    assert.deepEqual([...one.errors, ...two.errors, ...again.errors], []);
   } finally {
     await context.close();
   }
@@ -182,13 +212,13 @@ test("a reset starts again from the build's snapshot, and the next visit keeps t
   const context = await browser.newContext();
   try {
     const tab = await open(context, "?db=engine-harness-reset");
+    const { workerId } = await harness<Info>(tab, "info");
     await scheduledOffer(tab, "DE", "Studenten-Herbstpass");
     const reset = await harness<{ info: Info["info"] }>(tab, "reset");
     assert.equal(reset.info.loaded, true);
     assert.equal((await rpc(tab, ChangeService.method.listChanges, {}, MARKETING)).changes.length, 0);
-    await closeAll(context);
-    const again = await open(context, "?db=engine-harness-reset");
-    assert.equal((await harness<Info>(again, "info")).info.loaded, false);
+    const { tab: again, info } = await reopen(context, "?db=engine-harness-reset", workerId);
+    assert.equal(info.info.loaded, false);
     assert.equal((await rpc(again, ChangeService.method.listChanges, {}, MARKETING)).changes.length, 0);
     assert.deepEqual([...tab.errors, ...again.errors], []);
   } finally {

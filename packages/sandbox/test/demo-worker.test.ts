@@ -17,6 +17,7 @@ import { type Browser, type BrowserContext, chromium, type Page } from "playwrig
 import { buildSandbox, ENGINE } from "../scripts/build.ts";
 import type { BackendStatus } from "../src/client.ts";
 import type { CommandName } from "../src/protocol.ts";
+import { laterVisit } from "./engine/browser/server.ts";
 import { ISOLATED, type Served, serveSandbox } from "./support/serve.ts";
 
 const here = import.meta.dirname;
@@ -190,14 +191,11 @@ describe("the demo's worker with the engine's own side, in Chromium", () => {
 
       // Every tab closed: the worker ends, and its lock on the data goes with it. A tab opened while it ends
       // finds it still there, so the next visit is the first tab to find a new one.
-      let again = first;
-      for (let tries = 0; ; tries += 1) {
-        for (const page of context.pages()) await page.close();
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        again = await open(context, "console");
-        if (!(await ready(again)).alreadyRunning) break;
-        assert.ok(tries < 10, "the worker of the closed tabs never ended");
-      }
+      const later = await laterVisit(context, async () => {
+        const tab = await open(context, "console");
+        return { tab, info: await ready(tab) };
+      }, (opened) => !opened.info.alreadyRunning);
+      const again = later.opened.tab;
       assert.equal((await ask(again, "{ session { person { id } } }")).body.data.session, null, "the sessions ended with their worker");
       await ask(again, 'mutation { signIn(personId: "marketing-1") { person { id } csrfToken } }');
       const kept = await ask(again, `{ change(id: "${id}") { state } }`);

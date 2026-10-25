@@ -19,7 +19,7 @@ import { CatalogService } from "contracts/commerce/v1/catalog";
 import { ChangeService } from "contracts/commerce/v1/changes";
 import { type Browser, chromium, type Page } from "playwright";
 import { buildEngineAssets } from "../../packages/sandbox/src/engine/build/assets.ts";
-import { buildHarness, serve, type Served } from "../../packages/sandbox/test/engine/browser/server.ts";
+import { buildHarness, laterVisit, serve, type Served } from "../../packages/sandbox/test/engine/browser/server.ts";
 import { repoRoot } from "./paths.ts";
 
 export type SandboxMeasureOptions = {
@@ -156,16 +156,16 @@ export async function measureSandbox(options: SandboxMeasureOptions): Promise<Sa
         await harness<Info>(second, "info");
         secondTab.push(performance.now() - started);
         if (i === 0) memory = await browserMemoryMB();
-        // A later visit: every tab closed, the worker gone, the files in the HTTP cache and the data in IndexedDB.
-        for (const page of context.pages()) await page.close();
-        local.resetBytes();
-        const again = await context.newPage();
-        const reopened = performance.now();
-        await again.goto(`${local.origin}/harness.html?db=${db}`);
-        const info = await harness<Info>(again, "info");
-        if (info.info.loaded) throw new Error("the later visit did not find the data in IndexedDB");
-        if (info.workerId === workerId) throw new Error("the worker outlived its tabs: the later visit would not start it");
-        laterRuns.push(performance.now() - reopened);
+        // A later visit: every tab closed, the worker gone, the files in the HTTP cache and the data in IndexedDB. The
+        // tab that counts is the first to start a new worker: one opened while the old one ends finds it still running.
+        const later = await laterVisit(context, async () => {
+          local.resetBytes();
+          const again = await context.newPage();
+          await again.goto(`${local.origin}/harness.html?db=${db}`);
+          return harness<Info>(again, "info");
+        }, (info) => info.workerId !== workerId);
+        if (later.opened.info.loaded) throw new Error("the later visit did not find the data in IndexedDB");
+        laterRuns.push(later.ms);
         laterBytes.push(local.bytes().total);
         await first.close();
       }
@@ -199,7 +199,7 @@ export async function measureSandbox(options: SandboxMeasureOptions): Promise<Sa
         engine: "alone in the harness's SharedWorker (no gateway, no app), as startEngine runs it",
         server: "the harness's static server, gzip level 6 for text, WebAssembly and PGlite's files; HTTP/1.1 on 127.0.0.1",
         first_visit: "a new browser context each time: no HTTP cache, no IndexedDB",
-        later_visit: "the same context after every tab closed: the files revalidated (304), the data from IndexedDB",
+        later_visit: "the same context after every tab closed, the first tab to start a new worker once the old one ended: the files revalidated (304), the data from IndexedDB",
         slow_network: options.mbps > 0 ? `one pipe of ${options.mbps} Mbit/s shared by every response, ${options.latencyMs} ms before each` : "not measured",
         runs: options.runs,
         reads: "ListMarkets, a read-only call", writes: "CreateChange of a list price, saved to IndexedDB before it answers",

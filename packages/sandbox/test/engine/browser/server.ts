@@ -5,7 +5,8 @@
 // kept for a year, the others revalidated, the manifest never kept). It
 // counts what it sends, whichever worker asks, and can pace every response
 // through one shared pipe of so many megabits per second, after a latency, to
-// stand for a slower network.
+// stand for a slower network. And a later visit, as the tests and the
+// measurements of both workers make one (laterVisit).
 import { createServer, type Server } from "node:http";
 import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
@@ -13,6 +14,7 @@ import { dirname, extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { build } from "esbuild";
+import type { BrowserContext } from "playwright";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -141,4 +143,30 @@ export async function serve(options: ServeOptions): Promise<Served> {
       server.close(() => resolve());
     }),
   };
+}
+
+/**
+ * A later visit, as a visitor makes one: every tab of the origin closed, then
+ * a tab that starts a worker of its own, which finds the data in IndexedDB.
+ * Chromium ends a SharedWorker a moment after its last tab closes, longer
+ * when two tabs had it and on a busy machine, and a tab opened meanwhile
+ * finds the old worker still running, its data in memory: so after closing
+ * every tab this opens one (`open`) until `isNew` says it found a new worker,
+ * waiting a little longer before each try, for 30 s at most. The time is the
+ * tab's that found it, from before it opened to its worker's answer.
+ */
+export async function laterVisit<R>(
+  context: BrowserContext,
+  open: () => Promise<R>,
+  isNew: (opened: R) => boolean,
+): Promise<{ readonly opened: R; readonly ms: number; readonly tries: number }> {
+  const deadline = performance.now() + 30_000;
+  for (let tries = 1; ; tries += 1) {
+    for (const page of context.pages()) await page.close();
+    await new Promise((resolve) => setTimeout(resolve, Math.min(250 * tries, 2_000)));
+    const begun = performance.now();
+    const opened = await open();
+    if (isNew(opened)) return { opened, ms: performance.now() - begun, tries };
+    if (performance.now() > deadline) throw new Error(`the worker outlived its tabs: ${tries} tabs opened in 30 s after the last one closed found it still running`);
+  }
 }
