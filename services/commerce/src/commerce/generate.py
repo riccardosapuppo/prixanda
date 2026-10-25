@@ -17,7 +17,8 @@ It loads, into a database that Flyway has just migrated:
 * listening data for the last weeks, which fan campaigns are aimed with (§14.2);
 * one audit event saying what was generated, from which seed.
 
-Nothing reads the clock: the period is --start to --until, fixed by default.
+Nothing reads the clock: the period is --start to --until, fixed by default,
+and long enough for the demo's story (check_period).
 The same seed, size and period give the same rows, and --fingerprint prints a
 hash of them, which the tests compare across two databases.
 
@@ -226,6 +227,21 @@ DEMO_LISTENERS = [
      "verified": [], "paid": ("individual", 169)},
 ]
 
+# The days before --until the demo's story needs: the student who paid before stopped paying this long before it, and
+# a --start any later would leave them no day paid, against what their label says.
+PAID_BEFORE_ENDS = max(demo["paid_student"][1] for demo in DEMO_LISTENERS if "paid_student" in demo)
+STORY_DAYS = PAID_BEFORE_ENDS + 1
+
+
+def check_period(start: date, until: date) -> None:
+    """Refuses a period the data cannot be told in: one that ends before it starts, or too short for the demo's story."""
+    if until <= start:
+        raise ValueError("--until must come after --start")
+    if (until - start).days < STORY_DAYS:
+        raise ValueError(f"--start must be at least {STORY_DAYS} days before --until: the demo's student who paid before "
+                         f"stopped paying {PAID_BEFORE_ENDS} days before --until, and a later start would leave them no "
+                         "day paid, against what their label says")
+
 
 MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
                "November", "December")
@@ -396,6 +412,7 @@ async def generate(url: str, size_name: str, seed: int, start: date, until: date
 async def load(conn: Writer, size_name: str, seed: int, start: date, until: date, *,
                listening_days: int | None = None) -> dict:
     """The generated rows, written through a Writer into a database freshly migrated."""
+    check_period(start, until)
     size = SIZES[size_name] if listening_days is None else replace(SIZES[size_name], listening_days=listening_days)
     rng = random.Random(seed)
     timings: dict[str, int] = {}
@@ -493,8 +510,10 @@ async def main() -> int:
         finally:
             await conn.close()
         return 0
-    if args.until <= args.start:
-        parser.error("--until must come after --start")
+    try:
+        check_period(args.start, args.until)
+    except ValueError as error:
+        parser.error(str(error))
     if args.listening_days is not None and not 1 <= args.listening_days <= 730:
         parser.error("--listening-days is between 1 and 730")
     summary = await generate(args.url, args.size, args.seed, args.start, args.until, listening_days=args.listening_days)
