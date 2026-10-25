@@ -58,5 +58,9 @@ synthetic data on one development machine and are not production figures.
 
 ## What was new
 
-GraphQL and gRPC were new to the author; this is the project in which he
-learned them, on a domain he wanted to understand.
+Before this project the author had worked with React, TypeScript, Next.js,
+Python and SQL databases, PostgreSQL among them, at different depths, and
+with Tailwind CSS, Playwright and GitHub Actions. GraphQL and gRPC are what
+the author set out to learn, and learned here. The other tools the project
+relies on are named without a claim of earlier experience, and nothing in
+the project is presented as years of professional experience.
