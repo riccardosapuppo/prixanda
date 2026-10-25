@@ -10,9 +10,14 @@ time comes from standard input:
   python tests/clocked_server.py 2026-10-24T10:00:00Z
 
 starts it at that instant. Each line `at <instant>` moves the clock, and is
-acknowledged on standard output with `clock <instant>`. The engine's own log
-goes to standard error, as it always does. When standard input closes, the
-engine stops in order, as on Ctrl+C.
+acknowledged on standard output with `clock <instant>`. The payment provider
+is the simulated one, which the test can keep from answering, as a real
+provider may take its time: `payments hold` holds each charge asked for from
+then on, and its payment stays pending; `payments answer` lets the provider
+answer them, and the ones after. They are acknowledged with `payments held`
+and `payments answering`. The engine's own log goes to standard error, as it
+always does. When standard input closes, the engine stops in order, as on
+Ctrl+C.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ import sys
 import threading
 from datetime import UTC, datetime
 
+from commerce.engine.providers import Charge, ChargeResult, SimulatedPayments
 from commerce.server.app import serve
 from commerce.server.config import ConfigError, from_env
 
@@ -49,11 +55,27 @@ class PilotedClock:
         self._at = at
 
 
+class HeldPayments:
+    """The simulated payment provider, kept from answering while the test holds it: a charge asked for
+    meanwhile waits, outside any transaction as every charge is asked, and its payment stays pending."""
+
+    def __init__(self, provider: SimulatedPayments) -> None:
+        self.provider = provider
+        self.name = provider.name
+        self.answering = asyncio.Event()
+        self.answering.set()
+
+    async def charge(self, charge: Charge) -> ChargeResult:
+        await self.answering.wait()
+        return await self.provider.charge(charge)
+
+
 async def run(start: datetime) -> int:
     config = from_env(os.environ)
     if config.stop_on_stdin_close:
         raise ConfigError("standard input drives the clock here: leave COMMERCE_STOP_ON_STDIN_CLOSE unset")
     clock = PilotedClock(start)
+    payments = HeldPayments(SimulatedPayments(clock))
     loop = asyncio.get_running_loop()
     closed = asyncio.Event()
 
@@ -62,14 +84,25 @@ async def run(start: datetime) -> int:
         sys.stdout.write(f"clock {at:%Y-%m-%dT%H:%M:%SZ}\n")
         sys.stdout.flush()
 
+    def provider(answer: bool) -> None:
+        if answer:
+            payments.answering.set()
+        else:
+            payments.answering.clear()
+        sys.stdout.write("payments answering\n" if answer else "payments held\n")
+        sys.stdout.flush()
+
     def read_commands() -> None:
         for line in sys.stdin:
             words = line.split()
             if not words:
                 continue
+            if words in (["payments", "hold"], ["payments", "answer"]):
+                loop.call_soon_threadsafe(provider, words[1] == "answer")
+                continue
             try:
                 if len(words) != 2 or words[0] != "at":
-                    raise ValueError(f"unknown command {line.strip()!r}: send `at <instant>`")
+                    raise ValueError(f"unknown command {line.strip()!r}: send `at <instant>`, `payments hold` or `payments answer`")
                 at = instant(words[1])
             except ValueError as error:
                 sys.stdout.write(json.dumps({"clock_error": str(error)}) + "\n")
@@ -80,7 +113,7 @@ async def run(start: datetime) -> int:
         loop.call_soon_threadsafe(closed.set)
 
     threading.Thread(target=read_commands, name="clock-commands", daemon=True).start()
-    serving = asyncio.create_task(serve(config, clock=clock))
+    serving = asyncio.create_task(serve(config, clock=clock, payments=payments))
     waiting = asyncio.create_task(closed.wait())
     done, _ = await asyncio.wait({serving, waiting}, return_when=asyncio.FIRST_COMPLETED)
     if serving in done:

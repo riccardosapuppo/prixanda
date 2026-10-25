@@ -12,7 +12,7 @@ import { Icon } from "design/icon";
 import { type ReactNode, useEffect, useRef } from "react";
 import { copy } from "../../content/copy.ts";
 import { useAnswerPriceChange } from "../../data/hooks.ts";
-import { newIdempotencyKey } from "../../data/ids.ts";
+import { ActionKeys } from "../../data/ids.ts";
 import type { SiteMarket } from "../../data/markets.ts";
 import type { SitePriceChangeFragment } from "../../graphql/generated.ts";
 import { lastDayBefore, siteDay } from "../../lib/dates.ts";
@@ -43,14 +43,15 @@ function PriceChangePanel({ change, market, marketName, planName }: {
   readonly planName: string;
 }) {
   const answer = useAnswerPriceChange();
-  // One key per answer, made when the visitor first gives it and sent again if that answer is retried.
-  const keys = useRef<{ yes?: string; no?: string }>({});
+  // One key per answer, sent again only to retry an attempt that ended in an error; the engine's
+  // answer, taken or refused, spends it.
+  const keys = useRef(new ActionKeys<"yes" | "no">());
   const send = (accept: boolean) => {
     if (answer.isPending) return;
     const which = accept ? "yes" : "no";
-    const key = keys.current[which] ?? newIdempotencyKey();
-    keys.current[which] = key;
-    answer.mutate({ priceChangeId: change.id, accept, idempotencyKey: key });
+    answer.mutate({ priceChangeId: change.id, accept, idempotencyKey: keys.current.key(which) }, {
+      onSuccess: () => keys.current.answered(which),
+    });
   };
   const write = (money: MoneyLike) => formatSitePrice(money, market);
   const title = copy.priceChange.title(planName);
