@@ -1,7 +1,7 @@
-// The keyboard alone creates and approves a campaign (the owner's brief: a
-// keyboard path to create, approve and activate), and writes and submits a
-// price migration: no click and no mouse; Tab, Enter, Space, the arrows and
-// typing.
+// The keyboard alone creates and approves a campaign (the console keeps a
+// keyboard path to create, approve and activate, as the README says), and
+// writes and submits a price migration: no click and no mouse; Tab, Enter,
+// Space, the arrows and typing.
 import { expect, test } from "@playwright/test";
 import { tabTo } from "./support.ts";
 

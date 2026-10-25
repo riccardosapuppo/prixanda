@@ -1,4 +1,4 @@
-// Every screen at the widths the brief names (1440, 1280, 390 and 320 px,
+// Every screen at the widths the console is made for (1440, 1280, 390 and 320 px,
 // and 1440 at 200% zoom, which lays out like a 720 px window): the page never
 // scrolls sideways (tables and the week's lanes scroll inside their own
 // boxes), and no text is cut.

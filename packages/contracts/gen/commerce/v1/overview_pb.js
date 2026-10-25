@@ -1,6 +1,6 @@
 // The console's home and the people of the demo.
 //
-// The home shows five things and each leads to an action (the brief): what
+// The home shows five things, and each leads to an action: what
 // waits for approval, what launches in the next seven days, today's incidents,
 // paying subscribers by plan and market, and this month's revenue without VAT.
 
