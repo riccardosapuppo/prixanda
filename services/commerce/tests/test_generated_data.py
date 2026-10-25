@@ -4,13 +4,17 @@ checks nothing)."""
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from datetime import date
+from pathlib import Path
 
 import asyncpg
 import pytest
 
 from commerce.audit import head
-from commerce.generate import START, demo_listeners, fingerprint, generate, ordinal
+from commerce.generate import START, demo_listeners, fingerprint, generate, load, ordinal
 from commerce.invariants import check
 from conftest import ADMIN_URL, _admin as admin, fresh_database, on_database
 from helpers import add_subscription, new_change
@@ -43,6 +47,19 @@ def test_the_demo_s_histories_follow_on_when_the_data_start_later():
     assert plans(5005) == [("family", "2026-01-01")]
     assert plans(5003) == [("student", "2026-01-01"), ("free", "2026-06-26")]
     assert "since January 2026, billed on the 1st:" in rows[4][3]
+
+
+async def test_a_start_too_close_to_until_for_the_demo_s_story_is_refused_with_the_least_and_why():
+    """The student who paid before stopped paying 120 days before --until: a --start any later would leave them no day
+    paid, against what their label says. The command line refuses it, before it connects, and so does the generator."""
+    why = "--start must be at least 121 days before --until: the demo's student who paid before stopped paying 120 days"
+    ran = subprocess.run(
+        [sys.executable, "-m", "commerce.generate", "--url", "postgresql://nobody@127.0.0.1:9/none",
+         "--start", "2026-10-01", "--until", "2026-10-24"],
+        capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[1] / "src")})
+    assert ran.returncode == 2 and why in ran.stderr, ran.stderr
+    with pytest.raises(ValueError, match=why):
+        await load(None, "small", 7, date(2026, 6, 26), date(2026, 10, 24))  # 120 days
 
 
 async def test_the_data_can_start_later_in_the_story():
