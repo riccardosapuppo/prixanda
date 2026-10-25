@@ -1,8 +1,9 @@
 // Authorization on the server, through HTTP as a browser would ask: no
 // session, every role against every operation, the fields narrower than their
 // operation, a browser trying to give itself a role, the session cookie, CSRF
-// and CORS. The expectations come from the coordinator's table, written in
-// roles.test.ts and here on their own, not from the gateway's policy.
+// and CORS. The expectations come from the table of who may call each method
+// (proto/README.md), written in roles.test.ts and here on their own, not from
+// the gateway's policy.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { ChangeState } from "contracts/commerce/v1/changes";
@@ -67,7 +68,7 @@ const OPERATIONS: Record<string, { query: string; variables?: Record<string, unk
   artists: { query: '{ artists(search: "doppel") { nodes { id } } }', method: "ListArtists" },
 };
 
-/** Who may, per operation, from the coordinator's table (any kind of change). */
+/** Who may, per operation, from the table of proto/README.md (any kind of change). */
 const MAY: Record<string, string[]> = {
   overview: ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"],
   markets: ["marketing", "commercial_lead", "finance", "catalog_manager", "on_call", "auditor"],

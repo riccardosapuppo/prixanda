@@ -47,7 +47,7 @@ const SCHEMAS = {
     objects: [
       "Market", "Entitlements", "PriceBreakdown", "Plan", "ListPrice", "MarketTime", "Offer", "Quote", "DemoListener", "Me", "Account", "Subscription",
       "StudentVerification", "Payment", "Receipt", "Confirmation", "Refusal", "PriceChange", "PrepaidPass", "PrepaidCode",
-      "PrepaidPurchase",
+      "PrepaidPurchase", "OfferListening",
     ],
     scalars: ["Money", "LocalDateTime", "DateTime", "Date", "MarketCode", "PlanCode"],
   },

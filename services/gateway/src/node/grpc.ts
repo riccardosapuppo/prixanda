@@ -1,6 +1,6 @@
-// The engine over gRPC: Connect's gRPC transport on Node's HTTP/2, as in the
-// stage 0 prototype. The internal token rides on every call from here, the
-// only place that knows it; the core writes the rest of the metadata.
+// The engine over gRPC: Connect's gRPC transport on Node's HTTP/2. The
+// internal token rides on every call from here, the only place that knows
+// it; the core writes the rest of the metadata (proto/README.md).
 import { randomUUID } from "node:crypto";
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createGrpcTransport, Http2SessionManager } from "@connectrpc/connect-node";

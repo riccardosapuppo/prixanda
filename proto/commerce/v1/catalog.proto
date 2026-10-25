@@ -12,7 +12,8 @@ service CatalogService {
   rpc ListPlans(ListPlansRequest) returns (ListPlansResponse);
   rpc GetPriceList(GetPriceListRequest) returns (GetPriceListResponse);
   // The offers the published catalog holds now: the site shows an offer if and
-  // only if its prices are in force (§7.5).
+  // only if its prices are in force (§7.5), and an offer for an artist's
+  // listeners only to them (§6.8).
   rpc ListOffers(ListOffersRequest) returns (ListOffersResponse);
   // The prepaid passes on sale in a market now (§9): those whose change is
   // active and whose period in the market holds the instant.
@@ -163,11 +164,30 @@ message PublishedOffer {
   // market's floor, top_up is what the music service adds so that the artists
   // get their minimum (§5.4).
   PriceBreakdown breakdown = 14;
+  // The listening its audience asks for (§14.2), when it asks for any: such
+  // an offer is listed only to a listener in its audience (§6.8).
+  OfferListening listening = 15;
+}
+
+// What an offer for an artist's listeners asks for (§14.2): more than
+// min_seconds of the artist in the within_days days before the day, in the
+// market's calendar.
+message OfferListening {
+  int32 artist_id = 1;
+  // The artist's name in the catalog.
+  string artist_name = 2;
+  int32 min_seconds = 3;
+  int32 within_days = 4;
 }
 
 message ListOffersRequest {
   string market = 1;
   string at = 2;
+  // Who the offers are listed to; 0 for nobody. An offer whose audience asks
+  // for listening (§14.2) is listed only when they are in its audience on the
+  // day, in the market's calendar, and never to nobody (§6.8). The other
+  // offers are listed to everyone.
+  int64 subscriber_id = 3 [jstype = JS_STRING];
 }
 
 message ListOffersResponse {

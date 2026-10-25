@@ -16,7 +16,7 @@ from commerce.v1 import (
 )
 from engine_support import (
     AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, approved, create, family_migration, family_rise, fingerprint,
-    gift_pass, scheduled, student_autumn, submitted, validated,
+    gift_pass, nordflur, scheduled, student_autumn, submitted, validated,
 )
 from wire_support import SEEN, wire  # noqa: F401  (the fixture)
 
@@ -54,6 +54,23 @@ async def test_catalog_calls(wire):
     assert (await wire.call("ListArtists", catalog_pb2.ListArtistsRequest(), PUBLIC)).code is CODE.PERMISSION_DENIED
     bad_cursor = catalog_pb2.ListArtistsRequest(page=common_pb2.PageRequest(after="not-a-cursor"))
     assert (await wire.call("ListArtists", bad_cursor, MARKETING)).code is CODE.INVALID_ARGUMENT
+
+
+async def test_an_offer_for_an_artists_listeners_over_the_wire(wire):
+    # §14.2 and §6.8: listed to a listener in its audience, with what it asks for; to nobody, never.
+    change = await scheduled(wire.world, nordflur(), MARKETING, FINANCE)
+    wire.world.clock.at = datetime(2026, 11, 5, 23, 0, tzinfo=UTC)
+    await wire.world.engine.activate_due()
+    listing = catalog_pb2.ListOffersRequest
+    fan = await wire.call("ListOffers", listing(market="DE", subscriber_id=201), PUBLIC)
+    assert fan.code is OK
+    told = [(offer.offer_id, offer.listening.artist_name, offer.listening.min_seconds) for offer in fan.response.offers]
+    assert told == [(change.id, "Doppelfenster", 10_800)]
+    nobody = await wire.call("ListOffers", listing(market="DE"), PUBLIC)
+    assert nobody.code is OK and list(nobody.response.offers) == []
+    outside = await wire.call("ListOffers", listing(market="DE", subscriber_id=202), PUBLIC)
+    assert outside.code is OK and list(outside.response.offers) == []
+    assert (await wire.call("ListOffers", listing(market="DE", subscriber_id=-1), PUBLIC)).code is CODE.INVALID_ARGUMENT
 
 
 async def test_quote_calls(wire):

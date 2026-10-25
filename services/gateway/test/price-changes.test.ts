@@ -3,8 +3,8 @@
 // with every date the engine works out on the listener's own billing days, so
 // that the site writes them and computes nothing; and the answer, the
 // session's listener's, idempotent, refused in the site's words once it can
-// no longer be given. The fake engine follows the coordinator's behaviours
-// for the engine's §14.3 service; the integration test walks the same path
+// no longer be given. The fake engine follows the engine's behaviours
+// (proto/README.md) for its §14.3 service; the integration test walks the same path
 // through the real one once it is there.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";

@@ -154,7 +154,7 @@ export const PAIRS: readonly (readonly [ColorName, ColorName, number, string])[]
     "rail-ink-2",
     "rail",
     7,
-    "secondary text on the dark rail (at least 7:1, the owner's request)"
+    "secondary text on the dark rail (at least 7:1, beyond the 4.5:1 that text needs)"
   ],
   [
     "rail-ink",

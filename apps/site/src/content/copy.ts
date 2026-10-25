@@ -14,6 +14,17 @@ const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** What a plan includes, as the API says it. */
 type Includes = { readonly seats: number; readonly skipsPerHour: number | null; readonly audio: string; readonly offline: boolean };
+/** What an offer for an artist's listeners asks of their listening, as the API says it (§14.2). */
+type Listening = { readonly artist: string; readonly minSeconds: number; readonly withinDays: number };
+
+const count = (n: number) => n.toLocaleString("en-GB");
+/** A time of listening as the engine words it: 7,200 seconds as 2 hours, 5,400 as 90 minutes, 45 as 45 seconds. */
+function listeningTime(seconds: number): string {
+  for (const [unit, size] of [["hour", 3_600], ["minute", 60]] as const) {
+    if (seconds % size === 0) return `${count(seconds / size)} ${unit}${seconds === size ? "" : "s"}`;
+  }
+  return `${count(seconds)} ${seconds === 1 ? "second" : "seconds"}`;
+}
 
 export const copy = {
   service,
@@ -106,7 +117,7 @@ export const copy = {
     planIn: (planName: string, marketName: string) => `${planName} in ${marketName}`,
     gone: {
       title: "This campaign isn't on sale",
-      body: "It isn't on sale in this market now: it has ended, or it hasn't started yet. The plans and their prices are still there.",
+      body: "It isn't on sale in this market now, or not to you: it has ended, it hasn't started yet, or it is only for some listeners. The plans and their prices are still there.",
       action: "See the plans",
     },
     missing: {
@@ -114,6 +125,17 @@ export const copy = {
       body: "This address names no campaign. The campaigns on sale are listed with the plans.",
       action: "See the plans",
     },
+  },
+  /**
+   * An offer for an artist's listeners (§14.2). Only they are shown it
+   * (§6.8), so it says who it is for as what they did; the artist, the time
+   * and the days are the API's.
+   */
+  listening: {
+    forListeners: (rule: Listening) =>
+      `For listeners who played ${rule.artist} for more than ${listeningTime(rule.minSeconds)} in the last ${rule.withinDays === 1 ? "day" : `${count(rule.withinDays)} days`}.`,
+    /** The campaign page's tag. */
+    tag: (artist: string) => `Listeners of ${artist}`,
   },
   /** The promise to the artists, told once on a campaign page, from the engine's breakdown of the offer price. */
   campaignPromise: {

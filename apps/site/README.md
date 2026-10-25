@@ -39,7 +39,7 @@ The build calls the API written into it at build time: `NEXT_PUBLIC_SITE_API`,
 
 | Page | What it shows |
 |---|---|
-| `/?market=IT&plan=individual` | The home. It opens on music: a record of the market's label printed large, its liner note, and that label's listening session. Then the promise to the artists, one sail per paid plan with the minimum as a cord; then the plans, the chosen one open on where its money goes, what it includes and the way to take it, with a flag on each plan that has a campaign on sale; then the labels' new records and their listening sessions; last, while one is on sale, the prepaid pass to give, with its demonstration purchase. The market and the plan are in the address; a listener who has entered sees their own market |
+| `/?market=IT&plan=individual` | The home. It opens on music: a record of the market's label printed large, its liner note, and that label's listening session. Then the promise to the artists, one sail per paid plan with the minimum as a cord; then the plans, the chosen one open on where its money goes, what it includes and the way to take it, with a flag on each plan that has a campaign on sale (an offer for an artist's listeners only for them, with who it is for under its flag); then the labels' new records and their listening sessions; last, while one is on sale, the prepaid pass to give, with its demonstration purchase. The market and the plan are in the address; a listener who has entered sees their own market |
 | `/campaign/?market=IT&offer=42` | One campaign as the engine published it: its months drawn as sails, the price struck through and the offer price, the promise to the artists from the engine's breakdown of the offer price, and the steps of taking it |
 | `/session/?label=casa-lenta` | A label's listening session, simulated: the running order, the lengths, the position, play and pause, the previous and next record. Nothing plays, and the page says so next to the button: play moves a clock. A record's time is split evenly among its tracks, which have no titles |
 | `/account/` | The demo listener's plan, price, months left at an offer's price, the day the full price starts, the day a paid plan ends, the student check, and the first month's payment with its demo receipt. Then a price change of the plan, asked or told; the prepaid codes bought, with their state; and the way to activate a code |
@@ -49,6 +49,22 @@ A campaign page exists if and only if its offer is on sale (business book
 offers on sale every 10 seconds, so a launch shows up without a reload. The
 home asks for the plans of the other markets once its own are shown, so
 changing market shows prices at once.
+
+## An offer for an artist's listeners (§14.2)
+
+The API lists an offer whose audience asks for listening only to the
+listener who entered, when they are in its audience that day (§6.8):
+someone who has not entered, and any other listener, are not told of it, and
+its address reads to them as a campaign not on sale. To the listeners in it,
+the site says who it is for as what they did, with the API's artist, time
+and days (`Offer.listening`): "For listeners who played Ottoline Marr for
+more than 2 hours in the last 30 days.", under the flag on the home and on
+the campaign page, whose tag names the artist's listeners. Since the list
+depends on who entered, an entry or an exit drops the readings of the offers
+still on their way and, at once, the offers for an artist's listeners read
+for the listener of before, and the pages ask again: the next listener never
+sees them, not even for a moment. The offers everyone sees stay meanwhile, so
+a campaign page keeps its steps while its visitor enters on it.
 
 Every figure on the promise and on "Where your € goes" is the engine's
 breakdown of the plan's price (`Plan.breakdown`) and the market's minimum
@@ -171,19 +187,20 @@ never animate.
 ## Checks
 
 ```
-npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e,site-e2e-7
-npm run e2e -w site                 # both end-to-end tests, one after the other
-npm run e2e -w site -- gift         # stage 7's alone
+npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e,site-e2e-7,site-e2e-fans
+npm run e2e -w site                 # the three end-to-end tests, one after the other
+npm run e2e -w site -- gift         # one of them alone: student, gift or album
 ```
 
 | Suite | What it checks | Floor |
 |---|---|---|
-| `site-types` | `tsc` over the pages and components as Next.js builds them, then over what Node runs | 45 and 34 files |
+| `site-types` | `tsc` over the pages and components as Next.js builds them, then over what Node runs | 45 and 36 files |
 | `site-codegen` | every operation validates against the public schema, and the generated types equal a fresh generation | 14 operations |
-| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit | 72 tests |
+| `site-unit` | the transport, the headers and errors of the API, request ids, dates across the clock change of 25 October, the drawings (the promise, the sheets of a price, the covers' fingerprints), the clock of a listening session, the plans' order and lines, a prepaid code as typed, a pass's months and a period's sheet, a price change's sentences, the build's correction, the editorial catalogue against the generator, the readings of `me` cancelled on an entry or an exit, who an offer for an artist's listeners is for, and the listener of before's offers for an artist's listeners dropped on an entry or an exit | 76 tests |
 | `site-build` | the static export, every page in it, the API it calls written in | 5 pages |
 | `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 9 tests, 9 audit events, axe on 9 pages, 20 pages fitted |
 | `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a request for consent in Germany answered, a notice in Italy, below | 9 tests, 5 audit events, axe on 9 pages, 10 pages fitted |
+| `site-e2e-fans` | the same for §14.2: the album release shown to its fan at the engine's price, and to none of the listeners outside its audience nor a visitor, below | 8 tests, 3 listeners outside, 8 audit events, axe on 6 pages, 10 pages fitted |
 
 `site-e2e` starts the engine on a clock the test moves, the gateway and the
 site's build, launches the Student Autumn Pass through the console's API
@@ -215,6 +232,27 @@ and says no; the Individual subscriber in Italy is told, and leaves before
 the new price; each sees the engine's dates. The audit log holds each
 listener's step with the request id their browser sent.
 
+`site-e2e-fans` starts the same system on a database of its own, its data
+generated until the day the engine's clock starts (24 October 2026,
+`e2e/support/data.ts`), so the 30 days of listening are the same at every
+run. Marketing's album release is launched through the console's API: two
+months of Individual at 1,99 € in Italy for the Free listeners who played
+Ottoline Marr for more than 2 hours in the last 30 days, from 09:00 in Rome
+on 26 October. Of the demo's listeners, the student who paid before is a
+fan, with nearly 3 hours of her in the 30 days before that morning; the two
+other students have under an hour, and the Individual subscriber, who plays
+her for hours, pays already. The fan's open home shows the offer, with who
+it is for under its flag; its page shows the engine's prices and the artists'
+share, and both fit the five widths. In one tab, leaving and entering as the
+verified student changes the home without a reload, and the offer never
+shows to her, not even for a moment; it comes back with the fan. The
+listeners outside its audience are not shown it on the home, at its address
+or by the API, and neither is a visitor. The fan then takes it at 1,99 € a
+month for 2 months, then 10,49 €, the first month settles, and, paying now,
+they are no longer in its audience. The audit log holds the launch with the
+console's request ids, and the subscription and its payment with the
+browser's.
+
 One run on 24 October 2026, on a Windows virtual machine with 8 CPUs and
 12 GB shared with other work (so under load, not a benchmark): the engine
 published the pass 0.2 s after 09:00, the open page showed it 6.0 s after
@@ -223,7 +261,11 @@ published the pass 0.2 s after 09:00, the open page showed it 6.0 s after
 five widths. The same day, `site-e2e-7`: the pass on the open page 10.1 s
 after its start (the page asks every 10 s), the code ready 0.3 s after the
 purchase, 5 audit events, the code in no log line, axe on 9 pages with no
-violation, 10 pages fitted.
+violation, 10 pages fitted. On 25 October, on the same machine,
+`site-e2e-fans`: the release on sale for its fan 0.2 s after 09:00 and on
+the fan's open page 8.5 s after, shown to none of the 3 listeners outside its
+audience, the first month paid 0.2 s after the confirmation, 8 audit events,
+axe on 6 pages with no violation, 10 pages fitted.
 
 The end-to-end test needs Playwright's Chromium for playwright 1.62.1; the
 check reports the suite as not run, never as passed, when it is missing.

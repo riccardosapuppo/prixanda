@@ -154,7 +154,9 @@ export const publicResolvers: Resolvers = {
     plans: async (_root, { market }, context) => (await context.engine.catalog.listPlans({ market, at: "" })).plans,
     prices: async (_root, { market, plan }, context) =>
       (await context.engine.catalog.getPriceList({ market, plan: plan ?? "" })).entries,
-    offers: async (_root, { market }, context) => (await context.engine.catalog.listOffers({ market, at: "" })).offers,
+    // Signed in, the offers are the session's listener's: an offer for an artist's listeners comes only to them (§6.8).
+    offers: async (_root, { market }, context) =>
+      (await context.engine.catalog.listOffers({ market, at: "", subscriberId: listenerOf(context)?.subscriberId ?? "0" })).offers,
     prepaidPasses: async (_root, { market }, context) => (await context.engine.catalog.listPrepaidPasses({ market })).passes,
     // Without the site's sessions (in production) nobody can be chosen, so the entrance offers nobody.
     demoListeners: async (_root, _args, context) =>
@@ -295,6 +297,13 @@ export const publicResolvers: Resolvers = {
     needsStudentCheck: (offer) => offer.needsStudentCheck,
     // The engine of stage 5 sends none; stage 6 adds it at the offer price.
     breakdown: (offer) => offer.breakdown ?? null,
+    listening: (offer) => offer.listening ?? null,
+  },
+  OfferListening: {
+    artistId: (rule) => String(rule.artistId),
+    artist: (rule) => rule.artistName,
+    minSeconds: (rule) => rule.minSeconds,
+    withinDays: (rule) => rule.withinDays,
   },
   Quote: {
     id: (quote) => quote.quoteId,

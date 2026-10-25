@@ -494,6 +494,15 @@
   .offer-flag {
     margin: 0 0 0.7rem 2.5rem;
   }
+  /* who an offer for an artist's listeners is for, under its flag */
+  .offer-why {
+    display: block;
+    max-width: 52ch;
+    margin-top: 0.35rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--color-ink-2);
+  }
   .offer-flag a {
     display: inline-flex;
     flex-wrap: wrap;

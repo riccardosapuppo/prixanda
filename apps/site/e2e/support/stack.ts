@@ -2,7 +2,8 @@
 // ports and stopped afterwards, leaving nothing behind:
 //
 //   PostgreSQL 18    a throwaway cluster, the migrations applied by Flyway,
-//                    the small generated data (seed 7)
+//                    the small generated data (seed 7) until the day the
+//                    engine's clock starts (data.ts)
 //   the engine       the real server, on a clock the test moves
 //                    (services/commerce/tests/clocked_server.py)
 //   the gateway      the real one, both APIs, the site's origin allowed
@@ -28,6 +29,7 @@ import { assertFree } from "../../../../tools/lib/ports.ts";
 import { type Cluster, createDatabase, startCluster } from "../../../../tools/lib/postgres.ts";
 import { run } from "../../../../tools/lib/run.ts";
 import { serveStatic } from "../../scripts/serve.ts";
+import { DATA_UNTIL, GENERATOR_ARGS } from "./data.ts";
 
 const siteDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const clockedServer = join(commerceDir, "tests", "clocked_server.py");
@@ -193,8 +195,9 @@ async function stopChild(child: ChildProcessWithoutNullStreams, how: "stdin" | "
   return code;
 }
 
-/** Starts everything; the engine's clock starts at `startAt`. */
+/** Starts everything; the engine's clock starts at `startAt`, on the day the data runs until. */
 export async function startStack(startAt: string): Promise<Stack> {
+  if (!startAt.startsWith(`${DATA_UNTIL}T`)) throw new Error(`the engine's clock must start on ${DATA_UNTIL}, the day the data runs until, not at ${startAt}`);
   if (!existsSync(venvPython)) throw new Error("no Python environment for the engine: npm run setup");
   if (!existsSync(clockedServer)) throw new Error(`the engine's clocked launcher is missing: ${clockedServer}`);
   await assertBuiltFor(PUBLIC_API);
@@ -218,13 +221,13 @@ export async function startStack(startAt: string): Promise<Stack> {
   try {
     let appUrl = preparedDatabase;
     if (!appUrl) {
-      say(`PostgreSQL 18 on 127.0.0.1:${STACK_PORTS.postgres}, the migrations and the small data (seed 7)`);
+      say(`PostgreSQL 18 on 127.0.0.1:${STACK_PORTS.postgres}, the migrations and the small data (seed 7, until ${DATA_UNTIL})`);
       cluster = await startCluster({ dataDir: join(dataDir, "site-e2e"), port: STACK_PORTS.postgres, ephemeral: true, fast: true });
       const database = "commerce_site_e2e";
       await createDatabase(cluster, database);
       const migrated = await flyway("migrate", { port: cluster.port, database, user: cluster.owner.user, password: cluster.owner.password });
       if (migrated.code !== 0) throw new Error(`the migrations failed:\n${migrated.output.slice(-2000)}`);
-      const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), "--size", "small", "--seed", "7"], {
+      const generated = await run(venvPython, ["-m", "commerce.generate", "--url", cluster.url(database, "owner"), ...GENERATOR_ARGS], {
         cwd: commerceDir, env: { ...process.env, PYTHONPATH: join(commerceDir, "src") },
       });
       if (generated.code !== 0) throw new Error(`the generator failed:\n${generated.output.slice(-2000)}`);

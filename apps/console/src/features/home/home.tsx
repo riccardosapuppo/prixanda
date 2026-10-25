@@ -1,8 +1,8 @@
 "use client";
 // The home: the five things the commercial team looks at first, each leading
-// to an action (the owner's brief): what waits for approval, what launches in
-// the next seven days, today's incidents, who pays by plan and market, and
-// this month's revenue without VAT. Two figures are reserved (§12.2):
+// to an action: what waits for approval, what launches in the next seven
+// days, today's incidents, who pays by plan and market, and this month's
+// revenue without VAT. Two figures are reserved (§12.2):
 // revenue for finance and the commercial lead, the value of prepaid passes
 // sold and not yet earned for finance alone (§9.2): by market, the codes
 // sold, activated and expired unused, and the net value not yet earned, with

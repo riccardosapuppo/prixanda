@@ -160,7 +160,7 @@ class GetPriceListResponse(_message.Message):
     def __init__(self, entries: _Optional[_Iterable[_Union[PriceListEntry, _Mapping]]] = ...) -> None: ...
 
 class PublishedOffer(_message.Message):
-    __slots__ = ("offer_id", "version", "market", "plan", "title", "text", "terms", "price", "list_price", "months_at_offer_price", "takeable_until", "audience", "needs_student_check", "breakdown")
+    __slots__ = ("offer_id", "version", "market", "plan", "title", "text", "terms", "price", "list_price", "months_at_offer_price", "takeable_until", "audience", "needs_student_check", "breakdown", "listening")
     OFFER_ID_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     MARKET_FIELD_NUMBER: _ClassVar[int]
@@ -175,6 +175,7 @@ class PublishedOffer(_message.Message):
     AUDIENCE_FIELD_NUMBER: _ClassVar[int]
     NEEDS_STUDENT_CHECK_FIELD_NUMBER: _ClassVar[int]
     BREAKDOWN_FIELD_NUMBER: _ClassVar[int]
+    LISTENING_FIELD_NUMBER: _ClassVar[int]
     offer_id: int
     version: int
     market: str
@@ -189,15 +190,30 @@ class PublishedOffer(_message.Message):
     audience: str
     needs_student_check: bool
     breakdown: PriceBreakdown
-    def __init__(self, offer_id: _Optional[int] = ..., version: _Optional[int] = ..., market: _Optional[str] = ..., plan: _Optional[str] = ..., title: _Optional[str] = ..., text: _Optional[str] = ..., terms: _Optional[str] = ..., price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., list_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., months_at_offer_price: _Optional[int] = ..., takeable_until: _Optional[_Union[_common_pb2.LocalTime, _Mapping]] = ..., audience: _Optional[str] = ..., needs_student_check: bool = ..., breakdown: _Optional[_Union[PriceBreakdown, _Mapping]] = ...) -> None: ...
+    listening: OfferListening
+    def __init__(self, offer_id: _Optional[int] = ..., version: _Optional[int] = ..., market: _Optional[str] = ..., plan: _Optional[str] = ..., title: _Optional[str] = ..., text: _Optional[str] = ..., terms: _Optional[str] = ..., price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., list_price: _Optional[_Union[_common_pb2.Money, _Mapping]] = ..., months_at_offer_price: _Optional[int] = ..., takeable_until: _Optional[_Union[_common_pb2.LocalTime, _Mapping]] = ..., audience: _Optional[str] = ..., needs_student_check: bool = ..., breakdown: _Optional[_Union[PriceBreakdown, _Mapping]] = ..., listening: _Optional[_Union[OfferListening, _Mapping]] = ...) -> None: ...
+
+class OfferListening(_message.Message):
+    __slots__ = ("artist_id", "artist_name", "min_seconds", "within_days")
+    ARTIST_ID_FIELD_NUMBER: _ClassVar[int]
+    ARTIST_NAME_FIELD_NUMBER: _ClassVar[int]
+    MIN_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    WITHIN_DAYS_FIELD_NUMBER: _ClassVar[int]
+    artist_id: int
+    artist_name: str
+    min_seconds: int
+    within_days: int
+    def __init__(self, artist_id: _Optional[int] = ..., artist_name: _Optional[str] = ..., min_seconds: _Optional[int] = ..., within_days: _Optional[int] = ...) -> None: ...
 
 class ListOffersRequest(_message.Message):
-    __slots__ = ("market", "at")
+    __slots__ = ("market", "at", "subscriber_id")
     MARKET_FIELD_NUMBER: _ClassVar[int]
     AT_FIELD_NUMBER: _ClassVar[int]
+    SUBSCRIBER_ID_FIELD_NUMBER: _ClassVar[int]
     market: str
     at: str
-    def __init__(self, market: _Optional[str] = ..., at: _Optional[str] = ...) -> None: ...
+    subscriber_id: int
+    def __init__(self, market: _Optional[str] = ..., at: _Optional[str] = ..., subscriber_id: _Optional[int] = ...) -> None: ...
 
 class ListOffersResponse(_message.Message):
     __slots__ = ("offers",)

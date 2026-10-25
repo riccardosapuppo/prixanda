@@ -84,8 +84,8 @@ describe("the console's schema", () => {
     // A launch's change is Change! and a refusal's Change: a client asking for
     // both in retryLaunch's or cancelLaunch's answer needs an alias. Making the
     // launch's nullable would break the console of stage 4, which reads it as
-    // always there (src/lib/launch.ts and src/features/launches); the
-    // coordinator decides. Any other conflict fails here.
+    // always there (src/lib/launch.ts and src/features/launches), so it stays,
+    // and is written down here. Any other conflict fails here.
     assert.deepEqual(unionConflicts(schema), ["LaunchResult: LaunchRun.change and Refusal.change, Change! and Change"]);
   });
 

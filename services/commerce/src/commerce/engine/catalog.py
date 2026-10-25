@@ -5,7 +5,9 @@ whose listeners a campaign for an album release aims at (§14.2).
 The site shows an offer if and only if its prices are in force (§7.5): an
 offer is listed when it is in the live snapshot, its period in that market
 contains the instant, and its price, worked out from the list price in force
-at that instant (§6.2), is below that list price.
+at that instant (§6.2), is below that list price. An offer for an artist's
+listeners (§14.2) is listed only to a listener in its audience that day, and
+never to nobody (§6.8).
 """
 
 from __future__ import annotations
@@ -21,10 +23,10 @@ from commerce.domain import policy
 from commerce.domain.economics import Book
 from commerce.domain.localtime import format_instant, format_local, parse_local, to_local
 from commerce.domain.money import Money
-from commerce.domain.offers import OfferPrice
+from commerce.domain.offers import Audience, ListeningRule, OfferPrice
 from commerce.domain.migration import CHOICE_LABEL
 from commerce.domain.validation import on_sale, resolve_price
-from commerce.engine import contract, reference
+from commerce.engine import contract, eligibility, reference
 from commerce.engine.call import Call, Clock
 from commerce.engine.database import Connection, local_text, utc_text
 from commerce.engine.errors import InvalidArgument, PermissionDenied
@@ -108,6 +110,13 @@ LIVE_OFFER = (
     "o.title, o.body, o.terms, o.audience::text as audience, o.audience_words, o.needs_student_check, o.snapshot_id "
     "from catalog_offer o where o.snapshot_id = $1 and o.market = $2 "
     "and o.starts_at <= $3::text::timestamptz and (o.ends_at is null or $3::text::timestamptz < o.ends_at)")
+
+
+def audience_of(stored: dict) -> Audience:
+    """A published offer's audience, as its version stored it."""
+    rule = stored.get("listening")
+    return Audience(stored.get("segment"), stored.get("current_plan"), bool(stored.get("needs_student_check")),
+                    None if rule is None else ListeningRule(rule["artist_id"], rule["min_seconds"], rule["within_days"]))
 
 
 def live_offer(row) -> LiveOffer:
@@ -261,11 +270,24 @@ class Catalog:
 
     async def list_offers(self, tx: Connection, call: Call, request: catalog_pb2.ListOffersRequest) -> catalog_pb2.ListOffersResponse:
         code = market_code(request.market)
+        subscriber = request.subscriber_id
+        if subscriber < 0:
+            raise InvalidArgument(f"{subscriber} is not a subscriber: 0 lists the offers to nobody")
         at = self._at(request.at)
         ref = await reference.load(tx, at)
         market = ref.market(code)
-        offers = []
+        today = to_local(at, market.zone).date()
+        listed = []
         for offer, price, list_price in await self.live_offers(tx, market, at):
+            audience = audience_of(offer.audience)
+            # An offer for an artist's listeners goes only to a listener in its audience today, never to nobody (§6.8).
+            if audience.listening is not None and not (
+                    subscriber and await eligibility.includes(tx, audience, market.code, today, subscriber)):
+                continue
+            listed.append((offer, audience.listening, price, list_price))
+        artists = await reference.artist_names(tx, {rule.artist_id for _, rule, _, _ in listed if rule is not None})
+        offers = []
+        for offer, rule, price, list_price in listed:
             published = catalog_pb2.PublishedOffer(
                 offer_id=offer.change_id, version=offer.version, market=offer.market, plan=offer.plan, title=offer.title,
                 text=offer.body, terms=offer.terms, price=contract.money(price), list_price=contract.money(list_price),
@@ -274,6 +296,10 @@ class Catalog:
             if offer.ends_at is not None:
                 published.takeable_until.CopyFrom(common_pb2.LocalTime(
                     market=offer.market, local=format_local(parse_local(offer.ends_local)), utc=format_instant_text(offer.ends_at)))
+            if rule is not None:
+                published.listening.CopyFrom(catalog_pb2.OfferListening(
+                    artist_id=rule.artist_id, artist_name=artists.get(rule.artist_id, f"artist {rule.artist_id}"),
+                    min_seconds=rule.min_seconds, within_days=rule.within_days))
             offers.append(published)
         return catalog_pb2.ListOffersResponse(offers=offers)
 

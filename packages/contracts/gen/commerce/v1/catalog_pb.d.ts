@@ -544,6 +544,14 @@ export declare type PublishedOffer = Message<"commerce.v1.PublishedOffer"> & {
    * @generated from field: commerce.v1.PriceBreakdown breakdown = 14;
    */
   breakdown?: PriceBreakdown | undefined;
+
+  /**
+   * The listening its audience asks for (§14.2), when it asks for any: such
+   * an offer is listed only to a listener in its audience (§6.8).
+   *
+   * @generated from field: commerce.v1.OfferListening listening = 15;
+   */
+  listening?: OfferListening | undefined;
 };
 
 /**
@@ -551,6 +559,43 @@ export declare type PublishedOffer = Message<"commerce.v1.PublishedOffer"> & {
  * Use `create(PublishedOfferSchema)` to create a new message.
  */
 export declare const PublishedOfferSchema: GenMessage<PublishedOffer>;
+
+/**
+ * What an offer for an artist's listeners asks for (§14.2): more than
+ * min_seconds of the artist in the within_days days before the day, in the
+ * market's calendar.
+ *
+ * @generated from message commerce.v1.OfferListening
+ */
+export declare type OfferListening = Message<"commerce.v1.OfferListening"> & {
+  /**
+   * @generated from field: int32 artist_id = 1;
+   */
+  artistId: number;
+
+  /**
+   * The artist's name in the catalog.
+   *
+   * @generated from field: string artist_name = 2;
+   */
+  artistName: string;
+
+  /**
+   * @generated from field: int32 min_seconds = 3;
+   */
+  minSeconds: number;
+
+  /**
+   * @generated from field: int32 within_days = 4;
+   */
+  withinDays: number;
+};
+
+/**
+ * Describes the message commerce.v1.OfferListening.
+ * Use `create(OfferListeningSchema)` to create a new message.
+ */
+export declare const OfferListeningSchema: GenMessage<OfferListening>;
 
 /**
  * @generated from message commerce.v1.ListOffersRequest
@@ -565,6 +610,16 @@ export declare type ListOffersRequest = Message<"commerce.v1.ListOffersRequest">
    * @generated from field: string at = 2;
    */
   at: string;
+
+  /**
+   * Who the offers are listed to; 0 for nobody. An offer whose audience asks
+   * for listening (§14.2) is listed only when they are in its audience on the
+   * day, in the market's calendar, and never to nobody (§6.8). The other
+   * offers are listed to everyone.
+   *
+   * @generated from field: int64 subscriber_id = 3 [jstype = JS_STRING];
+   */
+  subscriberId: string;
 };
 
 /**
@@ -820,7 +875,8 @@ export declare const CatalogService: GenService<{
   },
   /**
    * The offers the published catalog holds now: the site shows an offer if and
-   * only if its prices are in force (§7.5).
+   * only if its prices are in force (§7.5), and an offer for an artist's
+   * listeners only to them (§6.8).
    *
    * @generated from rpc commerce.v1.CatalogService.ListOffers
    */

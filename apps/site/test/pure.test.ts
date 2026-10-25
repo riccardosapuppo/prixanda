@@ -1,8 +1,10 @@
 // The site's pure modules: dates put into words, the markets of an address,
-// and the geometry of the drawings, held to their rules.
+// who an offer for an artist's listeners is for, and the geometry of the
+// drawings, held to their rules.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { canopy, monthsScene } from "../src/components/art/geometry.ts";
+import { copy } from "../src/content/copy.ts";
 import { DEFAULT_MARKET, isSiteMarket, marketFromQuery, marketShort, SITE_MARKETS } from "../src/data/markets.ts";
 import { lastDayBefore, siteDay, siteTime } from "../src/lib/dates.ts";
 
@@ -35,6 +37,29 @@ describe("dates in words", () => {
     assert.throws(() => siteDay("26/10/2026"), RangeError);
     assert.throws(() => siteDay("2026-13-01"), RangeError);
     assert.throws(() => siteTime("yesterday", "Europe/Rome"), RangeError);
+  });
+});
+
+describe("who an offer for an artist's listeners is for (§14.2)", () => {
+  const rule = (minSeconds: number, withinDays = 30) => ({ artist: "Ottoline Marr", minSeconds, withinDays });
+
+  it("says it as what they did, with the API's artist, time and days", () => {
+    assert.equal(copy.listening.forListeners(rule(7_200)), "For listeners who played Ottoline Marr for more than 2 hours in the last 30 days.");
+    assert.equal(copy.listening.forListeners(rule(10_800, 7)), "For listeners who played Ottoline Marr for more than 3 hours in the last 7 days.");
+  });
+
+  it("words the time as the engine does: whole hours, else whole minutes, else seconds; one of each in the singular", () => {
+    assert.match(copy.listening.forListeners(rule(3_600)), /for more than 1 hour in/);
+    assert.match(copy.listening.forListeners(rule(5_400)), /for more than 90 minutes in/);
+    assert.match(copy.listening.forListeners(rule(60)), /for more than 1 minute in/);
+    assert.match(copy.listening.forListeners(rule(45)), /for more than 45 seconds in/);
+    assert.match(copy.listening.forListeners(rule(1)), /for more than 1 second in/);
+    assert.match(copy.listening.forListeners(rule(7_776_000, 90)), /for more than 2,160 hours in the last 90 days/);
+    assert.match(copy.listening.forListeners(rule(7_200, 1)), /in the last day\.$/);
+  });
+
+  it("tags its campaign with the artist", () => {
+    assert.equal(copy.listening.tag("Doppelfenster"), "Listeners of Doppelfenster");
   });
 });
 

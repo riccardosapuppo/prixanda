@@ -5,9 +5,9 @@
 // starts PostgreSQL, the engine, the gateway and the site on the check's
 // ports, drives a headless Chromium through its journeys and stops
 // everything. student-autumn.e2e.ts is stage 5's (§14.1), gift-and-price.e2e.ts
-// stage 7's (§14.3, §14.4); name one to run it alone. Needs npm run setup
-// (the engine's Python environment) and Playwright's Chromium for playwright
-// 1.62.1.
+// and album-release.e2e.ts stage 7's (§14.3, §14.4; §14.2); name one to run
+// it alone. Needs npm run setup (the engine's Python environment) and
+// Playwright's Chromium for playwright 1.62.1.
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +23,7 @@ function node(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<num
   });
 }
 
-const FILES = ["student-autumn.e2e.ts", "gift-and-price.e2e.ts"];
+const FILES = ["student-autumn.e2e.ts", "gift-and-price.e2e.ts", "album-release.e2e.ts"];
 const asked = process.argv.slice(2);
 const files = asked.length > 0 ? FILES.filter((file) => asked.some((name) => file.startsWith(name))) : FILES;
 if (files.length === 0) throw new Error(`no end-to-end file named ${asked.join(", ")}: ${FILES.join(", ")}`);

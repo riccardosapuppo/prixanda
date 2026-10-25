@@ -4,7 +4,7 @@
 // where a type has no message of its own.
 import type { AuditEvent, ChainHead, VerifyChainResponse } from "contracts/commerce/v1/audit";
 import type {
-  Entitlements, Market, Plan, PrepaidPassOnSale, PriceBreakdown, PriceChangePolicy, PriceListEntry, PublishedOffer,
+  Entitlements, Market, OfferListening, Plan, PrepaidPassOnSale, PriceBreakdown, PriceChangePolicy, PriceListEntry, PublishedOffer,
 } from "contracts/commerce/v1/catalog";
 import type { Artist } from "contracts/commerce/v1/catalog";
 import type {
@@ -99,6 +99,7 @@ export type PublicPlanModel = Plan;
 export type PublicListPriceModel = PriceListEntry;
 export type PublicMarketTimeModel = LocalTime;
 export type PublicOfferModel = PublishedOffer;
+export type PublicOfferListeningModel = OfferListening;
 export type PublicQuoteModel = Quote;
 export type PublicDemoListenerModel = DemoListener;
 /** The site's session: the listener chosen at the entrance, its CSRF token and expiry. */
