@@ -76,7 +76,7 @@ export function MigrationInShort({ changeId, version }: { readonly changeId: str
     <>
       <MigrationSummary simulation={outcome} />
       <ConditionsList conditions={outcome.financeConditions} />
-      <p><Link href={`/price-migrations/simulation/?id=${changeId}`} className="inline-flex items-center gap-1.5 font-semibold"><Icon name="calculator" size={16} />Open the simulation</Link></p>
+      <p><Link href={`/price-migrations/simulation/?id=${changeId}`} className="inline-flex items-center gap-1.5 font-semibold pointer-coarse:-my-3 pointer-coarse:py-3"><Icon name="calculator" size={16} />Open the simulation</Link></p>
     </>
   );
 }

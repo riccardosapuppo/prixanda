@@ -114,6 +114,37 @@ export async function layoutProblems(page: Page): Promise<{ readonly sideways: n
   });
 }
 
+/**
+ * What a finger would miss on a touch screen: every link, button, field and
+ * summary shown smaller than 44 x 44 px. A link inside a sentence or a table
+ * is left out (the text and the row around it set its size), and so is the
+ * skip link, which only the keyboard brings in; a checkbox or a radio button
+ * is measured by its label, which takes the tap.
+ */
+export async function smallTargets(page: Page): Promise<readonly string[]> {
+  return page.evaluate(() => {
+    const shown = (element: Element) => {
+      for (let at: Element | null = element; at !== null; at = at.parentElement) {
+        const style = getComputedStyle(at);
+        if (style.display === "none" || style.visibility === "hidden" || (at instanceof HTMLElement && at.hidden)) return false;
+      }
+      return element.getClientRects().length > 0;
+    };
+    const inSentence = (link: Element) => Array.from(link.parentElement?.childNodes ?? []).some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "");
+    const small: string[] = [];
+    for (const element of Array.from(document.querySelectorAll<HTMLElement>("a[href], button, input:not([type=hidden]), select, textarea, summary"))) {
+      if (!shown(element) || element.matches(".skip") || element.closest("table, .table-scroll")) continue;
+      if (element instanceof HTMLAnchorElement && inSentence(element)) continue;
+      const target = element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio") ? element.closest("label") ?? element : element;
+      const box = target.getBoundingClientRect();
+      if (box.width < 43.5 || box.height < 43.5) {
+        small.push(`${element.tagName.toLowerCase()} "${(element.textContent || element.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim().slice(0, 40)}" ${Math.round(box.width)}x${Math.round(box.height)}`);
+      }
+    }
+    return [...new Set(small)];
+  });
+}
+
 /** The next Monday after today in Rome, at 09:00, the contract's way. */
 export function nextMondayAtNine(now = new Date()): string {
   const rome = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" }).formatToParts(now);

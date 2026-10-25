@@ -291,7 +291,7 @@ function SimulationInShort({ change, market, marketLabel }: { readonly change: C
               </li>
             ))}
           </ol>
-          <p><Link href={`/campaigns/simulation/?id=${change.id}&market=${market}`} className="inline-flex items-center gap-1.5 font-semibold"><Icon name="calculator" size={16} />Open the simulation</Link></p>
+          <p><Link href={`/campaigns/simulation/?id=${change.id}&market=${market}`} className="inline-flex items-center gap-1.5 font-semibold pointer-coarse:-my-3 pointer-coarse:py-3"><Icon name="calculator" size={16} />Open the simulation</Link></p>
         </>
       ) : result.data?.simulateOffer.__typename === "Refusal" ? <p className="text-ink-2">{result.data.simulateOffer.reason}</p> : null}
     </Block>
@@ -341,7 +341,7 @@ export function ItsLaunches({ changeId, title }: { readonly changeId: string; re
         return (
           <li key={run.id} className="flex flex-wrap items-center gap-2 text-sm">
             <Icon name="rocket-launch" size={16} className="text-indigo" />
-            <Link href={launchHref(run.id)} className="font-semibold">Its launch, {run.run}</Link>
+            <Link href={launchHref(run.id)} className="font-semibold pointer-coarse:-my-3 pointer-coarse:py-3">Its launch, {run.run}</Link>
             <Chip look={look.look} icon={look.icon}>{look.word}</Chip>
           </li>
         );

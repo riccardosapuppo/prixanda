@@ -1,9 +1,14 @@
 // Every screen at the widths the console is made for (1440, 1280, 390 and 320 px,
 // and 1440 at 200% zoom, which lays out like a 720 px window): the page never
 // scrolls sideways (tables and the week's lanes scroll inside their own
-// boxes), and no text is cut.
+// boxes), no text is cut, and the demo's words are in sight at the top of the
+// page with the menu closed. On a touch screen every control is at least
+// 44 px each way.
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
-import { asPerson, enterAs, layoutProblems, notRunForTheClocks, recordNotRun, submittedMigration, submittedOffer } from "./support.ts";
+import { asPerson, enterAs, layoutProblems, notRunForTheClocks, recordNotRun, smallTargets, submittedMigration, submittedOffer } from "./support.ts";
+
+/** The demo's words in the console's frame (business book §13.3): the beginning is enough to find them. */
+const DISCLAIMER = "Independent personal project. Fictional business and synthetic customer data.";
 
 test.describe.configure({ mode: "serial" });
 
@@ -55,6 +60,8 @@ test("the home", async () => {
   await atEveryWidth("/", async (on) => {
     await expect(on.getByRole("heading", { name: /Paying subscribers by plan and market/ })).toBeVisible();
     await expect(on.getByRole("heading", { name: "This week, by market and plan" })).toBeVisible();
+    // In the rail on a wide screen, under the person on a narrow one: never behind the menu.
+    await expect(on.getByText(DISCLAIMER).first()).toBeInViewport();
   });
 });
 
@@ -126,4 +133,45 @@ test("the audit log, the price list and the launches", async () => {
   });
   await atEveryWidth("/price-list/", heading("Price list"));
   await atEveryWidth("/launches/", heading("Launches"));
+});
+
+test("on a touch screen every control is at least 44 px each way: buttons, fields, tabs, filters, breadcrumbs, the rail", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const touch = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  try {
+    const phone = await touch.newPage();
+    await enterAs(phone, "Marketing");
+    const reader = asPerson("marketing-1");
+    await reader.signIn();
+    const launch = (await reader.query("query { launches(first: 1) { nodes { id } } }")).launches.nodes[0] as { id: string } | undefined;
+    const screens: readonly (readonly [string, (on: Page) => Promise<void>])[] = [
+      ["/", async (on) => expect(on.getByRole("heading", { name: "This week, by market and plan" })).toBeVisible()],
+      ["/campaigns/", heading("Campaigns")],
+      ["/campaigns/new/", heading("Audience")],
+      [`/campaigns/edit/?id=${changeId}&step=5`, async (on) => expect(on.getByLabel("The change in business words")).toBeVisible()],
+      [`/campaigns/approval/?id=${changeId}`, heading("Decision")],
+      [`/campaigns/simulation/?id=${changeId}`, heading(/At these assumptions/)],
+      ["/approvals/", heading("Approvals")],
+      ["/launches/", heading("Launches")],
+      ...(launch ? [[`/launches/run/?id=${launch.id}`, heading(/^Launch timeline:/)] as const] : []),
+      ["/audit/", async (on) => expect(on.getByRole("heading", { name: "Events" })).toBeVisible()],
+      ["/price-list/", heading("Price list")],
+      ["/price-migrations/new/", heading("New price")],
+      [`/price-migrations/approval/?id=${migrationId}`, heading("Decision")],
+      ["/passes/new/", heading("The pass")],
+    ];
+    const found: string[] = [];
+    for (const [path, ready] of screens) {
+      await phone.goto(path);
+      await ready(phone);
+      for (const small of await smallTargets(phone)) found.push(`${path}: ${small}`);
+    }
+    // The rail's menu, open: its links, the person and the way out of the demo.
+    await phone.getByRole("button", { name: "Menu" }).click();
+    await expect(phone.getByRole("button", { name: "Leave the demo" })).toBeVisible();
+    for (const small of await smallTargets(phone)) found.push(`the menu: ${small}`);
+    expect(found).toEqual([]);
+  } finally {
+    await touch.close();
+  }
 });

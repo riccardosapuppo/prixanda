@@ -65,7 +65,7 @@ export function WeekZone({ markets }: { readonly markets: HomeQuery["markets"] }
                 type="button"
                 aria-pressed={align === value}
                 onClick={() => setAlign(value)}
-                className={`inline-flex min-h-9 items-center gap-1.5 px-3 text-sm font-semibold first:rounded-l-control last:rounded-r-control [&+&]:border-l [&+&]:border-edge ${align === value ? "bg-ink text-stone-0" : "hover:bg-stone-2"}`}
+                className={`inline-flex min-h-9 pointer-coarse:min-h-11 items-center gap-1.5 px-3 text-sm font-semibold first:rounded-l-control last:rounded-r-control [&+&]:border-l [&+&]:border-edge ${align === value ? "bg-ink text-stone-0" : "hover:bg-stone-2"}`}
               >
                 {value === "local" ? "Each market's time" : "UTC"}
               </button>
@@ -198,7 +198,7 @@ function LaneItem({ lane }: { readonly lane: Lane }) {
         {lane.sheets.map((sheet, index) => (
           <li key={index}>
             {sheet.kind === "price" ? `List price ${sheet.amount ? formatMoney(sheet.amount) : ""}` : (
-              <Link href={`/campaigns/approval/?id=${sheet.changeId}`}>{sheet.label} v{sheet.version}, {sheet.look === "waiting" ? "waiting for a signature" : sheet.look === "live" ? "live" : "approved"}</Link>
+              <Link href={`/campaigns/approval/?id=${sheet.changeId}`} className="pointer-coarse:py-3.5">{sheet.label} v{sheet.version}, {sheet.look === "waiting" ? "waiting for a signature" : sheet.look === "live" ? "live" : "approved"}</Link>
             )}
           </li>
         ))}

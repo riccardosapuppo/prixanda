@@ -1,7 +1,8 @@
 // The confirmation of an irreversible action: focus on Cancel first, Cancel
 // closes it and gives the focus back, the confirm button acts once. Escape is
 // the browser's own and only a real key press closes a modal dialog, so the
-// full stack's suite presses it (e2e/student-autumn-pass.spec.ts).
+// full stack's suite presses it (e2e/student-autumn-pass.spec.ts). It opens
+// in the middle of the window, never against one of its edges.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useRef, useState } from "react";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
@@ -49,5 +50,25 @@ export const CancelFirstThenConfirm: StoryObj<typeof meta> = {
     await userEvent.click(opener);
     await userEvent.click(within(await page.findByRole("dialog")).getByRole("button", { name: "Approve v3" }));
     await expect(args.onConfirm).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const InTheMiddleOfTheWindow: StoryObj<typeof meta> = {
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body);
+    const view = canvasElement.ownerDocument.defaultView ?? window;
+    await userEvent.click(page.getByRole("button", { name: "Approve v3 as Finance" }));
+    const dialog = await page.findByRole("dialog", { name: "Approve v3 as Finance?" });
+    // As much room on the left as on the right, above as below, and some on every side.
+    await waitFor(() => {
+      const box = dialog.getBoundingClientRect();
+      const left = box.left;
+      const right = view.innerWidth - box.right;
+      const top = box.top;
+      const bottom = view.innerHeight - box.bottom;
+      expect(Math.abs(left - right)).toBeLessThanOrEqual(2);
+      expect(Math.abs(top - bottom)).toBeLessThanOrEqual(2);
+      expect(Math.min(left, right, top, bottom)).toBeGreaterThanOrEqual(16);
+    });
   },
 };
