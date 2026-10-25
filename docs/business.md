@@ -158,8 +158,9 @@ provider is asked through the outbox (§7.5), and its answers settle the
 payment. Each answer counts once, however often and in whatever order it
 arrives; the receipt is issued when the payment succeeds. If the provider
 declines the charge, the paid subscription ends at the end of that day and
-the listener is back on the free plan the next day. The provider is
-simulated and accepts every charge (§15).
+the listener is back on the free plan the next day; until the payment is
+settled, no price migration asks the subscription anything (§8.9). The
+provider is simulated and accepts every charge (§15).
 
 ## 5. The artists' economics
 
@@ -503,10 +504,14 @@ window has ended. It also leaves out a subscription that still waits for an
 earlier migration: one whose request from it is not settled yet, or whose new
 price from it takes over on or after the first day the later price could.
 Both prices would otherwise fall on the same charge, as when an offer's
-months hold both back to the day the offer ends. That subscription keeps the
-price already set, and a migration after it can reach it once that price
-applies. The launch counts the subscriptions it leaves out, and the
-simulation leaves them out of the existing subscribers and says how many.
+months hold both back to the day the offer ends. It leaves out as well a
+subscription whose first payment is still pending: a yes or a no would write
+its future, a later price or the day it leaves with the free plan after it,
+while the provider can still decline that payment and end it the next day
+(§4.5). Such a subscription keeps the price it has, and a migration after it
+can reach it once that price applies or that payment is settled. The launch
+counts the subscriptions it leaves out, and the simulation leaves them out of
+the existing subscribers and says how many.
 
 ## 9. Prepaid passes
 

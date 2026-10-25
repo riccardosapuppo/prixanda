@@ -19,7 +19,7 @@ from datetime import UTC, date, datetime
 import pytest
 
 from commerce.engine import migrations, outbox
-from commerce.engine.errors import InvalidArgument, NotFound
+from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound
 from commerce.server.app import Jobs
 from commerce.engine.logs import JsonLog
 from commerce.engine.providers import FAILED, PENDING, ChargeResult, ProviderEvent
@@ -27,7 +27,8 @@ from commerce.invariants import check
 from helpers import add_subscription
 from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2
 from engine_support import (
-    AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, apply, create, eur, family_migration, scheduled, student_autumn,
+    AUDITOR, FINANCE, LEAD, MARKETING, ON_CALL, PUBLIC, apply, create, eur, family_migration, gift_pass, scheduled,
+    student_autumn,
 )
 
 REFUSAL = common_pb2.RefusalCode
@@ -345,6 +346,7 @@ async def test_in_italy_a_notice_applies_the_price_unless_the_listener_leaves(wo
     quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="student", market="IT", offer_id=pass_.id,
                                                                      subscriber_id=101), PUBLIC)).quote
     await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(quote_id=quote.quote_id, subscriber_id=101), PUBLIC)
+    await world.engine.deliver_outbox()  # its first payment settles: a rise waits for a pending one (§8.9)
     rise = family_migration(title="Student price, Italy", plan="student", market="IT", amount=eur(649))
     await scheduled(world, rise, LEAD, FINANCE)
     world.clock.at = at(2026, 11, 2, 7, 59, 30)
@@ -394,6 +396,7 @@ async def test_a_second_rise_leaves_for_later_a_subscription_whose_first_new_pri
     quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="student", market="IT", offer_id=pass_.id,
                                                                      subscriber_id=101), PUBLIC)).quote
     await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(quote_id=quote.quote_id, subscriber_id=101), PUBLIC)
+    await world.engine.deliver_outbox()  # its first payment settles: a rise waits for a pending one (§8.9)
     await scheduled(world, family_migration(title="Student price, Italy", plan="student", market="IT", amount=eur(649)),
                     LEAD, FINANCE)
     world.clock.at = at(2026, 11, 2, 7, 59, 30)
@@ -409,7 +412,8 @@ async def test_a_second_rise_leaves_for_later_a_subscription_whose_first_new_pri
     simulated = (await world.call("SimulateMigration", simulation_pb2.SimulateMigrationRequest(change_id=again.id),
                                   LEAD)).result
     assert {a.name: (a.value, a.source) for a in simulated.assumptions}["existing"] == (
-        1, "counted in the data at 2026-12-03T09:00:00Z, leaving out 1 waiting for an earlier migration's price (§8.9)")
+        1, "counted in the data at 2026-12-03T09:00:00Z, leaving out 1 waiting for an earlier migration's price or a "
+           "first payment (§8.9)")
     world.clock.at = at(2026, 12, 4, 7, 59, 30)
     [outcome] = await world.engine.activate_due()
     assert outcome.action == "activated", outcome
@@ -429,53 +433,101 @@ async def test_a_second_rise_leaves_for_later_a_subscription_whose_first_new_pri
     assert [tuple(r) for r in history] == [("2026-10-31", 299), ("2027-01-28", 649)]
 
 
-async def test_a_first_payment_declined_after_a_no_to_a_price_change_moves_the_listener_to_free_from_tomorrow(world,
-                                                                                                         monkeypatch):
-    """401 takes Individual in France on 24 October, and the provider takes its time; a rise asks 401 on 2 November,
-    401 says no and is to leave on 24 December, its Free plan written from then. The payment is declined on 3 November:
-    401 is on Free from the next day, up to that Free plan, and nothing overlaps (§4.5, §8.8)."""
+async def confirmed_pending(world, monkeypatch, subscriber: int, market: str) -> str:
+    """A listener takes Individual on 24 October, and the provider takes its time: the first payment stays pending."""
     async def slow(charge):
-        event = ProviderEvent("simulated", "evt_slow_0001", PENDING, charge.payment_id, "sim-pay-slow", world.clock.now())
+        event = ProviderEvent("simulated", f"evt_slow_{subscriber}", PENDING, charge.payment_id, "sim-pay-slow",
+                              world.clock.now())
         return ChargeResult("simulated", "sim-pay-slow", (event,))
 
     monkeypatch.setattr(world.engine.payments, "charge", slow)
+    quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="individual", market=market,
+                                                                     subscriber_id=subscriber), PUBLIC)).quote
+    payment = (await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(
+        quote_id=quote.quote_id, subscriber_id=subscriber), PUBLIC)).confirmation.payment.payment_id
+    await world.engine.deliver_outbox()
+    monkeypatch.undo()
+    return payment
+
+
+async def declined(world, payment: str, subscriber: int) -> None:
+    event = ProviderEvent("simulated", f"evt_declined_{subscriber}", FAILED, payment, "sim-pay-slow", world.clock.now(),
+                          "The card was declined.")
+    assert await world.engine.provider_events.receive(event) == "applied"
+
+
+async def test_a_rise_leaves_for_later_a_subscription_whose_first_payment_is_pending(world, monkeypatch):
+    """§8.9: 401's first payment is still pending when a rise in France starts on 2 November, so the rise does not ask
+    it, and says so: an answer would write the subscription's future while its payment may still undo it. The payment
+    is declined on 3 November: 401 is on Free from the next day, its only plan from then, and on 5 November it takes
+    Individual again."""
+    payment = await confirmed_pending(world, monkeypatch, 401, "FR")
+    rise = await scheduled(world, family_migration(title="Individual price, France", plan="individual", market="FR",
+                                                   amount=eur(1199)), LEAD, FINANCE)
+    world.clock.at = at(2026, 11, 2, 7, 30)
+    simulated = (await world.call("SimulateMigration", simulation_pb2.SimulateMigrationRequest(change_id=rise.id),
+                                  LEAD)).result
+    assert "leaving out 1 waiting for an earlier migration's price or a first payment (§8.9)" in (
+        {a.name: a.source for a in simulated.assumptions}["existing"])
+    world.clock.at = at(2026, 11, 2, 7, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    assert (await account(world, 401)).price_changes == []
+    activated = [json.loads(e["body"]) for e in await world.events("change.activated")][-1]
+    assert (activated["change"], activated["left_for_later"]) == (rise.id, 1)
+    world.clock.at = at(2026, 11, 3, 9, 0)
+    await declined(world, payment, 401)
+    world.clock.at = at(2026, 11, 5, 9, 0)
     quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="individual", market="FR", subscriber_id=401),
                               PUBLIC)).quote
-    payment = (await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(
-        quote_id=quote.quote_id, subscriber_id=401), PUBLIC)).confirmation.payment.payment_id
+    again = (await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(
+        quote_id=quote.quote_id, subscriber_id=401), PUBLIC)).confirmation.subscription
+    assert (again.plan, again.started_on) == ("individual", "2026-11-05")
+    history = await world.owner.fetch("select plan_id, started_on::text, ended_on::text from subscription "
+                                      "where subscriber_id = 401 order by started_on")
+    assert [tuple(r) for r in history] == [("free", "2026-01-10", "2026-10-24"), ("individual", "2026-10-24", "2026-11-04"),
+                                           ("free", "2026-11-04", "2026-11-05"), ("individual", "2026-11-05", None)]
+    report = await check(world.owner)
+    assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
+
+
+async def test_a_listener_whose_first_payment_was_declined_during_a_rise_activates_a_pass(world, monkeypatch):
+    """§9.3: 105 takes Individual in Italy and its first payment is pending when a rise there starts: the rise leaves it
+    for later. The payment is declined on 3 November, and on 5 November 105 activates a gift pass."""
+    payment = await confirmed_pending(world, monkeypatch, 105, "IT")
+    gift = await scheduled(world, gift_pass(), LEAD, FINANCE)
+    world.clock.at = at(2026, 10, 31, 22, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    world.clock.at = at(2026, 11, 1, 9, 0)
+    code = (await world.call("BuyPrepaidPass", subscriptions_pb2.BuyPrepaidPassRequest(subscriber_id=101, pass_id=gift.id),
+                             PUBLIC)).code
     await world.engine.deliver_outbox()
-    await scheduled(world, family_migration(title="Individual price, France", plan="individual", market="FR",
+    await scheduled(world, family_migration(title="Individual price, Italy", plan="individual", market="IT",
                                             amount=eur(1199)), LEAD, FINANCE)
     world.clock.at = at(2026, 11, 2, 7, 59, 30)
     [outcome] = await world.engine.activate_due()
     assert outcome.action == "activated", outcome
-    world.clock.at = at(2026, 11, 2, 10, 0)
-    assert (await answer(world, 401, False)).price_change.leaves_on == "2026-12-24"
+    assert (await account(world, 105)).price_changes == []
     world.clock.at = at(2026, 11, 3, 9, 0)
-    declined = ProviderEvent("simulated", "evt_declined_0401", FAILED, payment, "sim-pay-slow", world.clock.now(),
-                             "The card was declined.")
-    assert await world.engine.provider_events.receive(declined) == "applied"
-    history = await world.owner.fetch("select plan_id, started_on::text, ended_on::text from subscription "
-                                      "where subscriber_id = 401 order by started_on")
-    assert [tuple(r) for r in history] == [("free", "2026-01-10", "2026-10-24"), ("individual", "2026-10-24", "2026-11-04"),
-                                           ("free", "2026-11-04", "2026-12-24"), ("free", "2026-12-24", None)]
-    [failed] = await world.events("payment.failed")
-    assert json.loads(failed["body"])["ends_on"] == "2026-11-04"
+    await declined(world, payment, 105)
+    world.clock.at = at(2026, 11, 5, 9, 0)
+    activated = (await world.call("ActivatePrepaidPass", subscriptions_pb2.ActivatePrepaidPassRequest(
+        subscriber_id=105, code=code.code), PUBLIC)).subscription
+    assert (activated.plan, activated.started_on, activated.ends_on) == ("individual", "2026-11-05", "2027-02-05")
     report = await check(world.owner)
     assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
-    # The account says the day the paid plan ends, and the end of the window tells 401 the day it is on Free from,
-    # and why, not the day the no would have ended it.
-    [change] = (await account(world, 401)).price_changes
-    assert (change.state, change.leaves_on) == ("declined", "2026-11-04")
-    world.clock.at = at(2026, 12, 2, 23, 0)  # the notice runs out at midnight in Paris
-    [settled] = await world.engine.settle_migrations()
-    assert (settled.state, settled.effect, settled.dates) == (
-        "declined", "left", {"leaves_on": "2026-12-24", "free_from": "2026-11-04"})
-    await world.engine.deliver_outbox()
-    [told] = await world.owner.fetch("select body from subscriber_notice where subscriber_id = 401 and kind = $1",
-                                     migrations.OUTCOME)
-    assert told["body"].startswith("Your first payment was declined, so you are on the free plan from 2026-11-04,")
-    assert "ends on" not in told["body"]
+
+
+async def test_a_declined_first_payment_does_not_build_on_an_end_written_by_hand(world, monkeypatch):
+    """Nothing in the engine ends a subscription while its first payment is pending: an end written there by hand is
+    not built on. The decline is refused with the reason, and the payment stays pending."""
+    payment = await confirmed_pending(world, monkeypatch, 401, "FR")
+    await world.owner.execute("update subscription set ended_on = '2026-12-24' where subscriber_id = 401 and paid")
+    with pytest.raises(FailedPrecondition, match="ends on 2026-12-24 already"):
+        await world.engine.provider_events.receive(ProviderEvent(
+            "simulated", "evt_declined_by_hand", FAILED, payment, "sim-pay-slow", world.clock.now(), "The card was declined."))
+    assert await world.owner.fetchval("select state from payment where subscriber_id = 401") == "pending"
 
 
 # -- the simulation -----------------------------------------------------------------------

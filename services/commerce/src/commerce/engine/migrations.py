@@ -78,10 +78,13 @@ class Opened:
 # §8.9, one price change at a time: a subscription s waits for an earlier migration while that one's request to it is
 # not settled yet, or while a new price it set takes over on or after the first day this one's could ({threshold}).
 # The two would otherwise fall on the same charge, as when an offer's months hold both back. {change} is this
-# migration, whose own requests and prices never count.
+# migration, whose own requests and prices never count. It waits as well while its first payment is pending: a yes
+# or a no would write its future (a later price, the day it leaves and the free plan after it) while a declined
+# payment can still end it tomorrow (payments.py).
 WAITS = ("(exists (select from price_change_request w where w.subscription_id = s.id and w.change_id <> {change} "
          "and w.settled_at is null) or exists (select from subscription_price w where w.subscription_id = s.id "
-         "and w.change_id is not null and w.change_id <> {change} and w.from_on >= {threshold}))")
+         "and w.change_id is not null and w.change_id <> {change} and w.from_on >= {threshold}) "
+         "or exists (select from payment w where w.subscription_id = s.id and w.state = 'pending'))")
 
 
 def first_day(policy: Policy, content: PriceMigration, *, window_ends: date, today: date) -> date:
@@ -109,7 +112,7 @@ async def open_requests(tx: Connection, *, change_id: int, content: PriceMigrati
                         policy: Policy, now: datetime, request_id: str) -> Opened:
     """A request for each subscription of the plan in the market paid on the day, and its message to the listener. A
     prepaid pass is not asked: it was paid for, and a later price does not touch it (§9.1); nor is a subscription that
-    waits for an earlier migration (§8.9), which is counted as left for later.
+    waits for an earlier migration or for its first payment (§8.9), which is counted as left for later.
     Called before the new list price enters the price list, so that what a subscription pays without the change, after
     its offer's months too, is read as it stands."""
     assert content.plan and content.amount is not None
@@ -156,8 +159,7 @@ _REQUEST = (f"select r.id, r.change_id, r.subscription_id, r.subscriber_id, r.ma
             f"r.new_price_minor, {utc_text('r.sent_at')} as sent_at, to_char(r.window_ends_local, 'YYYY-MM-DD\"T\"HH24:MI') "
             f"as window_ends_local, {utc_text('r.window_ends_at')} as window_ends_at, r.state, r.answer, "
             f"r.new_price_from::text as new_price_from, r.leaves_on::text as leaves_on, r.settled_at, "
-            f"s.started_on::text as started_on, s.ended_on::text as ended_on, s.billing_day, s.offer_months, "
-            f"v.content::text as content "
+            f"s.started_on::text as started_on, s.billing_day, s.offer_months, v.content::text as content "
             f"from price_change_request r join subscription s on s.id = r.subscription_id "
             f"join change c on c.id = r.change_id join change_version v on v.change_id = c.id and v.version = c.current_version ")
 
@@ -213,14 +215,6 @@ def legal_words(policy: Policy) -> str:
     return f"{policy.legal_basis} Sources: {'; '.join(policy.legal_sources)}."
 
 
-def left_on(row) -> str:
-    """The day a no ended the paid subscription: the day it said, or an earlier one when the subscription ended sooner,
-    as when its first payment was declined meanwhile (payments.py)."""
-    if row["leaves_on"] is None:
-        return ""
-    return min(row["leaves_on"], row["ended_on"] or row["leaves_on"])  # ISO dates sort as their days
-
-
 def price_change_message(request: Request, market: reference.Market, now: datetime) -> subscriptions_pb2.PriceChange:
     row, policy = request.row, request.policy
     starts = request.migration.starts
@@ -236,7 +230,7 @@ def price_change_message(request: Request, market: reference.Market, now: dateti
         legal_basis=legal_words(policy),
         new_subscribers_from=common_pb2.LocalTime(market=market.code, local=format_local(starts)[:16],
                                                   utc=format_instant(to_instant(starts, market.zone))),
-        leaves_on=left_on(row))
+        leaves_on=row["leaves_on"] or "")
     if row["state"] == "waiting":
         can_answer = request.open(now)
         if policy.consent:
@@ -389,14 +383,6 @@ class Migrations:
         state, effect, dates = row["state"], "none", {}
         if row["leaves_on"] is not None:  # a no that ended the subscription
             effect, dates = "left", {"leaves_on": row["leaves_on"]}
-            # Its first payment declined since ended it sooner (payments.py): the listener is on the free plan from
-            # the day after the decline, and is told that day, and why.
-            sooner = await tx.fetchval(
-                "select s.ended_on::text from subscription s join payment p on p.subscription_id = s.id "
-                "where s.id = $1 and p.state = 'failed' and s.ended_on < $2::text::date", row["subscription_id"],
-                row["leaves_on"])
-            if sooner is not None:
-                dates["free_from"] = sooner
         elif state == "waiting" and asked.policy.consent:
             state = "lapsed"  # silence is never consent (§8.2)
             leaves = asked.leaving_day()
@@ -462,10 +448,6 @@ def _words(topic: str, asked: Request, market: reference.Market, payload: dict) 
         return ("Your price is changing",
                 f"Your subscription costs {old} a month. From your first charge after {ends} it costs {new}. You may leave "
                 f"before then. {legal_words(policy)}")
-    if payload.get("effect") == "left" and payload.get("free_from"):
-        return ("Your subscription after the price change",
-                f"Your first payment was declined, so you are on the free plan from {payload['free_from']}, with your "
-                f"playlists and library, and not from {payload.get('leaves_on')} as your answer would have had it.")
     if payload.get("effect") == "left":
         return ("Your subscription after the price change",
                 f"Your paid subscription ends on {payload.get('leaves_on')}, when the period you paid for runs out; from "
