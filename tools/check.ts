@@ -996,7 +996,7 @@ const DEMO_JOURNEYS: readonly DemoJourney[] = [
     summaryVariable: "SITE_DEMO_SUMMARY",
     floor: 6,
     describe: (summary) => `first start ${seconds(summary["coldReadyMs"])}, second tab ${seconds(summary["secondTabMs"])},`
-      + ` the campaign on the site ${seconds(summary["offerOnSiteMs"])} after the launch, a reload ${seconds(summary["reloadMs"])},`
+      + ` the campaign launched in ${seconds(summary["launchMs"])} and on the site ${seconds(summary["offerOnSiteMs"])} after the skip to it, a reload ${seconds(summary["reloadMs"])},`
       + ` the worker again ${seconds(summary["restartMs"])}, start over ${seconds(summary["startOverMs"])};`
       + ` axe on ${String(summary["pagesChecked"])} pages, ${String(summary["seriousViolations"])} serious; ${String(summary["externalRequests"])} requests elsewhere`,
   },
