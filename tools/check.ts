@@ -711,13 +711,18 @@ const SUITES: Suite[] = [
     async run({ cluster }) {
       if (!cluster) return notRun("no database");
       if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
-      const database = "commerce_start";
-      await dropDatabase(cluster, database);
-      await createDatabase(cluster, database, TEMPLATE);
       const ports = {
         engine: PORTS.engineCheck, internal: PORTS.gatewayCheckInternal, public: PORTS.gatewayCheckPublic,
         console: Number(process.env["CONSOLE_PORT"] || 4631), site: Number(process.env["CHECK_SITE_PORT"] ?? 4632),
       };
+      // A port another program holds is this machine's state, not a fault of npm start: not run, and why.
+      for (const [what, port] of Object.entries(ports)) {
+        const holder = await listenerOn(port);
+        if (holder) return notRun(`port ${port}, for the ${what}, is taken by ${holder}`);
+      }
+      const database = "commerce_start";
+      await dropDatabase(cluster, database);
+      await createDatabase(cluster, database, TEMPLATE);
       const child = spawn(process.execPath, [join(repoRoot, "tools", "start.ts"), "--cluster", cluster.dataDir, "--database", database,
         "--stop-on-stdin-close"], {
         cwd: repoRoot,
