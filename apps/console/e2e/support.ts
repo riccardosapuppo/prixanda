@@ -263,6 +263,16 @@ export function daysAfter(local: string, days: number, time: string): string {
   return `${date.toISOString().slice(0, 10)}T${time}`;
 }
 
+/**
+ * A local time some days after today in a zone, at a time of day: the day
+ * after tomorrow at 09:00 in Rome. Whatever the weekday and the hour a test
+ * runs, it is as many days ahead, and 09:00 is a time no clock change
+ * skips or repeats.
+ */
+export function daysAhead(days: number, time: string, zone: string, now = new Date()): string {
+  return daysAfter(wallTime(now, zone), days, time);
+}
+
 /** A price migration written, checked and submitted by the commercial lead through the gateway: something to look at. */
 export async function submittedMigration(title: string, plan: string, market: string, amount: { readonly amountMinor: string; readonly currency: string }): Promise<string> {
   const lead = asPerson("commercial-lead-1");

@@ -6,13 +6,15 @@
 // audit log holds every step with the request ids born in the console.
 // axe runs on every screen on the way.
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
-import { axe, callByHand, enterAs, onlyLocal, switchTo, watchErrors } from "./support.ts";
+import { axe, callByHand, daysAhead, enterAs, onlyLocal, switchTo, watchErrors } from "./support.ts";
 
 test.describe.configure({ mode: "serial" });
 
 const RUN = Date.now().toString(36);
 const TITLE = `Student Autumn Pass ${RUN}`;
 const GROUP = `student-offers-${RUN}`;
+/** When the pass starts in Italy: the day after tomorrow at 09:00 in Rome. */
+const STARTS = daysAhead(2, "09:00", "Europe/Rome");
 
 let context: BrowserContext;
 let page: Page;
@@ -72,7 +74,12 @@ test("Marketing writes the campaign in five steps, with the page beside it", asy
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Dates" })).toBeVisible();
-  await expect(page.getByText(/Rome \(\d\d:\d\d UTC\)/)).toBeVisible();
+  // The day after tomorrow at 09:00 in Rome: in the future while the test runs, and among the next seven days the
+  // launches show, whatever the weekday and the hour. The form's own start, the next Monday at 09:00, is more than
+  // seven days away on a Monday morning.
+  await page.getByLabel("Starts, Rome time").fill(STARTS);
+  await expect(page.getByLabel("Starts, Rome time")).toHaveValue(STARTS);
+  await expect(page.getByText(/09:00 Rome \(0[78]:00 UTC\)/)).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Page" })).toBeVisible();
