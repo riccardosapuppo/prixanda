@@ -39,7 +39,7 @@ export function HeaderLinks() {
           ))}
         </ul>
       </nav>
-      <div className="ml-auto flex items-center gap-3">
+      <div className="head-actions ml-auto flex items-center gap-3">
         <Link
           href={"/account/" as Route}
           {...(onAccount ? { "aria-current": "page" as const } : {})}

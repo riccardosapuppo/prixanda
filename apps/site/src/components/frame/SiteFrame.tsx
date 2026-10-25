@@ -33,7 +33,7 @@ function Wordmark({ label }: { readonly label?: string }) {
   return (
     <Link
       href="/"
-      className="text-ink no-underline [font-stretch:125%] text-[1.5rem] leading-none font-[760] tracking-[-0.02em]"
+      className="wordmark text-ink no-underline [font-stretch:125%] text-[1.5rem] leading-none font-[760] tracking-[-0.02em]"
       {...(label ? { "aria-label": label } : {})}
     >
       {copy.service}

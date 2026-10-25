@@ -1,7 +1,8 @@
 // What the site's end-to-end tests do with the browser, shared by them: a
 // visitor of its own that counts what must not happen (a request to another
 // host, an error in the console), axe on a page as it stands, the keyboard's
-// way to an element, and the check that a page fits its window.
+// way to an element, the check that a page fits its window, and on a phone's
+// touch screen that every control is big enough for a finger.
 import assert from "node:assert/strict";
 import { AxeBuilder } from "@axe-core/playwright";
 import type { Browser, BrowserContext, Locator, Page, Request } from "playwright";
@@ -90,6 +91,55 @@ export async function misfits(page: Page): Promise<string[]> {
 }
 
 /**
+ * The widths again, on the page as it stands and without a reload: a state
+ * a reload would lose (the steps of a subscription, a receipt) is fitted at
+ * each, then the window goes back to 1280. What does not fit, by width.
+ */
+export async function misfitsHere(page: Page): Promise<string[]> {
+  const found: string[] = [];
+  for (const width of WIDTHS) {
+    await page.setViewportSize({ width, height: width < 600 ? 844 : 900 });
+    await animationsDone(page);
+    await page.evaluate(() => document.fonts.ready);
+    for (const problem of await misfits(page)) found.push(`${width} px, ${new URL(page.url()).pathname}: ${problem}`);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  return found;
+}
+
+/** A phone's touch screen, for a browser of a phone's width: the one the styles for a finger (pointer: coarse) apply to. */
+export const PHONE = { isMobile: true, hasTouch: true } as const;
+
+/**
+ * What a finger has to aim at that is under 44 px on a touch screen, each
+ * control by the box it is pressed on (a radio by its label). A link inside
+ * a sentence takes the sentence's lines and is left out.
+ */
+export async function smallTargets(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const found: string[] = [];
+    const seen = new Set<Element>();
+    for (const element of document.querySelectorAll("a[href], button, input:not([type='hidden']), select, textarea, summary, [role='button']")) {
+      const target = (element.tagName === "INPUT" && element.closest("label")) || element;
+      if (seen.has(target)) continue;
+      seen.add(target);
+      const style = getComputedStyle(target);
+      if (style.display === "none" || style.visibility === "hidden" || target.closest("[hidden]")) continue;
+      const box = target.getBoundingClientRect();
+      // Off the page until it has the focus, as the link to the content is.
+      if (box.width === 0 || box.height === 0 || box.bottom + window.scrollY < 0) continue;
+      const parent = target.parentElement;
+      const inSentence = target.tagName === "A" && parent !== null
+        && [...parent.childNodes].some((node) => node !== target && node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "");
+      if (inSentence || (box.width >= 44 && box.height >= 44)) continue;
+      const words = ((target as HTMLElement).innerText || target.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim().slice(0, 40);
+      found.push(`${Math.round(box.width)}×${Math.round(box.height)} ${target.tagName.toLowerCase()} "${words}"`);
+    }
+    return found;
+  });
+}
+
+/**
  * One test's watch over its browsers: every visitor it opens counts requests
  * to other hosts and console errors, and remembers the site's own requests to
  * the API with their request ids, to be found again in the audit log.
@@ -171,6 +221,13 @@ export class Watch {
       this.layoutChecks += 1;
     }
     await page.setViewportSize({ width: 1280, height: 900 });
+    return found;
+  }
+
+  /** The page at every width as it stands, without a reload (misfitsHere): what does not fit, by width. */
+  async fitsHere(page: Page): Promise<string[]> {
+    const found = await misfitsHere(page);
+    this.layoutChecks += WIDTHS.length;
     return found;
   }
 

@@ -9,7 +9,9 @@
 //      the worker and the demo's "skip to the launch", reaches the site.
 //   4. The data stays: after a reload, and after every tab was closed and
 //      the worker started again from this browser's storage.
-//   5. Start over puts the demo back as it was built, in every tab.
+//   5. Start over puts the demo back as it was built, in every tab. The
+//      panel about the sandbox, and its question before starting over, fit
+//      every width as they stand.
 //   6. No request left the origin, and no page logged an error.
 //
 // Each step is timed, and the times are written with the machine and the
@@ -168,7 +170,9 @@ describe("the site in the demo's sandbox: one browser, its tabs, one worker", ()
     await about.waitFor();
     assert.match(await about.innerText(), /IndexedDB/);
     await watch.accessible(first, "the panel about the sandbox");
+    assert.deepEqual(await watch.fitsHere(first), [], "the panel about the sandbox fits every width");
     await about.getByRole("button", { name: "Start over" }).click();
+    assert.deepEqual(await watch.fitsHere(first), [], "the question before starting over fits every width");
     const reloads = Promise.all([first.waitForEvent("load", { timeout: 60_000 }), second.waitForEvent("load", { timeout: 60_000 })]);
     const started = performance.now();
     await about.getByRole("button", { name: "Yes, start over" }).click();
