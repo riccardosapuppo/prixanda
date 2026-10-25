@@ -37,7 +37,10 @@ export function Plans({ market, plan, moved, onMarket, onPlan }: {
   const plans = usePlans(market);
   const offers = useOffers(market);
   const info = markets.data?.find((each) => each.code === market);
-  const listed = plans.isSuccess ? inSiteOrder(plans.data) : [];
+  // The plans are read again by themselves (when the tab is seen again, say): a reading that fails
+  // takes nothing away. The plans stay as read last, with the steps open on one of them and their
+  // keys, and the failure is said above them.
+  const listed = plans.data ? inSiteOrder(plans.data) : [];
   const open = listed.some((each) => each.code === plan) ? plan : listed[0]?.code;
 
   return (
@@ -73,7 +76,7 @@ export function Plans({ market, plan, moved, onMarket, onPlan }: {
           <legend className="sr-only">{copy.plans.legend}</legend>
           {plans.isPending || markets.isPending ? <Loading /> : null}
           {plans.isError ? <Failure error={plans.error} onRetry={() => void plans.refetch()} /> : null}
-          {plans.isSuccess && info !== undefined
+          {plans.data !== undefined && info !== undefined
             ? listed.map((each) => (
               <PlanRow
                 key={each.code}

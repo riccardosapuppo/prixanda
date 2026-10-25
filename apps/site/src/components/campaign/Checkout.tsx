@@ -52,12 +52,15 @@ export type Target = {
 export type Level = 2 | 3;
 
 export function Checkout({ target, onClose, level = 2 }: { readonly target: Target; readonly onClose: () => void; readonly level?: Level }) {
+  // The listener is read again when the tab is seen again and after a check or a confirmation: a
+  // reading that fails takes nothing away. The listener read last stays, and the steps with their
+  // keys; the failure is said above them, with a try again.
   const me = useMe();
   return (
     <div className="is-entering mt-2 grid gap-4 border border-ink bg-stone px-5 pt-4 pb-5 max-md:px-4">
       {me.isPending ? <Loading /> : null}
       {me.isError ? <Failure error={me.error} onRetry={() => void me.refetch()} /> : null}
-      {me.isSuccess && me.data === null ? (
+      {me.data === null ? (
         <Entrance
           market={target.market}
           elsewhere={target.offer ? copy.entrance.inOtherMarket : (name) => copy.entrance.otherPrices(name, target.marketName)}
@@ -65,7 +68,7 @@ export function Checkout({ target, onClose, level = 2 }: { readonly target: Targ
           focusOnMount
         />
       ) : null}
-      {me.isSuccess && me.data !== null ? <Signed key={me.data.id} me={me.data} target={target} level={level} /> : null}
+      {me.data ? <Signed key={me.data.id} me={me.data} target={target} level={level} /> : null}
       <p className="m-0">
         <button type="button" className="btn btn-quiet" onClick={onClose}>
           <Icon name="arrow-left" size={16} />

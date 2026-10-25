@@ -21,9 +21,12 @@
 //      another in a second tab of the same browser. Back on the first, the
 //      steps start over for the new listener: the quote is asked again with
 //      a key of its own, and the engine answers it.
-//   8. A verified student takes the pass from the home on the keyboard alone,
+//   8. With the confirmation open, the readings of the listener and of the
+//      offers fail: the steps stay as they were, with their quote, and each
+//      failure is said with a way to try again, which goes through.
+//   9. A verified student takes the pass from the home on the keyboard alone,
 //      and nothing moves while they do.
-//   9. The home, the campaign, a listening session and the account fit 1440,
+//  10. The home, the campaign, a listening session and the account fit 1440,
 //      1280, 720 (1440 at 200 %), 390 and 320 pixels: no sideways scroll, no
 //      text cut off.
 //
@@ -36,7 +39,7 @@ import { writeFile } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
-import { misfits, type Seen, tabTo, text, WIDTHS } from "./support/browser.ts";
+import { failedAnswer, misfits, operationOf, type Seen, tabTo, text, WIDTHS } from "./support/browser.ts";
 import { ConsoleSession, launchOffer, studentAutumnPass } from "./support/console.ts";
 import { CONSOLE_API, PUBLIC_API, SITE_URL, type Stack, startStack } from "./support/stack.ts";
 
@@ -115,6 +118,15 @@ function watched(page: Page): Page {
 async function seenAgain(page: Page): Promise<void> {
   await page.bringToFront();
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange", { bubbles: true })));
+}
+
+/** Waits until the check holds, asking every 50 ms, and fails saying what was waited for after the limit. */
+async function until(check: () => Promise<boolean>, what: string, ms = 20_000): Promise<void> {
+  const end = performance.now() + ms;
+  while (!(await check())) {
+    assert.ok(performance.now() < end, `${what}: not within ${ms} ms`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 /** The listener of a browser's session, as the gateway answers for its cookie. */
@@ -348,7 +360,53 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     await context.close();
   });
 
-  test("8. on the keyboard alone, a verified student takes the pass from the home, and nothing moves", async () => {
+  test("8. readings that fail while the confirmation is open take nothing away: the steps stay with their quote, and say what failed", async () => {
+    const { context, page } = await newVisitor();
+    await page.goto(`${SITE_URL}/campaign/?market=IT&offer=${summary.changeId}`);
+    await page.getByRole("button", { name: "Check I'm a student" }).click();
+    await page.getByLabel(/Student in Italy, verified/).check();
+    await page.getByRole("button", { name: "Enter as this listener" }).click();
+    const title = page.getByRole("heading", { name: "Confirm your demo subscription" });
+    await title.waitFor();
+    const quotes = () => siteRequests.filter((seen) => seen.operation === "SiteRequestQuote").length;
+    const quoted = quotes();
+
+    // The tab seen again reads the listener and the offers again, and both readings fail until the
+    // test lets them through: the page asks again by itself meanwhile (the offers every 10 s, and
+    // when axe opens its tab for a moment), and is answered the same.
+    const failed = new Set<string>();
+    let down = true;
+    await page.route(PUBLIC_API, async (route) => {
+      const operation = operationOf(route.request());
+      if (down && (operation === "SiteMe" || operation === "SiteOffers")) {
+        failed.add(operation);
+        await route.fulfill(failedAnswer(route.request()));
+        return;
+      }
+      await route.fallback();
+    });
+    await seenAgain(page);
+    const retries = page.getByRole("button", { name: "Try again" });
+    await until(async () => failed.size === 2 && ((await retries.count()) === 2 || !(await title.isVisible())),
+      "both readings failed and the page took them in");
+    assert.ok(await title.isVisible(), "the confirmation stays");
+    assert.equal(await retries.count(), 2, "each reading that failed says so, with a try again");
+    assert.ok(await page.getByRole("button", { name: "Confirm demo subscription" }).isVisible(), "the quote can still be confirmed");
+    await accessible(page, "failed readings next to the confirmation");
+
+    // Let through, each reading tried again goes through, and the steps are the same ones, with the same quote.
+    down = false;
+    while ((await retries.count()) > 0) {
+      const left = await retries.count();
+      await retries.first().click();
+      await until(async () => (await retries.count()) < left, "a reading tried again went through");
+    }
+    assert.ok(await title.isVisible(), "the confirmation is still there");
+    assert.equal(quotes(), quoted, "no quote was asked again: the steps were never mounted anew");
+    await context.close();
+  });
+
+  test("9. on the keyboard alone, a verified student takes the pass from the home, and nothing moves", async () => {
     const { page } = await newVisitor();
     await page.goto(`${SITE_URL}/?market=IT`);
     const flag = page.getByRole("link", { name: /Student Autumn Pass/ });
@@ -382,7 +440,7 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     assert.match(account, /Offer\s*Student Autumn Pass: 3 of 3 months left at this price/);
   });
 
-  test("9. the home, the campaign, a listening session and the account fit every width, without a sideways scroll or text cut off", async () => {
+  test("10. the home, the campaign, a listening session and the account fit every width, without a sideways scroll or text cut off", async () => {
     const pages = [
       { path: "/?market=IT&plan=student", ready: ".plan.is-open .decision", axe: "the home with the pass on sale" },
       { path: `/campaign/?market=IT&offer=${summary.changeId}`, ready: "h1", axe: null },
@@ -405,10 +463,10 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     assert.deepEqual(misfit, []);
   });
 
-  test("10. no page asked anything of another host, and none logged an error", () => {
+  test("11. no page asked anything of another host, and none logged an error", () => {
     assert.equal(summary.externalRequests, 0);
     assert.deepEqual(summary.pageErrors, []);
-    assert.ok(summary.pagesChecked >= 10, `axe ran on ${summary.pagesChecked} pages`);
+    assert.ok(summary.pagesChecked >= 11, `axe ran on ${summary.pagesChecked} pages`);
     assert.equal(summary.layoutChecks, WIDTHS.length * 4);
   });
 });

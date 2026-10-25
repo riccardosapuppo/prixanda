@@ -4,7 +4,7 @@
 // way to an element, and the check that a page fits its window.
 import assert from "node:assert/strict";
 import { AxeBuilder } from "@axe-core/playwright";
-import type { Browser, BrowserContext, Locator, Page } from "playwright";
+import type { Browser, BrowserContext, Locator, Page, Request } from "playwright";
 import { PUBLIC_API } from "./stack.ts";
 
 /** The widths every page must fit: desktop, laptop, 1440 at 200 % zoom, phone, narrow phone. */
@@ -14,6 +14,30 @@ export type Seen = { operation: string; requestId: string; idempotencyKey: strin
 
 /** The page's main text, with the no-break spaces a price is written with read as spaces. */
 export const text = async (page: Page) => (await page.locator("main").innerText()).replace(/[  ]/g, " ");
+
+/** The operation a request of the site to the API names. */
+export const operationOf = (request: Request) => (request.postDataJSON() as { operationName?: string } | null)?.operationName ?? "";
+
+/**
+ * An answer of the API that says something failed on its side, for a test
+ * to give a request instead of the real one (route.fulfill), with the
+ * headers the site's origin needs to read it. Unlike a network out of reach,
+ * it is not asked again by itself.
+ */
+export function failedAnswer(request: Request) {
+  const headers = request.headers();
+  return {
+    status: 200,
+    contentType: "application/json",
+    headers: {
+      "access-control-allow-origin": headers["origin"] ?? "",
+      "access-control-allow-credentials": "true",
+      "access-control-expose-headers": "X-Request-Id, Retry-After",
+      "x-request-id": headers["x-request-id"] ?? "",
+    },
+    body: JSON.stringify({ data: null, errors: [{ message: "Internal server error", extensions: { code: "INTERNAL" } }] }),
+  };
+}
 
 /** Presses Tab until the target has the focus, as a visitor on the keyboard would. */
 export async function tabTo(page: Page, target: Locator, most = 80): Promise<void> {
