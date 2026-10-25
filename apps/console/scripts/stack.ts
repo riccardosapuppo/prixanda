@@ -31,6 +31,7 @@ import { internalToken } from "../../../tools/lib/internal-token.ts";
 import { commerceDir, dataDir, PORTS, repoRoot, venvPython } from "../../../tools/lib/paths.ts";
 import { assertFree } from "../../../tools/lib/ports.ts";
 import { type Cluster, createDatabase, startCluster } from "../../../tools/lib/postgres.ts";
+import { stopTree } from "../../../tools/lib/processes.ts";
 import { run } from "../../../tools/lib/run.ts";
 
 export const appDir = join(repoRoot, "apps", "console");
@@ -81,18 +82,15 @@ async function listening(port: number): Promise<boolean> {
   });
 }
 
-/** Stops a child and everything it started (next dev starts workers of its own). */
+/**
+ * Stops a child and everything it started (next dev starts workers of its own): asked its gentle way and forced
+ * after 12 s, or forced at once; a child a signal already ended counts as stopped, and the wait has a limit
+ * (tools/lib/processes.ts).
+ */
 async function stopChild(child: ChildProcess | null, gentle?: () => void): Promise<void> {
-  if (child === null || child.exitCode !== null || child.pid === undefined) return;
-  const exited = new Promise<void>((done) => child.once("exit", () => done()));
-  gentle?.();
-  const timer = setTimeout(() => {
-    if (process.platform === "win32") void run("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
-    else child.kill("SIGKILL");
-  }, gentle ? 12_000 : 0);
-  if (!gentle && process.platform !== "win32") child.kill("SIGTERM");
-  await exited;
-  clearTimeout(timer);
+  if (!(await stopTree(child, gentle ? { gentle, graceMs: 12_000 } : { graceMs: 0 }))) {
+    say(`a process of the stack (pid ${child?.pid}) did not exit; the rest stops all the same`);
+  }
 }
 
 function collect(child: ChildProcess, name: string, sink: string[], echo: boolean): void {

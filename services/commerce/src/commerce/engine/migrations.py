@@ -38,12 +38,12 @@ from typing import Any
 
 from commerce.domain import billing
 from commerce.domain.localtime import describe_local, format_instant, format_local, to_instant, to_local
-from commerce.domain.migration import Charges, Policy, leaving_day, new_price_from
+from commerce.domain.migration import Charges, Policy, first_new_price_day, leaving_day, new_price_from
 from commerce.domain.money import Money, format_money
 from commerce.domain.offers import PriceMigration, from_json
 from commerce.engine import charging, contract, outbox, records, reference
 from commerce.engine.call import Call, Clock
-from commerce.engine.database import Connection, Database, utc_text
+from commerce.engine.database import Connection, Database, DatabaseUnavailable, utc_text
 from commerce.engine.errors import InvalidArgument, NotFound, Refused
 from commerce.v1 import common_pb2, subscriptions_pb2
 
@@ -72,12 +72,44 @@ def charges_of(row) -> Charges:
 class Opened:
     asked: int
     window_ends: datetime  # local
+    left_for_later: int = 0  # waiting for an earlier migration (§8.9)
+
+
+# §8.9, one price change at a time: a subscription s waits for an earlier migration while that one's request to it is
+# not settled yet, or while a new price it set takes over on or after the first day this one's could ({threshold}).
+# The two would otherwise fall on the same charge, as when an offer's months hold both back. {change} is this
+# migration, whose own requests and prices never count.
+WAITS = ("(exists (select from price_change_request w where w.subscription_id = s.id and w.change_id <> {change} "
+         "and w.settled_at is null) or exists (select from subscription_price w where w.subscription_id = s.id "
+         "and w.change_id is not null and w.change_id <> {change} and w.from_on >= {threshold}))")
+
+
+def first_day(policy: Policy, content: PriceMigration, *, window_ends: date, today: date) -> date:
+    """The first day this migration's price could apply to an existing subscription asked today: for consent, after a
+    yes given today."""
+    assert content.starts is not None
+    return first_new_price_day(policy, starts=content.starts.date(), window_ends=window_ends, yes_on=today)
+
+
+async def left_for_later(tx: Connection, *, change_id: int, content: PriceMigration, market: reference.Market,
+                         policy: Policy, now: datetime) -> int:
+    """How many subscriptions of the plan in the market, paid by the month today, wait for an earlier migration (§8.9):
+    the simulation leaves them out of the existing subscribers, as the launch leaves them out of its requests."""
+    assert content.notices is not None
+    today = market.today(now)
+    threshold = first_day(policy, content, window_ends=policy.window_ends(content.notices).date(), today=today)
+    return await tx.fetchval(
+        "select count(*) from subscription s where s.market = $1 and s.plan_id = $2 and s.paid and s.prepaid_code is null "
+        "and s.started_on <= $3::text::date and (s.ended_on is null or s.ended_on > $3::text::date) and "
+        + WAITS.format(change="$4", threshold="$5::text::date"),
+        market.code, content.plan, today.isoformat(), change_id, threshold.isoformat())
 
 
 async def open_requests(tx: Connection, *, change_id: int, content: PriceMigration, market: reference.Market,
                         policy: Policy, now: datetime, request_id: str) -> Opened:
     """A request for each subscription of the plan in the market paid on the day, and its message to the listener. A
-    prepaid pass is not asked: it was paid for, and a later price does not touch it (§9.1).
+    prepaid pass is not asked: it was paid for, and a later price does not touch it (§9.1); nor is a subscription that
+    waits for an earlier migration (§8.9), which is counted as left for later.
     Called before the new list price enters the price list, so that what a subscription pays without the change, after
     its offer's months too, is read as it stands."""
     assert content.plan and content.amount is not None
@@ -86,12 +118,17 @@ async def open_requests(tx: Connection, *, change_id: int, content: PriceMigrati
     window_ends_at = to_instant(window_ends_local, market.zone)
     rows = await tx.fetch(
         "select s.id, s.subscriber_id, s.started_on::text as started_on, s.billing_day, s.offer_months, "
-        "(select max(p.from_on)::text from subscription_price p where p.subscription_id = s.id) as last_from "
+        "(select max(p.from_on)::text from subscription_price p where p.subscription_id = s.id) as last_from, "
+        f"{WAITS.format(change='$4', threshold='$5::text::date')} as waits "
         "from subscription s where s.market = $1 and s.plan_id = $2 and s.paid and s.prepaid_code is null "
         "and s.started_on <= $3::text::date and (s.ended_on is null or s.ended_on > $3::text::date) order by s.id",
-        market.code, content.plan, today.isoformat())
-    asked = 0
+        market.code, content.plan, today.isoformat(), change_id,
+        first_day(policy, content, window_ends=window_ends_local.date(), today=today).isoformat())
+    asked = waiting = 0
     for row in rows:
+        if row["waits"]:
+            waiting += 1
+            continue
         # What it pays without the change from its latest price on: after its offer, after a price already set.
         charges = charges_of(row)
         day = max(today, _date(row["last_from"]), charges.offer_ends or today)
@@ -110,7 +147,7 @@ async def open_requests(tx: Connection, *, change_id: int, content: PriceMigrati
         await outbox.write(tx, topic=REQUEST, key=f"request:{request}", now=now, request_id=request_id,
                            payload={"price_change": request, "subscriber": row["subscriber_id"]})
         asked += 1
-    return Opened(asked, window_ends_local)
+    return Opened(asked, window_ends_local, waiting)
 
 
 # -- what the listener sees and answers ---------------------------------------
@@ -256,6 +293,7 @@ class Settled:
     state: str
     effect: str  # left, new_price or none
     dates: dict[str, str]
+    error: str | None = None  # the window could not be settled: nothing changed, and the next pass tries again
 
 
 class Migrations:
@@ -310,18 +348,26 @@ class Migrations:
     # -- the end of the windows ---------------------------------------------------
 
     async def settle_due(self) -> list[Settled]:
-        """Acts on every window that ended: once each, in its own transaction. Returns what it did, for the log."""
+        """Acts on every window that ended: once each, in its own transaction. Returns what it did, for the log. A
+        window that cannot be settled holds up none of the others: it is returned with its error, and tried again."""
         now = self.clock.now()
         async with self.db.transaction(readonly=True) as tx:
-            due = [r["id"] for r in await tx.fetch(
-                "select id from price_change_request where settled_at is null and window_ends_at <= $1::text::timestamptz "
-                "order by window_ends_at, id", format_instant(now))]
+            due = await tx.fetch(
+                "select id, change_id, subscription_id from price_change_request where settled_at is null "
+                "and window_ends_at <= $1::text::timestamptz order by window_ends_at, id", format_instant(now))
         done = []
-        for request_id in due:
-            async with self.db.transaction() as tx:
-                outcome = await self._settle(tx, request_id)
-                if outcome is not None:
-                    done.append(outcome)
+        for row in due:
+            try:
+                async with self.db.transaction() as tx:
+                    outcome = await self._settle(tx, row["id"])
+            except DatabaseUnavailable:
+                raise
+            except Exception as error:
+                done.append(Settled(row["id"], row["change_id"], row["subscription_id"], "failed", "none", {},
+                                    error=f"{type(error).__name__}: {error}"))
+                continue
+            if outcome is not None:
+                done.append(outcome)
         return done
 
     async def _settle(self, tx: Connection, request_id: int) -> Settled | None:

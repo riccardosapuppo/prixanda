@@ -10,9 +10,9 @@
 // the conditions they were taken in; it judges none. Quote them from a
 // machine doing nothing else.
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { arch, cpus, platform, release, tmpdir, totalmem } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { CatalogService } from "contracts/commerce/v1/catalog";
@@ -226,6 +226,7 @@ export async function measureSandbox(options: SandboxMeasureOptions): Promise<Sa
 
 export async function writeSandboxReport(report: SandboxReport): Promise<string> {
   const file = join(repoRoot, "reports", "sandbox-measure.json");
+  await mkdir(dirname(file), { recursive: true });  // with --assets, nothing else made reports/ on a fresh clone
   await writeFile(file, `${JSON.stringify(report, null, 2)}\n`);
   return file;
 }

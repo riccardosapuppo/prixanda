@@ -518,8 +518,9 @@ class Launches:
             policy = (await reference.policies(tx))[market.code]
             opened = await migrations.open_requests(tx, change_id=launch.change_id, content=content, market=market,
                                                     policy=policy, now=now, request_id=run)
-            body.update({"asked": opened.asked, "requirement": policy.legal_requirement,
-                         "window_ends": format_local(opened.window_ends), "notices": format_local(content.notices)})
+            body.update({"asked": opened.asked, "left_for_later": opened.left_for_later,
+                         "requirement": policy.legal_requirement, "window_ends": format_local(opened.window_ends),
+                         "notices": format_local(content.notices)})
         if isinstance(content, (ListPrice, PriceMigration)):
             market = ref.markets[content.market]
             previous = await tx.fetchrow(

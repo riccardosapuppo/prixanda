@@ -22,6 +22,8 @@ from commerce.engine import migrations, outbox
 from commerce.engine.errors import InvalidArgument, NotFound
 from commerce.server.app import Jobs
 from commerce.engine.logs import JsonLog
+from commerce.engine.providers import FAILED, PENDING, ChargeResult, ProviderEvent
+from commerce.invariants import check
 from helpers import add_subscription
 from commerce.v1 import catalog_pb2, changes_pb2, common_pb2, overview_pb2, quotes_pb2, simulation_pb2, subscriptions_pb2
 from engine_support import (
@@ -274,6 +276,63 @@ async def test_the_server_s_jobs_settle_the_window_and_log_each_request_once(wor
     assert len(told) == 4 and {line["consumer"] for line in told} == {"listeners"}
 
 
+async def test_a_window_that_cannot_be_settled_holds_up_neither_the_others_nor_the_outbox(world, monkeypatch):
+    """A fault no rule foresaw in one request's end of window: the other three settle and their listeners are told in
+    the same pass, the failure is logged once with its request, and the request settles once the fault is gone."""
+    await started(world)
+    world.clock.at = at(2026, 12, 17, 23, 0, 5)
+    stuck = await world.owner.fetchval("select min(id) from price_change_request")
+    fault = {"on": True}
+    settle = migrations.Migrations._settle
+
+    async def faulty(self, tx, request_id):
+        if fault["on"] and request_id == stuck:
+            raise RuntimeError("a fault in the end of a window")
+        return await settle(self, tx, request_id)
+
+    monkeypatch.setattr(migrations.Migrations, "_settle", faulty)
+    logs = io.StringIO()
+    jobs = Jobs(world.engine, JsonLog(world.clock.now, logs))
+    for _ in range(2):
+        await jobs.run_pass()
+        world.clock.advance(seconds=5)
+    lines = [json.loads(line) for line in logs.getvalue().splitlines()]
+    assert len([line for line in lines if line["event"] == "price_change_settled"]) == 3
+    told = [line for line in lines if line["event"] == "outbox_delivered" and line["topic"] == migrations.OUTCOME]
+    assert len(told) == 3
+    [failed] = [line for line in lines if line["event"] == "price_change_settle_failed"]
+    assert (failed["level"], failed["price_change"], failed["error"]) == (
+        "warning", stuck, "RuntimeError: a fault in the end of a window")
+    fault["on"] = False
+    await jobs.run_pass()
+    lines = [json.loads(line) for line in logs.getvalue().splitlines()]
+    assert [line["price_change"] for line in lines if line["event"] == "price_change_settled"][-1] == stuck
+    assert not [line for line in lines if line["event"] == "jobs_pass_failed"]
+
+
+async def test_a_job_that_fails_holds_up_none_of_the_jobs_after_it(world, monkeypatch):
+    """The end of the windows fails for a fault of its own: the outbox after it still delivers the requests, the job's
+    failure is logged once, and once more when it works again."""
+    await started(world)
+
+    async def faulty():
+        raise RuntimeError("a fault in one job")
+
+    monkeypatch.setattr(world.engine, "settle_migrations", faulty)
+    logs = io.StringIO()
+    jobs = Jobs(world.engine, JsonLog(world.clock.now, logs))
+    for _ in range(2):
+        await jobs.run_pass()
+    lines = [json.loads(line) for line in logs.getvalue().splitlines()]
+    told = [line for line in lines if line["event"] == "outbox_delivered" and line["topic"] == migrations.REQUEST]
+    assert len(told) == 4
+    monkeypatch.undo()
+    await jobs.run_pass()
+    lines = [json.loads(line) for line in logs.getvalue().splitlines()]
+    assert [(line["event"], line.get("job")) for line in lines if line["event"].startswith("jobs_")] == [
+        ("jobs_pass_failed", "price changes"), ("jobs_working_again", "price changes")]
+
+
 # -- a notice market ---------------------------------------------------------------------
 
 async def test_in_italy_a_notice_applies_the_price_unless_the_listener_leaves(world):
@@ -323,6 +382,89 @@ async def test_in_italy_a_notice_applies_the_price_unless_the_listener_leaves(wo
     assert len(set(told.values())) == 1 and next(iter(told.values())).endswith("-settlement")
 
 
+async def test_a_second_rise_leaves_for_later_a_subscription_whose_first_new_price_waits_for_its_offer(world):
+    """§8.9: 101 is on the Student Autumn Pass until 28 January 2027, so the first rise's price takes over that day; a
+    second rise, whose notice runs out on 3 January, would take over the same day. It does not reach 101, who keeps the
+    first rise's price, and its launch counts 101 as left for later; 103, whose first new price took over on
+    10 December, is told."""
+    pass_ = await scheduled(world, student_autumn(), MARKETING, FINANCE)
+    world.clock.at = at(2026, 10, 26, 7, 59, 30)
+    await world.engine.run_launches()
+    world.clock.at = at(2026, 10, 31, 9, 0)
+    quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="student", market="IT", offer_id=pass_.id,
+                                                                     subscriber_id=101), PUBLIC)).quote
+    await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(quote_id=quote.quote_id, subscriber_id=101), PUBLIC)
+    await scheduled(world, family_migration(title="Student price, Italy", plan="student", market="IT", amount=eur(649)),
+                    LEAD, FINANCE)
+    world.clock.at = at(2026, 11, 2, 7, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    world.clock.at = at(2026, 12, 2, 23, 0)
+    assert [s.dates for s in await world.engine.settle_migrations()] == [
+        {"new_price_from": "2026-12-10"}, {"new_price_from": "2027-01-28"}]
+    world.clock.at = at(2026, 12, 3, 9, 0)
+    again = await scheduled(world, family_migration(title="Student price again, Italy", plan="student", market="IT",
+                                                    amount=eur(699), notices_local="2026-12-04T09:00",
+                                                    starts_local="2027-01-01T00:00"), LEAD, FINANCE)
+    simulated = (await world.call("SimulateMigration", simulation_pb2.SimulateMigrationRequest(change_id=again.id),
+                                  LEAD)).result
+    assert {a.name: (a.value, a.source) for a in simulated.assumptions}["existing"] == (
+        1, "counted in the data at 2026-12-03T09:00:00Z, leaving out 1 waiting for an earlier migration's price (§8.9)")
+    world.clock.at = at(2026, 12, 4, 7, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    asked = await world.owner.fetch("select subscriber_id, old_price_minor from price_change_request where change_id = $1",
+                                    again.id)
+    assert [tuple(r) for r in asked] == [(103, 649)]
+    activated = [json.loads(e["body"]) for e in await world.events("change.activated")][-1]
+    assert (activated["change"], activated["asked"], activated["left_for_later"]) == (again.id, 1, 1)
+    # Its notice runs out: 103 pays it from its next charge, and 101 the first rise's price after the offer.
+    world.clock.at = at(2027, 1, 3, 23, 0)
+    paying = await world.owner.fetchval("select id from subscription where subscriber_id = 103 and paid")
+    assert [(s.subscription, s.dates) for s in await world.engine.settle_migrations()] == [
+        (paying, {"new_price_from": "2027-01-10"})]
+    on_offer = await world.owner.fetchval("select id from subscription where subscriber_id = 101 and paid")
+    history = await world.owner.fetch("select from_on::text, price_minor from subscription_price where subscription_id = $1 "
+                                      "order by from_on", on_offer)
+    assert [tuple(r) for r in history] == [("2026-10-31", 299), ("2027-01-28", 649)]
+
+
+async def test_a_first_payment_declined_after_a_no_to_a_price_change_moves_the_listener_to_free_from_tomorrow(world,
+                                                                                                         monkeypatch):
+    """401 takes Individual in France on 24 October, and the provider takes its time; a rise asks 401 on 2 November,
+    401 says no and is to leave on 24 December, its Free plan written from then. The payment is declined on 3 November:
+    401 is on Free from the next day, up to that Free plan, and nothing overlaps (§4.5, §8.8)."""
+    async def slow(charge):
+        event = ProviderEvent("simulated", "evt_slow_0001", PENDING, charge.payment_id, "sim-pay-slow", world.clock.now())
+        return ChargeResult("simulated", "sim-pay-slow", (event,))
+
+    monkeypatch.setattr(world.engine.payments, "charge", slow)
+    quote = (await world.call("GetQuote", quotes_pb2.GetQuoteRequest(plan="individual", market="FR", subscriber_id=401),
+                              PUBLIC)).quote
+    payment = (await world.call("ConfirmQuote", subscriptions_pb2.ConfirmQuoteRequest(
+        quote_id=quote.quote_id, subscriber_id=401), PUBLIC)).confirmation.payment.payment_id
+    await world.engine.deliver_outbox()
+    await scheduled(world, family_migration(title="Individual price, France", plan="individual", market="FR",
+                                            amount=eur(1199)), LEAD, FINANCE)
+    world.clock.at = at(2026, 11, 2, 7, 59, 30)
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    world.clock.at = at(2026, 11, 2, 10, 0)
+    assert (await answer(world, 401, False)).price_change.leaves_on == "2026-12-24"
+    world.clock.at = at(2026, 11, 3, 9, 0)
+    declined = ProviderEvent("simulated", "evt_declined_0401", FAILED, payment, "sim-pay-slow", world.clock.now(),
+                             "The card was declined.")
+    assert await world.engine.provider_events.receive(declined) == "applied"
+    history = await world.owner.fetch("select plan_id, started_on::text, ended_on::text from subscription "
+                                      "where subscriber_id = 401 order by started_on")
+    assert [tuple(r) for r in history] == [("free", "2026-01-10", "2026-10-24"), ("individual", "2026-10-24", "2026-11-04"),
+                                           ("free", "2026-11-04", "2026-12-24"), ("free", "2026-12-24", None)]
+    [failed] = await world.events("payment.failed")
+    assert json.loads(failed["body"])["ends_on"] == "2026-11-04"
+    report = await check(world.owner)
+    assert report["broken"] == 0, [i for i in report["invariants"] if i["violations"]]
+
+
 # -- the simulation -----------------------------------------------------------------------
 
 async def test_the_simulation_counts_the_existing_subscribers_and_says_where_each_assumption_comes_from(world):
@@ -341,6 +483,26 @@ async def test_the_simulation_counts_the_existing_subscribers_and_says_where_eac
     assert "they answer by 17 December 2026, 23:59 (Europe/Berlin)" in result.existing_from
     assert [c.number for c in result.finance_conditions if c.met] == [1, 5]
     assert result.prepaid_passes_untouched == 0
+
+
+async def test_a_migration_simulates_the_same_before_and_after_its_launch(world):
+    """The launch puts the new price in the price list from its start: the simulation still starts from the price the
+    migration raises, so the console shows the same numbers through the consent window."""
+    await add_family(world)
+    change = await scheduled(world, family_migration(), LEAD, FINANCE)
+    world.clock.at = at(2026, 11, 2, 7, 59, 30)
+
+    async def simulate() -> simulation_pb2.SimulateMigrationResponse:
+        return await world.call("SimulateMigration", simulation_pb2.SimulateMigrationRequest(change_id=change.id), LEAD)
+
+    before = await simulate()
+    assert before.WhichOneof("outcome") == "result", before
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated", outcome
+    after = await simulate()
+    assert after.WhichOneof("outcome") == "result", after
+    assert after.result == before.result
+    assert (after.result.before.price, after.result.after.price, after.result.existing) == (eur(1899), eur(2099), 4)
 
 
 async def test_the_simulation_gives_the_maquette_s_numbers_with_its_typed_assumptions(world):

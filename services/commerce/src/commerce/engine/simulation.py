@@ -16,9 +16,9 @@ from commerce.domain.localtime import describe_local, format_instant, format_loc
 from commerce.domain.money import Money, format_money
 from commerce.domain.offers import Offer, PriceMigration
 from commerce.domain.validation import resolve_price
-from commerce.engine import contract, eligibility, prepaid, records, reference
+from commerce.engine import contract, eligibility, migrations, prepaid, records, reference
 from commerce.engine.call import Call, Clock
-from commerce.engine.catalog import list_price_at, market_code
+from commerce.engine.catalog import list_price_at, list_price_replaced, market_code
 from commerce.engine.changes import require_role
 from commerce.engine.database import Connection
 from commerce.engine.errors import InvalidArgument, NotFound, Refused
@@ -182,16 +182,23 @@ async def simulate_migration(tx: Connection, call: Call, request: simulation_pb2
     rules = (await reference.policies(tx)).get(market.code)
     if rules is None:
         raise Refused("INVALID", f"{market.name} has no rules yet for raising an existing subscriber's price (§8).")
-    old = await list_price_at(tx, change.plan, market, change.starts)
+    old = await list_price_replaced(tx, change.plan, market, change.starts, request.change_id)
     if old is None:
         raise Refused("INVALID", f"No {change.plan} price is in force in {market.name} when the new price starts.")
     if change.amount <= old:
         raise Refused("INVALID", f"{format_money(change.amount)} is not above the price in force, {format_money(old)}: "
                                  "a price migration raises the price.")
     typed_by = f"typed by {policy.ROLE_NAMES[call.role]} at {format_instant(now)}"
+    counted = f"counted in the data at {format_instant(now)}"
     existing = typed.get("existing")
     if existing is None:
         existing = await eligibility.current_subscribers(tx, market.code, change.plan, market.today(now), by_the_month=True)
+        # Those waiting for an earlier migration's price are left for a later one (§8.9): this one does not reach them.
+        waiting = await migrations.left_for_later(tx, change_id=request.change_id, content=change, market=market,
+                                                  policy=rules, now=now)
+        if waiting:
+            existing -= waiting
+            counted += f", leaving out {waiting} waiting for an earlier migration's price (§8.9)"
     acceptance = typed.get("acceptance", book.price_increase_acceptance_bp)
     result = migration.simulate_migration(market.terms(book), old.amount, change.amount.amount, existing, acceptance, rules)
     window_ends = rules.window_ends(change.notices)
@@ -226,7 +233,7 @@ async def simulate_migration(tx: Connection, call: Call, request: simulation_pb2
         prepaid_passes_untouched=await prepaid.untouched(tx, market.code, change.plan, market.today(now)),
         assumptions=[
             simulation_pb2.Assumption(name="existing", value=existing,
-                                      source=typed_by if "existing" in typed else f"counted in the data at {format_instant(now)}"),
+                                      source=typed_by if "existing" in typed else counted),
             simulation_pb2.Assumption(name="acceptance", value=acceptance,
                                       source=typed_by if "acceptance" in typed else "default: business book §16 (illustrative)"),
         ],

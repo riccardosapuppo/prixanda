@@ -67,16 +67,22 @@ class Charges:
                                  day if self.offer_ends is None else max(day, self.offer_ends))
 
 
-def new_price_from(policy: Policy, charges: Charges, *, starts: date, window_ends: date, yes_on: date | None = None) -> date:
-    """The first charge at the new price, never before new subscribers pay it (starts). Consent: after a yes given on a
-    day, from the next day on, since that day's charge may be made already. Notice: once the notice ran out."""
+def first_new_price_day(policy: Policy, *, starts: date, window_ends: date, yes_on: date | None = None) -> date:
+    """The first day the new price may apply to an existing subscription, whatever its charges: never before new
+    subscribers pay it (starts). Consent: after a yes given on a day, from the next day on, since that day's charge may
+    be made already. Notice: once the notice ran out."""
     if policy.consent:
         if yes_on is None:
             raise ValueError("in a consent market the new price follows a yes")
         earliest = yes_on + timedelta(days=1)
     else:
         earliest = window_ends + timedelta(days=1)
-    return charges.first_from(max(earliest, starts))
+    return max(earliest, starts)
+
+
+def new_price_from(policy: Policy, charges: Charges, *, starts: date, window_ends: date, yes_on: date | None = None) -> date:
+    """The first charge at the new price: the subscription's first charge on or after first_new_price_day."""
+    return charges.first_from(first_new_price_day(policy, starts=starts, window_ends=window_ends, yes_on=yes_on))
 
 
 def leaving_day(policy: Policy, charges: Charges, *, starts: date, window_ends: date) -> date | None:

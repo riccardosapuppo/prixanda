@@ -5,6 +5,7 @@ artists a campaign for an album release aims at."""
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -234,3 +235,13 @@ async def test_a_page_of_artists_holds_at_most_a_hundred(world):
         await world.owner.execute("insert into artist (id, name, label_id, country) values ($1, $2, 3, 'DE')", n, f"Act {n}")
     page = await artists(world, page=common_pb2.PageRequest(size=500))
     assert len(page.artists) == 100 and page.page.next != ""
+
+
+async def test_a_statement_takes_plain_values_on_either_database(world):
+    """engine/database.py: the browser's PGlite takes plain values only, and the server's adapter refuses what it
+    refuses, so that a statement the server's tests pass runs in the browser as well: ListArtists once sent its ids as
+    an array, which only the browser refused."""
+    async with world.engine.db.transaction(readonly=True) as tx:
+        with pytest.raises(TypeError, match="plain values"):
+            await tx.fetch("select $1::int[] as ids", [4, 7])
+        assert await tx.fetchval("select jsonb_array_length($1::text::jsonb)", json.dumps([4, 7])) == 2
