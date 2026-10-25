@@ -15,7 +15,7 @@
 // cannotCarry() names it and the wizard refuses to edit that version, rather
 // than save one without it.
 import { MINOR_UNITS, minorUnits, parseAmount } from "design";
-import { localToInstant, parseLocal, zoneCity } from "./time.ts";
+import { contractLocal, localToInstant, parseLocal, zoneCity } from "./time.ts";
 
 export type Segment = "NEVER_PAID" | "FREE_LISTENERS" | "SUBSCRIBERS_OF_PLAN" | "ANYONE";
 
@@ -315,7 +315,7 @@ function checkDates(form: OfferForm, facts: MarketFacts, now: Date): Problem[] {
     if (market.endsLocal !== "") {
       const ends = parseLocal(market.endsLocal);
       if (ends === null) problems.push({ field: marketField(market.market, "endsLocal"), message: "That is not a date and time." });
-      else if (market.endsLocal <= market.startsLocal) problems.push({ field: marketField(market.market, "endsLocal"), message: "The end comes after the start." });
+      else if (contractLocal(market.endsLocal) <= contractLocal(market.startsLocal)) problems.push({ field: marketField(market.market, "endsLocal"), message: "The end comes after the start." });
       else {
         const end = localToInstant(ends, zone);
         if (end.kind !== "single") {
@@ -461,7 +461,8 @@ function normalise(input: OfferInput): unknown {
   return {
     ...input,
     prices: byMarket(input.prices).map((price) => ({ ...price, ...(price.fixed ? { fixed: { amountMinor: String(minorUnits(price.fixed.amountMinor)), currency: price.fixed.currency } } : {}) })),
-    periods: byMarket(input.periods).map((period) => ({ ...period, startsLocal: period.startsLocal.replace(/:00$/, "").slice(0, 16), ...(period.endsLocal ? { endsLocal: period.endsLocal.slice(0, 16) } : {}) })),
+    // Zero seconds are no seconds; others are a change, as the engine keeps them.
+    periods: byMarket(input.periods).map((period) => ({ ...period, startsLocal: contractLocal(period.startsLocal), ...(period.endsLocal ? { endsLocal: contractLocal(period.endsLocal) } : {}) })),
     pages: byMarket(input.pages),
   };
 }

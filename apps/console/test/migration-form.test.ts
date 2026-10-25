@@ -113,3 +113,22 @@ describe("the example of the business book", () => {
     assert.equal(increaseWords({ amountMinor: "1899", currency: "EUR" }, "not a price"), null);
   });
 });
+
+describe("a time's seconds (the contract's way: minutes, and seconds only when there are some)", () => {
+  const withSeconds: MigrationContent = { ...FAMILY, noticesLocal: "2026-11-02T09:00:10", startsLocal: "2026-12-01T00:00:20" };
+
+  it("keeps them through the form, and a change of seconds alone is a new version", () => {
+    const form = migrationFromContent(withSeconds);
+    assert.deepEqual([form.noticesLocal, form.startsLocal], ["2026-11-02T09:00:10", "2026-12-01T00:00:20"]);
+    const typed = toMigrationInput(form, FACTS);
+    assert.ok("input" in typed);
+    assert.deepEqual(typed.input, withSeconds);
+    assert.equal(migrationDiffers(form, withSeconds, FACTS), false);
+    assert.equal(migrationDiffers({ ...form, noticesLocal: "2026-11-02T09:00:50" }, withSeconds, FACTS), true);
+    assert.equal(migrationDiffers({ ...form, startsLocal: "2026-12-01T00:00:40" }, withSeconds, FACTS), true);
+  });
+
+  it("zero seconds are no seconds", () => {
+    assert.equal(migrationDiffers({ ...migrationFromContent(FAMILY), noticesLocal: "2026-11-02T09:00:00" }, FAMILY, FACTS), false);
+  });
+});
