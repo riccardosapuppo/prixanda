@@ -846,10 +846,11 @@ export type HomeQuery = { readonly overview: { readonly monthlyRevenueEur?: { re
 
 export type WeekQueryVariables = Exact<{
   states?: ReadonlyArray<ChangeState> | null | undefined;
+  after?: string | null | undefined;
 }>;
 
 
-export type WeekQuery = { readonly priceList: ReadonlyArray<{ readonly id: string, readonly plan: string, readonly market: string, readonly amount: { readonly amountMinor: string; readonly currency: string }, readonly validFrom: string, readonly validUntil: string | null }>, readonly changes: { readonly nodes: ReadonlyArray<{ readonly id: string, readonly title: string, readonly state: ChangeState, readonly currentVersion: number, readonly details: { readonly id: string, readonly current: { readonly version: number, readonly content:
+export type WeekQuery = { readonly priceList: ReadonlyArray<{ readonly id: string, readonly plan: string, readonly market: string, readonly amount: { readonly amountMinor: string; readonly currency: string }, readonly validFrom: string, readonly validUntil: string | null }>, readonly changes: { readonly next: string | null, readonly nodes: ReadonlyArray<{ readonly id: string, readonly title: string, readonly state: ChangeState, readonly currentVersion: number, readonly details: { readonly id: string, readonly current: { readonly version: number, readonly content:
             | { readonly __typename: 'OfferContent', readonly plan: string, readonly periods: ReadonlyArray<{ readonly market: string, readonly startsLocal: string, readonly endsLocal: string | null }> }
             | { readonly __typename: 'ListPriceContent' }
             | { readonly __typename: 'PriceMigrationContent' }
@@ -1112,7 +1113,7 @@ export const HomeDocument: Operation<HomeQuery, HomeQueryVariables> = {
 export const WeekDocument: Operation<WeekQuery, WeekQueryVariables> = {
   name: "Week",
   kind: "query",
-  text: "query Week($states: [ChangeState!]) {\n  priceList {\n    id\n    plan\n    market\n    amount\n    validFrom\n    validUntil\n  }\n  changes(filter: {kind: OFFER, states: $states}, first: 50) {\n    nodes {\n      id\n      title\n      state\n      currentVersion\n      details {\n        id\n        current {\n          version\n          content {\n            __typename\n            ... on OfferContent {\n              plan\n              periods {\n                market\n                startsLocal\n                endsLocal\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}",
+  text: "query Week($states: [ChangeState!], $after: String) {\n  priceList {\n    id\n    plan\n    market\n    amount\n    validFrom\n    validUntil\n  }\n  changes(filter: {kind: OFFER, states: $states}, first: 50, after: $after) {\n    nodes {\n      id\n      title\n      state\n      currentVersion\n      details {\n        id\n        current {\n          version\n          content {\n            __typename\n            ... on OfferContent {\n              plan\n              periods {\n                market\n                startsLocal\n                endsLocal\n              }\n            }\n          }\n        }\n      }\n    }\n    next\n  }\n}",
 };
 
 export const LaunchesDocument: Operation<LaunchesQuery, LaunchesQueryVariables> = {

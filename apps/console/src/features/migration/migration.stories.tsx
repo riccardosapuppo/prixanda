@@ -6,12 +6,13 @@
 // sends the author back to the step that fixes each. A checked version is
 // submitted with Finance to sign, conditions 1 and 5. Marketing reads it with
 // the fields read-only. While a first save creates the migration, its fields
-// wait for the answer, and the page says so.
+// wait for the answer, and the page says so; while a new version is created
+// and checked, Save draft creates nothing more.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { MARKETS } from "../../stories/fixtures.ts";
 import { familySimulation, germanFamily, PLANS_DE, POLICIES } from "../../stories/prices.ts";
-import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
+import { fakeGateway, PEOPLE, SteppingRouter, StoryProviders } from "../../stories/support.tsx";
 import type { Viewer } from "../../lib/react/session.tsx";
 import { MigrationEditor } from "./form.tsx";
 
@@ -151,5 +152,42 @@ export const WhileTheMigrationIsCreatedItsFieldsWait: Story = {
     await waitFor(() => expect(args.gateway.calls.filter((call) => call.operation === "CreatePriceMigration")).toHaveLength(1));
     const created = args.gateway.calls.find((call) => call.operation === "CreatePriceMigration")?.variables as { readonly migration: { readonly title: string } };
     await expect(created.migration.title).toBe("Family price rise, Germany");
+  },
+};
+
+/** Creating answers at once; checking the new version takes its time, until release() says so. */
+function slowCheck() {
+  let release = () => {};
+  const gateway = fakeGateway({
+    Markets: () => ({ markets: MARKETS }),
+    Plans: () => ({ plans: PLANS_DE }),
+    PriceChangePolicies: () => POLICIES,
+    Change: () => ({ change: germanFamily("DRAFT") }),
+    SimulateMigration: () => ({ simulateMigration: familySimulation(9000) }),
+    CreatePriceMigration: () => ({ createPriceMigration: { __typename: "Change", ...germanFamily("DRAFT") } }),
+    ValidateChange: () => new Promise((resolve) => {
+      release = () => resolve({ validateChange: { __typename: "Change", ...germanFamily("DRAFT") } });
+    }),
+  });
+  return Object.assign(gateway, { release: () => release() });
+}
+
+export const SaveDraftWaitsWhileTheNewVersionIsChecked: Story = {
+  args: { viewer: PEOPLE["lead"]!, gateway: slowCheck(), changeId: null },
+  decorators: [(Story) => <SteppingRouter><Story /></SteppingRouter>],
+  play: async ({ canvasElement, args }) => {
+    const page = within(canvasElement);
+    await userEvent.click(await page.findByRole("button", { name: "Fill in the Family price rise in Germany" }));
+    for (let step = 0; step < 2; step++) await userEvent.click(page.getByRole("button", { name: "Continue" }));
+    await userEvent.click(await page.findByRole("button", { name: "Save v1 and check it" }));
+    // Created, and its check on the way: Save draft is busy, and a busy button takes no click.
+    await waitFor(() => expect(args.gateway.calls.filter((call) => call.operation === "CreatePriceMigration")).toHaveLength(1));
+    const save = page.getByRole("button", { name: "Save draft" });
+    await expect(save).toBeDisabled();
+    await expect(save).toHaveAttribute("aria-busy", "true");
+    await userEvent.click(save);
+    args.gateway.release?.();
+    await waitFor(() => expect(args.gateway.calls.filter((call) => call.operation === "ValidateChange")).toHaveLength(1));
+    await expect(args.gateway.calls.filter((call) => call.operation === "CreatePriceMigration")).toHaveLength(1);
   },
 };

@@ -111,8 +111,11 @@ query Home($readsRevenue: Boolean!, $readsUnearned: Boolean!) {
 }
 
 # The week's lanes: the list prices in force and the offers that run, start
-# or wait for a signature in the next seven days.
-query Week($states: [ChangeState!]) {
+# or wait for a signature in the next seven days. The offers come a page at a
+# time, newest change first, and the home reads every page up to a declared
+# limit (features/home/week.tsx): an offer live for weeks can be older than
+# the first fifty.
+query Week($states: [ChangeState!], $after: String) {
   priceList {
     id
     plan
@@ -121,7 +124,7 @@ query Week($states: [ChangeState!]) {
     validFrom
     validUntil
   }
-  changes(filter: { kind: OFFER, states: $states }, first: 50) {
+  changes(filter: { kind: OFFER, states: $states }, first: 50, after: $after) {
     nodes {
       id
       title
@@ -145,6 +148,7 @@ query Week($states: [ChangeState!]) {
         }
       }
     }
+    next
   }
 }
 

@@ -14,6 +14,7 @@ import { launchHref, launchLook, type LaunchSummary, launchWords, STEP_NAME } fr
 import { type MarketInfo, marketName, marketZone } from "../../lib/markets.ts";
 import { whoDoes } from "../../lib/permissions.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
+import { useWatch } from "../../lib/react/watch.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
 
 type Markets = readonly MarketInfo[];
@@ -28,6 +29,8 @@ const FILTERS: readonly { readonly id: string; readonly label: string; readonly 
 ];
 
 const PAGE = 20;
+/** A page with a launch that runs is read again this often: its steps move on in seconds. */
+const RUNNING_EVERY_MS = 5_000;
 
 /** A launch's state, as a chip: a word, an icon and an edge. */
 export function LaunchChip({ launch }: { readonly launch: Pick<LaunchSummary, "state" | "retryAt"> }) {
@@ -83,7 +86,12 @@ function RunsPage({ state, after, labelledBy, last, onMore }: {
   readonly last: boolean;
   readonly onMore: (next: string) => void;
 }) {
-  const page = useGatewayQuery(LaunchRunsDocument, { filter: state ? { state } : null, first: PAGE, after });
+  const watch = useWatch();
+  const page = useGatewayQuery(LaunchRunsDocument, { filter: state ? { state } : null, first: PAGE, after }, {
+    ...watch,
+    // A launch that runs moves on in seconds: while one is on the page, the page is read again sooner.
+    ...(watch.refetchInterval ? { refetchInterval: (data) => (data?.launches.nodes.some((run) => run.state === "RUNNING") ? RUNNING_EVERY_MS : watch.refetchInterval ?? false) } : {}),
+  });
   if (page.isPending) return <Loading what="the launches" lines={5} />;
   if (page.isError) return <ErrorPanel error={page.error} retry={() => void page.refetch()} />;
   const rows = page.data.launches.nodes;
@@ -110,9 +118,10 @@ export function LaunchesScreen() {
   const [filter, setFilter] = useState("all");
   const [pages, setPages] = useState<readonly (string | null)[]>([null]);
   const chosen = FILTERS.find((entry) => entry.id === filter) ?? FILTERS[0];
-  const scheduled = useGatewayQuery(ChangesDocument, { filter: { states: ["SCHEDULED", "ACTIVE"] }, first: 50, after: null });
+  const watch = useWatch();
+  const scheduled = useGatewayQuery(ChangesDocument, { filter: { states: ["SCHEDULED", "ACTIVE"] }, first: 50, after: null }, watch);
   const markets = useGatewayQuery(MarketsDocument, {}, { staleTime: 5 * 60_000 });
-  const upcoming = useGatewayQuery(LaunchesDocument, {});
+  const upcoming = useGatewayQuery(LaunchesDocument, {}, watch);
   const runsId = useId();
   const headingId = useId();
   const weekId = useId();

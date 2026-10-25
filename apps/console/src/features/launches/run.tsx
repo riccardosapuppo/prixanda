@@ -27,6 +27,7 @@ import { marketName, marketZone } from "../../lib/markets.ts";
 import { asRole, can, primaryRole, whoDoes } from "../../lib/permissions.ts";
 import { useAction, useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
+import { useWatch } from "../../lib/react/watch.tsx";
 import { formatClockIn, formatInstantIn, formatLocalWithUtc, formatUtcTime } from "../../lib/time.ts";
 import { LaunchChip } from "./launches.tsx";
 
@@ -35,8 +36,14 @@ type Result = { readonly __typename: "LaunchRun" } | { readonly __typename: "Ref
 export function LaunchRunScreen() {
   const id = useSearchParams().get("id") ?? "";
   const valid = /^\d+$/.test(id);
-  // While the launch runs, it is read again every two seconds.
-  const query = useGatewayQuery(LaunchRunDocument, { id }, { enabled: valid, refetchInterval: (data) => (data?.launch?.state === "RUNNING" ? 2_000 : false) });
+  // While the launch runs, it is read again every two seconds; otherwise at the pace of a page that watches (a launch
+  // that failed can be tried again from another seat).
+  const watch = useWatch();
+  const query = useGatewayQuery(LaunchRunDocument, { id }, {
+    enabled: valid,
+    ...watch,
+    refetchInterval: (data) => (data?.launch?.state === "RUNNING" ? 2_000 : watch.refetchInterval ?? false),
+  });
   const launch = query.data?.launch ?? null;
 
   const head = (

@@ -28,6 +28,8 @@ export type QueryOptions<TData = unknown> = {
   readonly keepPrevious?: boolean;
   /** Milliseconds between readings, or false; a function decides from the data read last (a launch is read again while it runs). */
   readonly refetchInterval?: number | false | ((data: TData | undefined) => number | false);
+  /** Read again when the tab comes back to the front (a page that watches the platform, lib/react/watch.tsx). */
+  readonly refetchOnWindowFocus?: boolean;
 };
 
 export function useGatewayQuery<TData, TVariables>(
@@ -42,6 +44,7 @@ export function useGatewayQuery<TData, TVariables>(
     enabled: options.enabled ?? true,
     ...(options.staleTime !== undefined ? { staleTime: options.staleTime } : {}),
     ...(options.refetchInterval !== undefined ? { refetchInterval: typeof options.refetchInterval === "function" ? (query: { state: { data: TData | undefined } }) => (options.refetchInterval as (data: TData | undefined) => number | false)(query.state.data) : options.refetchInterval } : {}),
+    ...(options.refetchOnWindowFocus !== undefined ? { refetchOnWindowFocus: options.refetchOnWindowFocus } : {}),
     // The previous page stays on screen while the next one loads (TanStack's own helper; its type is generic over any data).
     ...(options.keepPrevious ? { placeholderData: keepPreviousData as never } : {}),
   });
@@ -78,7 +81,7 @@ export function useGatewayPages<TData, TVariables>(
   operation: Operation<TData, TVariables>,
   variablesFor: (after: string | null) => TVariables,
   nextOf: (page: TData) => string | null,
-  options: { readonly enabled?: boolean } = {},
+  options: { readonly enabled?: boolean; readonly refetchInterval?: number; readonly refetchOnWindowFocus?: boolean } = {},
 ): UseInfiniteQueryResult<InfiniteData<TData, string | null>, Error> {
   const gateway = useGateway();
   return useInfiniteQuery<TData, Error, InfiniteData<TData, string | null>, readonly unknown[], string | null>({
@@ -87,6 +90,9 @@ export function useGatewayPages<TData, TVariables>(
     initialPageParam: null,
     getNextPageParam: (last) => nextOf(last) ?? undefined,
     enabled: options.enabled ?? true,
+    // A list that watches reads its pages again together (lib/react/watch.tsx).
+    ...(options.refetchInterval !== undefined ? { refetchInterval: options.refetchInterval } : {}),
+    ...(options.refetchOnWindowFocus !== undefined ? { refetchOnWindowFocus: options.refetchOnWindowFocus } : {}),
   });
 }
 

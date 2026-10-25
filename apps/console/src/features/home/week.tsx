@@ -2,36 +2,52 @@
 // The week as lanes (lib/week.ts draws the geometry): the console's one
 // gesture from the identity, periods as sheets. On a phone the same facts
 // become a list: a lane drawing is unreadable at that width.
-import { formatMoney } from "design";
+import { formatCount, formatMoney } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { CONSOLE_ZONE } from "../../components/frame.tsx";
 import { ErrorPanel, Loading } from "../../components/ui.tsx";
 import { type HomeQuery, WeekDocument } from "../../graphql/generated.ts";
 import { PLAN_ORDER } from "../../lib/markets.ts";
 import { useMinute } from "../../lib/react/clock.tsx";
-import { useGatewayQuery } from "../../lib/react/gateway.tsx";
+import { useGatewayPages } from "../../lib/react/gateway.tsx";
+import { useWatch } from "../../lib/react/watch.tsx";
 import { type Align, buildWeek, type Lane, laneName, laneWords } from "../../lib/week.ts";
 
 const SHOWN_STATES = ["VALIDATED", "IN_APPROVAL", "APPROVED", "SCHEDULED", "ACTIVE"] as const;
 /** A lane draws its first few offers, each on its own row; the rest are counted. */
 const LANE_OFFERS = 3;
+/**
+ * The offers are read fifty at a time, newest change first (home.graphql),
+ * every page up to this many: past them the week says there are more, and
+ * that an older offer may be missing from it.
+ */
+const WEEK_PAGES = 10;
+const WEEK_PAGE_SIZE = 50;
 
 export function WeekZone({ markets }: { readonly markets: HomeQuery["markets"] }) {
   const now = useMinute();
   const [align, setAlign] = useState<Align>("local");
-  const week = useGatewayQuery(WeekDocument, { states: [...SHOWN_STATES] });
+  const week = useGatewayPages(WeekDocument, (after) => ({ states: [...SHOWN_STATES], after }), (page) => page.changes.next, useWatch());
   const headingId = useId();
+  const pages = week.data?.pages ?? [];
+  // Every page, up to the limit: an offer live for weeks can be older than the first fifty, and its lane is not free.
+  const following = week.hasNextPage && pages.length < WEEK_PAGES;
+  useEffect(() => {
+    if (following && !week.isFetchingNextPage && !week.isError) void week.fetchNextPage();
+  }, [following, week]);
+  const beyond = week.hasNextPage && !following;
+  const first = pages[0];
 
-  const drawn = week.data
+  const drawn = first && !following
     ? buildWeek({
       now,
       align,
       markets,
       plans: [...PLAN_ORDER],
-      prices: week.data.priceList,
-      offers: week.data.changes.nodes.flatMap((node) => {
+      prices: first.priceList,
+      offers: pages.flatMap((page) => page.changes.nodes).flatMap((node) => {
         const content = node.details.current.content;
         return content.__typename === "OfferContent"
           ? [{ id: node.id, title: node.title, state: node.state, version: node.currentVersion, plan: content.plan, periods: content.periods }]
@@ -62,8 +78,16 @@ export function WeekZone({ markets }: { readonly markets: HomeQuery["markets"] }
           </div>
         </div>
       </div>
-      {week.isPending ? <Loading what="the week" lines={5} /> : week.isError ? <ErrorPanel error={week.error} retry={() => void week.refetch()} /> : drawn ? (
+      {week.isError ? <ErrorPanel error={week.error} retry={() => void week.refetch()} /> : week.isPending || drawn === null ? <Loading what="the week" lines={5} /> : (
         <>
+          {beyond ? (
+            <p className="flex items-baseline gap-2 text-sm">
+              <Icon name="info" size={15} className="translate-y-0.5 text-ink-2" />
+              <span>
+                More than {formatCount(WEEK_PAGES * WEEK_PAGE_SIZE)} offers are signed, scheduled, live or waiting: the week draws the {formatCount(WEEK_PAGES * WEEK_PAGE_SIZE)} changed last, and an older one may be missing here. The campaigns list has them all.
+              </span>
+            </p>
+          ) : null}
           {drawn.lanes.length === 0 ? (
             <p className="flex items-baseline gap-2 border border-cord bg-stone-0 px-3 py-3 text-sm">
               <Icon name="calendar-check" size={16} className="translate-y-0.5 text-indigo" />
@@ -86,7 +110,7 @@ export function WeekZone({ markets }: { readonly markets: HomeQuery["markets"] }
             {align === "utc" ? " Lined up by UTC, the same instant falls on the same vertical; the days are those of Rome." : " Lined up by each market's time, 09:00 in Rome and 09:00 in London fall on the same vertical."}
           </p>
         </>
-      ) : null}
+      )}
     </section>
   );
 }
