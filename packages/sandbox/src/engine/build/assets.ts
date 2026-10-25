@@ -99,12 +99,14 @@ export type Built = {
 
 const short = (data: Buffer) => sha256(data).slice(0, 12);
 
-/** Writes the engine's files into outDir: what the browser fetches from /sandbox/. */
+/** Writes the engine's files into outDir, in pyodide/, pglite/ and engine/ (emptied first, and nothing else of outDir
+ * touched): what the browser fetches from /sandbox/. */
 export async function buildEngineAssets(outDir: string, options: { wheelsDir?: string } = {}): Promise<Built> {
   const pyodide = pyodideDir();
   const pglite = dirname(createRequire(import.meta.url).resolve("@electric-sql/pglite"));
   const wheels = await checkedWheels(options.wheelsDir ?? wheelsHome(repoRoot).dir, lockedWheels(pyodide));
-  await rm(outDir, { recursive: true, force: true });
+  // Its own folders only: the demo's build writes its worker beside them (scripts/build.ts).
+  for (const folder of ["pyodide", "pglite", "engine"]) await rm(join(outDir, folder), { recursive: true, force: true });
   const files: Record<string, number> = {};
   const put = async (path: string, data: Buffer | string) => {
     await mkdir(dirname(join(outDir, path)), { recursive: true });
