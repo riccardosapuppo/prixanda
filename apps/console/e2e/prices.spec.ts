@@ -10,7 +10,7 @@
 // the server refuses it all the same.
 import { expect, type Page, test } from "@playwright/test";
 import {
-  asListener, asPerson, axe, callByHand, daysAfter, enterAs, launchClockGuard, minutesAhead, recordNotRun, submittedMigration, switchTo, watchErrors,
+  asListener, asPerson, axe, callByHand, daysAfter, daysAhead, enterAs, launchClockGuard, minutesAhead, recordNotRun, submittedMigration, switchTo, watchErrors,
 } from "./support.ts";
 
 test.describe.configure({ mode: "serial" });
@@ -197,10 +197,11 @@ test("Marketing finds no button to write a price migration or a pass, and the se
   await expect(page.getByText("As Marketing you can't sign this one: it needs Finance (conditions 1 and 5).")).toBeVisible();
   await expect(page.getByRole("button", { name: /^Approve/ })).toHaveCount(0);
 
-  const migration = { title: `By hand ${RUN}`, plan: "duo", market: "IT", amount: { amountMinor: "1599", currency: "EUR" }, noticesLocal: minutesAhead(60 * 24 * 7, "Europe/Rome"), startsLocal: minutesAhead(60 * 24 * 40, "Europe/Rome") };
+  // Days ahead at 09:00, not minutes: a week or forty days from a night hour can fall in the hour the clocks repeat.
+  const migration = { title: `By hand ${RUN}`, plan: "duo", market: "IT", amount: { amountMinor: "1599", currency: "EUR" }, noticesLocal: daysAhead(7, "09:00", "Europe/Rome"), startsLocal: daysAhead(40, "09:00", "Europe/Rome") };
   const created = await callByHand(page, "mutation ($m: PriceMigrationInput!) { createPriceMigration(migration: $m) { __typename ... on Refusal { code } } }", { m: migration });
   expect(created.body.data.createPriceMigration.code).toBe("ROLE_NOT_ALLOWED");
-  const pass = { title: `By hand ${RUN}`, plan: "individual", months: 3, prices: [{ market: "IT", amount: { amountMinor: "2999", currency: "EUR" } }], periods: [{ market: "IT", startsLocal: minutesAhead(60 * 24 * 7, "Europe/Rome") }], codeValidMonths: 12, pages: [] };
+  const pass = { title: `By hand ${RUN}`, plan: "individual", months: 3, prices: [{ market: "IT", amount: { amountMinor: "2999", currency: "EUR" } }], periods: [{ market: "IT", startsLocal: daysAhead(7, "09:00", "Europe/Rome") }], codeValidMonths: 12, pages: [] };
   const passCreated = await callByHand(page, "mutation ($p: PrepaidPassInput!) { createPrepaidPass(pass: $p) { __typename ... on Refusal { code } } }", { p: pass });
   expect(passCreated.body.data.createPrepaidPass.code).toBe("ROLE_NOT_ALLOWED");
   // The value not yet earned is Finance's alone: the gateway refuses the field to Marketing.
