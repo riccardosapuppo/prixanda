@@ -85,7 +85,8 @@ class CatalogServiceServicer(object):
 
     def ListOffers(self, request, context):
         """The offers the published catalog holds now: the site shows an offer if and
-        only if its prices are in force (§7.5).
+        only if its prices are in force (§7.5), and an offer for an artist's
+        listeners only to them (§6.8).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

@@ -44,7 +44,9 @@ query SitePlans($market: MarketCode!) {
 }
 
 # Shown if and only if their prices are in force (§7.5): an offer is on the
-# site from the moment its launch publishes it.
+# site from the moment its launch publishes it. An offer for an artist's
+# listeners comes only to the listener who entered, when they are in its
+# audience (§6.8), so the list changes with who entered.
 query SiteOffers($market: MarketCode!) {
   offers(market: $market) {
     id
@@ -64,6 +66,12 @@ query SiteOffers($market: MarketCode!) {
     needsStudentCheck
     breakdown {
       ...SiteBreakdown
+    }
+    listening {
+      artistId
+      artist
+      minSeconds
+      withinDays
     }
   }
 }

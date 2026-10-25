@@ -152,6 +152,16 @@ Autumn Pass in Italy that reads: of the artists' €3.00, €1.47 comes from the
 subscriber and €1.53 from the service (§14.1). The engine of stage 5 sends no
 breakdown with its offers, and the site gets `null` there.
 
+Since stage 7, an offer for an artist's listeners (§14.2) reaches only them
+(§6.8): `offers(market)` passes the session's listener to the engine, which
+lists such an offer only when they are in its audience that day, and never
+to a visitor without a session; the other offers are listed to everyone.
+`Offer.listening` says what its audience asks of their listening (the
+artist's id and name, `minSeconds` and `withinDays`), so the site words it
+with the engine's numbers; it is null for an offer that asks nothing. A
+listener outside the audience who asks for its quote anyway is refused as
+`NOT_ELIGIBLE`.
+
 Since stage 7, the prepaid passes (§9, §14.4): months of a plan paid once,
 sold as a single-use code to keep or to give. `prepaidPasses(market)` lists
 those on sale now, for anyone. `buyPrepaidPass(passId)` buys one for the

@@ -3,9 +3,10 @@
 // sent back, an Idempotency-Key for every change and an X-Request-Id of the
 // test's own, to be found again in the audit log.
 //
-// The site's end-to-end tests launch their changes through here (an offer, a
-// prepaid pass, a price migration): the console's own pages have tests of
-// their own, and the site's tests are about the site.
+// The site's end-to-end tests launch their changes through here (an offer, an
+// offer for an artist's listeners, a prepaid pass, a price migration): the
+// console's own pages have tests of their own, and the site's tests are about
+// the site.
 import { randomUUID } from "node:crypto";
 
 export type Answer = { readonly status: number; readonly body: any; readonly text: string };
@@ -78,6 +79,32 @@ export function studentAutumnPass(startsLocal: string, endsLocal: string) {
   };
 }
 
+/**
+ * The album release of the business book's §14.2, as marketing writes it:
+ * two months of Individual at 1,99 € in Italy, for the Free listeners who
+ * played Ottoline Marr for more than 2 hours in the last 30 days, while her
+ * new record, Low Tide Hymns, is out.
+ */
+export function albumRelease(startsLocal: string, endsLocal: string) {
+  return {
+    title: "Low Tide Hymns",
+    plan: "individual",
+    audience: { segment: "FREE_LISTENERS", listening: { artistId: 2, minSeconds: 7_200, withinDays: 30 } },
+    prices: [{ market: "IT", fixed: { amountMinor: "199", currency: "EUR" } }],
+    monthsAtOfferPrice: 2,
+    periods: [{ market: "IT", startsLocal, endsLocal }],
+    nonCombinabilityGroup: "release-offers",
+    redemptionCap: 1_500,
+    pages: [{
+      market: "IT",
+      title: "Low Tide Hymns",
+      text: "Ottoline Marr's new record is out. Two months of Individual at 1,99 € a month, for the listeners who play her most.",
+      terms: "For listeners on Free. Two months at 1,99 €, then the Individual price in force. One release offer per listener.",
+      treatment: "standard",
+    }],
+  };
+}
+
 const CHANGE = `__typename ... on Change { id state currentVersion current { version fingerprint } validation { valid eligible }
   requiredSignatures { role conditions signed } } ... on Refusal { code reason facts { name value } }`;
 
@@ -118,6 +145,8 @@ export function priceMigration(title: string, plan: string, market: string, amou
 const KINDS = {
   offer: { create: "createOffer", argument: "offer", input: "OfferInput", author: "marketing-1",
     reason: "We are buying students for the autumn: the pass pays for itself from the second year." },
+  release: { create: "createOffer", argument: "offer", input: "OfferInput", author: "marketing-1",
+    reason: "Her new record is out: the listeners who already play her on Free are the likeliest to pay for it." },
   prepaid: { create: "createPrepaidPass", argument: "pass", input: "PrepaidPassInput", author: "commercial-lead-1",
     reason: "A gift for the holidays that brings new listeners in, paid in advance and never renewed." },
   migration: { create: "createPriceMigration", argument: "migration", input: "PriceMigrationInput", author: "commercial-lead-1",

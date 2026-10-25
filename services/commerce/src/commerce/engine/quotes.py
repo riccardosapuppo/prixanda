@@ -20,22 +20,15 @@ from datetime import timedelta
 from commerce.domain.economics import Book
 from commerce.domain import billing
 from commerce.domain.localtime import format_instant, to_local
-from commerce.domain.offers import Audience, ListeningRule
 from commerce.domain.sentence import audience_words
 from commerce.domain.money import format_money
 from commerce.domain.validation import on_sale, resolve_price
 from commerce.engine import charging, contract, eligibility, reference
 from commerce.engine.call import Call, Clock
-from commerce.engine.catalog import LIVE_OFFER, Catalog, breakdown, list_price_at, live_offer, market_code, plan_id
+from commerce.engine.catalog import LIVE_OFFER, Catalog, audience_of, breakdown, list_price_at, live_offer, market_code, plan_id
 from commerce.engine.database import Connection
 from commerce.engine.errors import FailedPrecondition, InvalidArgument, NotFound, Refused
 from commerce.v1 import quotes_pb2
-
-
-def audience_of(stored: dict) -> Audience:
-    rule = stored.get("listening")
-    return Audience(stored.get("segment"), stored.get("current_plan"), bool(stored.get("needs_student_check")),
-                    None if rule is None else ListeningRule(rule["artist_id"], rule["min_seconds"], rule["within_days"]))
 
 
 async def audience_in_sentence(tx: Connection, stored: dict, market: reference.Market, ref: reference.Reference) -> str:

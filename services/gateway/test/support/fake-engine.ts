@@ -272,7 +272,11 @@ export type StoredQuote = {
 };
 
 /** What the engine knows of a published offer beyond its page: who may take it, its non-combinability group, its cap (0: none). */
-export type OfferRules = { neverPaid: boolean; group: string; cap: number };
+/**
+ * The rules of a published offer. An offer whose audience asks for listening
+ * (§14.2) names the listeners in it: the fake engine counts no listening.
+ */
+export type OfferRules = { neverPaid: boolean; group: string; cap: number; listeners?: readonly string[] };
 
 /** The demo's listeners by what they show, as the engine's generator labels them. */
 export const LISTENERS = {
@@ -1355,7 +1359,9 @@ export class FakeEngine {
 
   /** The audience of every offer here asks for people who have never paid, when its rules say so. */
   #inAudience(listener: StoredListener, offerId: string): boolean {
-    return !this.offerRules.get(offerId)?.neverPaid || !listener.subscriptions.some((subscription) => subscription.paid);
+    const rules = this.offerRules.get(offerId);
+    if (rules?.listeners !== undefined && !rules.listeners.includes(listener.id)) return false;
+    return !rules?.neverPaid || !listener.subscriptions.some((subscription) => subscription.paid);
   }
 
   /** A subscription as the engine answers it on a day: its price, its offer's months, its next charge (§4.3, §6.1). */
@@ -1553,8 +1559,11 @@ export class FakeEngine {
       listOffers: (request) => {
         this.#market(request.market);
         const planted = this.#options.sentinels;
+        // An offer for an artist's listeners goes only to a listener in its audience, never to nobody (§6.8).
+        const reaches = (offer: PublishedOffer) =>
+          offer.listening === undefined || (this.offerRules.get(offer.offerId)?.listeners ?? []).includes(request.subscriberId);
         return {
-          offers: this.published.filter((offer) => offer.market === request.market).map((offer) =>
+          offers: this.published.filter((offer) => offer.market === request.market && reaches(offer)).map((offer) =>
             planted ? create(PublishedOfferSchema, { ...offer, version: 987_654 }) : offer),
         };
       },

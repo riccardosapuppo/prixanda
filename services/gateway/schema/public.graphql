@@ -58,7 +58,12 @@ type Query {
   plans(market: MarketCode!): [Plan!]!
   "The list prices of a market, past, current and announced (§4.1)."
   prices(market: MarketCode!, plan: PlanCode): [ListPrice!]!
-  "The offers on sale now in a market: shown if and only if their prices are in force (§7.5)."
+  """
+  The offers on sale now in a market: shown if and only if their prices are
+  in force (§7.5). An offer for an artist's listeners is listed only to the
+  session's listener, when they are in its audience today, and never to a
+  visitor without a session (§6.8).
+  """
   offers(market: MarketCode!): [Offer!]!
   "The prepaid passes on sale now in a market (§9): months of a plan paid once, sold as a code to keep or to give."
   prepaidPasses(market: MarketCode!): [PrepaidPass!]!
@@ -197,6 +202,17 @@ type Offer {
   needsStudentCheck: Boolean!
   "Where the offer price goes in each of its months (§5); null when the engine does not give it."
   breakdown: PriceBreakdown
+  "What its audience asks of their listening (§14.2): such an offer reaches only the listeners in it (§6.8). Null when it asks nothing."
+  listening: OfferListening
+}
+
+"What an offer for an artist's listeners asks for (§14.2): more than minSeconds of the artist in the last withinDays days, in the market's calendar."
+type OfferListening {
+  artistId: ID!
+  "The artist's name, as the catalog writes it."
+  artist: String!
+  minSeconds: Int!
+  withinDays: Int!
 }
 
 type Quote {
