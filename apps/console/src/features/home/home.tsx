@@ -31,6 +31,7 @@ import { useMinute } from "../../lib/react/clock.tsx";
 import { INCIDENT_KIND, INCIDENT_LOOK, launchHref } from "../../lib/launch.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useViewer, type Viewer } from "../../lib/react/session.tsx";
+import { useWatch } from "../../lib/react/watch.tsx";
 import { dayHeading, formatInstantIn, formatLocalWithUtc, nowLabel } from "../../lib/time.ts";
 import { WeekZone } from "./week.tsx";
 
@@ -42,7 +43,8 @@ export function HomeScreen() {
   const now = useMinute();
   const readsRevenue = can(viewer.roles, "readRevenue");
   const readsUnearned = can(viewer.roles, "readUnearnedValue");
-  const home = useGatewayQuery(HomeDocument, { readsRevenue, readsUnearned });
+  // The home watches: what waits, what launches and what broke come in without a reload (lib/react/watch.tsx).
+  const home = useGatewayQuery(HomeDocument, { readsRevenue, readsUnearned }, useWatch());
 
   return (
     <>

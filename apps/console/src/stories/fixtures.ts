@@ -172,5 +172,6 @@ export const WEEK: WeekQuery = {
       id: "7", title: "Student Autumn Pass", state: "IN_APPROVAL", currentVersion: 3,
       details: { id: "7", current: { version: 3, content: { __typename: "OfferContent", plan: "student", periods: [{ market: "IT", startsLocal: "2026-10-26T09:00", endsLocal: "2026-11-30T00:00" }] } } },
     }],
+    next: null,
   },
 };

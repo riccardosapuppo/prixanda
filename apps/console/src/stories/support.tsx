@@ -3,7 +3,9 @@
 // their own. The components are the console's own; only the transport is
 // replaced, as stage 8 will replace it with the schema running in the page.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { AppRouterContext, type AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
+import { SearchParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime.js";
+import { type ReactNode, useState } from "react";
 import type { Operation } from "../graphql/operation.ts";
 import type { GatewayClient } from "../lib/gateway.ts";
 import type { Role } from "../lib/permissions.ts";
@@ -56,5 +58,23 @@ export function StoryProviders({ gateway, viewer, children }: { readonly gateway
         </ClockProvider>
       </GatewayProvider>
     </QueryClientProvider>
+  );
+}
+
+/**
+ * A router that follows push and replace inside the story: the address's
+ * query moves, and with it the step a guided form shows. The preview's own
+ * router only records its calls (.storybook/preview.tsx).
+ */
+export function SteppingRouter({ children }: { readonly children: ReactNode }) {
+  const [search, setSearch] = useState(() => new URLSearchParams());
+  const [router] = useState<AppRouterInstance>(() => {
+    const go = (href: string) => setSearch(new URLSearchParams(href.split("?")[1] ?? ""));
+    return { back: () => undefined, forward: () => undefined, refresh: () => undefined, push: go, replace: go, prefetch: () => undefined, bfcacheId: "story" };
+  });
+  return (
+    <AppRouterContext.Provider value={router}>
+      <SearchParamsContext.Provider value={search}>{children}</SearchParamsContext.Provider>
+    </AppRouterContext.Provider>
   );
 }

@@ -4,13 +4,17 @@
 // not even ask for them). The commercial lead reads revenue and finds the
 // unearned value reserved to Finance; Finance reads revenue and the unearned
 // value by market, sold, activated and expired, with its total in euros
-// (§9.2). The week draws the pass waiting for Finance on its lane.
+// (§9.2). The week draws the pass waiting for Finance on its lane. A home
+// left open shows an incident that comes after its first reading, without a
+// reload: the home watches. The week reads every page of offers, so one live
+// all week shows on its lane even past the fiftieth.
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
 import { MARKETS, overview, WEEK } from "../../stories/fixtures.ts";
 import { PREPAID_VALUE } from "../../stories/prices.ts";
 import { fakeGateway, PEOPLE, StoryProviders } from "../../stories/support.tsx";
 import type { Viewer } from "../../lib/react/session.tsx";
+import { WatchEvery } from "../../lib/react/watch.tsx";
 import { HomeScreen } from "./home.tsx";
 
 /** An open incident: the pass is not live five minutes after its start, and its launch waits to try the publish step again. */
@@ -30,10 +34,45 @@ function gatewayFor(incidents: readonly (typeof LATE)[] = []) {
   });
 }
 
-function Home({ viewer, gateway }: { readonly viewer: Viewer; readonly gateway: ReturnType<typeof gatewayFor> }) {
+/** A home whose first reading has no incident; the launch's alarm comes with the next ones. */
+function incidentLater() {
+  let readings = 0;
+  return fakeGateway({
+    Home: (variables: { readsRevenue: boolean; readsUnearned: boolean }) => {
+      readings += 1;
+      return {
+        overview: { ...overview(variables.readsRevenue), ...(variables.readsUnearned ? PREPAID_VALUE : {}), incidentsToday: readings > 1 ? [LATE] : [] },
+        markets: MARKETS,
+      };
+    },
+    Week: () => WEEK,
+  });
+}
+
+/** Fifty offers for next year changed last, and one live all week before them: Spring for Duo in Germany, on the second page. */
+function aLiveOfferOnThePageAfter() {
+  const offer = (id: string, title: string, state: "SCHEDULED" | "ACTIVE", plan: string, market: string, startsLocal: string, endsLocal: string | null) => ({
+    id, title, state, currentVersion: 2,
+    details: { id, current: { version: 2, content: { __typename: "OfferContent" as const, plan, periods: [{ market, startsLocal, endsLocal }] } } },
+  });
+  const nextYear = Array.from({ length: 50 }, (_, n) => offer(String(100 + n), `Next year's offer ${n + 1}`, "SCHEDULED", "family", "FR", "2027-03-01T09:00", null));
+  const live = offer("9", "Spring for Duo, Germany", "ACTIVE", "duo", "DE", "2026-10-01T09:00", "2026-11-30T00:00");
+  return fakeGateway({
+    Home: (variables: { readsRevenue: boolean; readsUnearned: boolean }) => ({
+      overview: { ...overview(variables.readsRevenue), ...(variables.readsUnearned ? PREPAID_VALUE : {}) },
+      markets: MARKETS,
+    }),
+    Week: (variables: { after?: string | null }) => ({
+      priceList: WEEK.priceList,
+      changes: variables.after == null ? { nodes: nextYear, next: "page-2" } : { nodes: [live], next: null },
+    }),
+  });
+}
+
+function Home({ viewer, gateway, watchEvery }: { readonly viewer: Viewer; readonly gateway: ReturnType<typeof gatewayFor>; readonly watchEvery?: number }) {
   return (
     <StoryProviders gateway={gateway} viewer={viewer}>
-      <HomeScreen />
+      {watchEvery ? <WatchEvery ms={watchEvery}><HomeScreen /></WatchEvery> : <HomeScreen />}
     </StoryProviders>
   );
 }
@@ -108,5 +147,29 @@ export const ALaunchThatDoesNotStartIsAnAlarm: Story = {
     await expect(alarm).toHaveTextContent("Not live 5 minutes after its start: Student Autumn Pass.");
     await expect(within(alarm).getByRole("link", { name: /Open its launch/ })).toHaveAttribute("href", "/launches/run/?id=12");
     await expect(page.getByRole("link", { name: /See what happened/ })).toHaveAttribute("href", "/launches/run/?id=12");
+  },
+};
+
+export const AnIncidentThatComesLaterShowsWithoutAReload: Story = {
+  // The gateway's pace is half a minute; the story's, a moment.
+  args: { viewer: PEOPLE["onCall"]!, gateway: incidentLater(), watchEvery: 300 },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement);
+    await expect(await page.findByText(/^No incidents today\./)).toBeInTheDocument();
+    // The launch did not start after the first reading: the home that stayed open says so on its own.
+    const alarm = await page.findByRole("alert", {}, { timeout: 5_000 });
+    await expect(alarm).toHaveTextContent("Not live 5 minutes after its start: Student Autumn Pass.");
+    await expect(page.queryByText(/^No incidents today\./)).toBeNull();
+  },
+};
+
+export const ALiveOfferPastTheFiftiethIsOnItsLane: Story = {
+  args: { viewer: PEOPLE["marketing"]!, gateway: aLiveOfferOnThePageAfter() },
+  play: async ({ canvasElement, args }) => {
+    const page = within(canvasElement);
+    // Its lane is not free: the offer comes on the second page, and the week reads it.
+    await expect((await page.findAllByText("Spring for Duo, Germany v2, live")).length).toBeGreaterThan(0);
+    await expect(page.queryByText(/^Nothing moves this week/)).toBeNull();
+    await expect(args.gateway.calls.filter((call) => call.operation === "Week")).toHaveLength(2);
   },
 };
