@@ -23,7 +23,11 @@ export declare const file_commerce_v1_overview: GenFile;
  */
 export declare type GetOverviewRequest = Message<"commerce.v1.GetOverviewRequest"> & {
   /**
-   * An instant, ISO 8601 with Z. Empty: the engine's clock.
+   * An instant, ISO 8601 with Z. Empty: the engine's clock. The subscribers,
+   * the revenue and the prepaid passes are those of each market's day at the
+   * instant, and the incidents those of the instant; what waits for approval
+   * and the state of the coming launches are read as the changes stand now
+   * (GetOverviewResponse).
    *
    * @generated from field: string at = 1;
    */
@@ -212,9 +216,9 @@ export declare const MarketRevenueSchema: GenMessage<MarketRevenue>;
 
 /**
  * The prepaid passes of a market, and their value sold and not yet earned on
- * the day (§9.2): each pass's net amount is earned in equal monthly parts from
- * its activation, the last taking the remainder; a code not activated stays
- * unearned until it expires.
+ * the market's day at the instant (§9.2): each pass's net amount is earned in
+ * equal monthly parts from its activation, the last taking the remainder; a
+ * code not activated stays unearned until it expires.
  *
  * @generated from message commerce.v1.PrepaidValue
  */
@@ -225,7 +229,8 @@ export declare type PrepaidValue = Message<"commerce.v1.PrepaidValue"> & {
   market: string;
 
   /**
-   * Codes paid for, of which activated, and expired unused.
+   * Codes paid for by the instant (their payment succeeded), of which
+   * activated by that day, and expired unused by then.
    *
    * @generated from field: int64 sold = 2;
    */
@@ -265,11 +270,18 @@ export declare const PrepaidValueSchema: GenMessage<PrepaidValue>;
  */
 export declare type GetOverviewResponse = Message<"commerce.v1.GetOverviewResponse"> & {
   /**
+   * The changes in approval now, whatever the instant: the queue of
+   * signatures. A change's earlier states are in the audit log.
+   *
    * @generated from field: repeated commerce.v1.ChangeSummary waiting_for_approval = 1;
    */
   waitingForApproval: ChangeSummary[];
 
   /**
+   * The starts in the seven days from the instant of the changes validated,
+   * in approval, approved or scheduled now, by their current version; at_risk
+   * and risk by their state now.
+   *
    * @generated from field: repeated commerce.v1.Launch launches_next_7_days = 2;
    */
   launchesNext7Days: Launch[];
