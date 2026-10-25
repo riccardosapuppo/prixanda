@@ -9,7 +9,7 @@
 // A person without a session gets UNAUTHENTICATED. A person whose roles may
 // not do something gets the answer the engine would give: a ROLE_NOT_ALLOWED
 // refusal where the operation answers with an outcome (mutations,
-// simulateOffer), FORBIDDEN on reads (the engine's behaviour 6). On the site,
+// simulateOffer), FORBIDDEN on reads (the engine's behaviour 6, proto/README.md). On the site,
 // what acts for a listener needs the site's session, and nothing else: it
 // acts for that listener only.
 import { create } from "@bufbuild/protobuf";

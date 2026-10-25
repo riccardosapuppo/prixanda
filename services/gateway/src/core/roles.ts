@@ -1,7 +1,7 @@
 // Who may call what: the role matrix of the business book's §12, in one place.
 //
-// It is the matrix the coordinator fixed on 24 October for the engine and the
-// gateway alike. The engine, the trusted layer, decides (§7.4); the gateway
+// It is the matrix of the contract's conventions (proto/README.md), for the
+// engine and the gateway alike. The engine, the trusted layer, decides (§7.4); the gateway
 // repeats the same matrix before it calls the engine, so that a role never
 // reaches an operation it cannot do. test/roles.test.ts compares every entry
 // with the rows of §12, quoted from docs/business.md: when the book changes,
@@ -26,7 +26,7 @@ const ALL: Allowed = ROLES;
 
 /**
  * The engine methods that act for nobody: the gateway sends them no x-actor
- * and no x-actor-role (the coordinator's convention 2).
+ * and no x-actor-role (convention 2 of proto/README.md).
  */
 export const PUBLIC_METHODS = [
   "ListPeople", "ListMarkets", "ListPlans", "GetPriceList", "ListOffers", "GetQuote", "ListDemoListeners", "ListPrepaidPasses",

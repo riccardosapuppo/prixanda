@@ -20,13 +20,15 @@ import { ErrorPanel, SimulatedTag, Skeleton } from "./ui.tsx";
 /** Where the team works: the console writes "now" in Rome, where the service has its office. */
 export const CONSOLE_ZONE = "Europe/Rome";
 
-export type Section = "home" | "campaigns" | "approvals" | "price-list" | "launches" | "audit";
+export type Section = "home" | "campaigns" | "approvals" | "price-list" | "price-migrations" | "passes" | "launches" | "audit";
 
 const NAV: readonly { readonly section: Section; readonly label: string; readonly href: string; readonly icon: IconName }[] = [
   { section: "home", label: "Home", href: "/", icon: "house" },
   { section: "campaigns", label: "Campaigns", href: "/campaigns/", icon: "megaphone" },
   { section: "approvals", label: "Approvals", href: "/approvals/", icon: "seal-check" },
   { section: "price-list", label: "Price list", href: "/price-list/", icon: "tag" },
+  { section: "price-migrations", label: "Price migrations", href: "/price-migrations/", icon: "arrow-up-right" },
+  { section: "passes", label: "Prepaid passes", href: "/passes/", icon: "gift" },
   { section: "launches", label: "Launches", href: "/launches/", icon: "rocket-launch" },
   { section: "audit", label: "Audit log", href: "/audit/", icon: "scroll" },
 ];

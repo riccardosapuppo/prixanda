@@ -1,16 +1,19 @@
 "use client";
 // The header's links: the plans, the records and the listening sessions of
-// the home, and the account. On a phone they fold behind a Menu button.
+// the home, the prepaid pass while one is on sale, and the account. On a
+// phone they fold behind a Menu button.
 import { Icon } from "design/icon";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { copy } from "../../content/copy.ts";
+import { usePrepaidPassesEverywhere } from "../../data/hooks.ts";
 
 export function HeaderLinks() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const gift = usePrepaidPassesEverywhere({ live: false });
   const onHome = pathname === "/";
   const onAccount = pathname.startsWith("/account");
 
@@ -21,6 +24,7 @@ export function HeaderLinks() {
     { href: "/" as Route, label: copy.nav.plans, current: onHome },
     { href: "/#releases" as Route, label: copy.nav.releases, current: false },
     { href: "/#sessions" as Route, label: copy.nav.sessions, current: pathname.startsWith("/session") },
+    ...(gift.passes.length > 0 ? [{ href: "/#gift" as Route, label: copy.nav.gift, current: false }] : []),
   ];
   return (
     <>

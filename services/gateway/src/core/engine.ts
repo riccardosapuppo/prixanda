@@ -4,7 +4,7 @@
 // reaches the engine running in the page. The core never imports a transport.
 //
 // Every call goes through engineCalls(), which writes the metadata the way the
-// contract and the coordinator's conventions say, so that no resolver can
+// contract and its conventions say (proto/README.md), so that no resolver can
 // forget it: x-request-id always; x-actor and x-actor-role on every method
 // that acts for a person, never on the public ones; idempotency-key on the
 // methods that change something, and only there; and, on the subscriber's
@@ -53,7 +53,7 @@ export function createEngineClient(transport: Transport): EngineClient {
 
 /**
  * The methods that change something carry an idempotency key, and the engine
- * refuses them without one (the engine's behaviour 2): ChangeService's
+ * refuses them without one (the engine's behaviour 2, proto/README.md): ChangeService's
  * writes, GetQuote, which saves a quote, ExportHead, which writes
  * audit.exported, the subscriber's VerifyStudent, ConfirmQuote and
  * AnswerPriceChange, and the on-call engineer's RetryLaunch and CancelLaunch.

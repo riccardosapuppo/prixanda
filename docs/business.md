@@ -323,6 +323,13 @@ Discount cost €3,312.00; top-up cost €5,508.00. The offer loses money over a
 year with these assumptions; it is a choice to buy subscribers, and the
 negative contribution is one of the reasons it needs finance (§7.3).
 
+§6.8 **An offer for an artist's listeners is shown only to them.** An offer
+whose audience asks for listening (§14.2) is shown only to a listener who is
+in its audience that day, in their market's calendar; someone who has not
+entered does not see it, and neither does a listener outside it. Every other
+offer is public: anyone sees it, and the engine checks who may take it when
+they ask for a quote (§4.5).
+
 ## 7. Approvals
 
 §7.1 **States.** A change (an offer, a price, a plan's entitlements, a price
@@ -606,7 +613,10 @@ built.
 played a given artist for more than a set number of hours in the last 30
 days. Eligibility comes from the listening data; it is where PostgreSQL
 works on a large table, and its queries are measured before and after
-indexes, monthly partitions and aggregates.
+indexes, monthly partitions and aggregates. The site shows the offer only to
+the listeners in its audience, who read who it is for in plain words ("for
+listeners who played Ottoline Marr for more than 2 hours in the last 30
+days"); someone who has not entered does not see it (§6.8).
 
 §14.3 **Family price increase in Germany (revenue management).** New
 subscribers pay the new price from a date; existing subscribers receive a

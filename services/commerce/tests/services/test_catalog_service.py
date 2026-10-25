@@ -1,5 +1,6 @@
 """ListMarkets, ListPlans, GetPriceList and ListOffers (business book §2 to
-§6.2): what is sold, at what price, and where each price goes."""
+§6.2, §6.8): what is sold, at what price, where each price goes, and who is
+shown an offer for an artist's listeners."""
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ import pytest
 
 from commerce.engine.errors import InvalidArgument, NotFound
 from commerce.v1 import catalog_pb2, changes_pb2
-from engine_support import FINANCE, LEAD, MARKETING, PUBLIC, family_rise, scheduled, student_autumn
+from engine_support import FINANCE, LEAD, MARKETING, PUBLIC, family_rise, nordflur, scheduled, student_autumn
 
 
 async def test_the_markets_with_their_vat_minimum_and_floor(world):
@@ -80,6 +81,43 @@ async def test_no_offer_before_anything_is_published(world):
     assert list((await world.call("ListOffers", catalog_pb2.ListOffersRequest(market="IT"), PUBLIC)).offers) == []
     with pytest.raises(InvalidArgument):
         await world.call("ListOffers", catalog_pb2.ListOffersRequest(), PUBLIC)
+    with pytest.raises(InvalidArgument):
+        await world.call("ListOffers", catalog_pb2.ListOffersRequest(market="IT", subscriber_id=-1), PUBLIC)
+
+
+async def listed_to(world, market: str, subscriber: int) -> list:
+    request = catalog_pb2.ListOffersRequest(market=market, subscriber_id=subscriber)
+    return list((await world.call("ListOffers", request, PUBLIC)).offers)
+
+
+async def test_an_offer_for_an_artists_listeners_is_listed_only_to_its_audience(world):
+    # §14.2 and §6.8: the Nordflur release goes to the Free listeners in Germany with more than 3 hours of
+    # Doppelfenster in the last 30 days, and to nobody else; without a listener, nobody is told of it.
+    change = await scheduled(world, nordflur(), MARKETING, FINANCE)
+    world.clock.at = datetime(2026, 11, 5, 23, 0, tzinfo=UTC)  # midnight in Berlin, 6 November: the window is 7 Oct to 5 Nov
+    [outcome] = await world.engine.activate_due()
+    assert outcome.action == "activated"
+    [offer] = await listed_to(world, "DE", 201)
+    assert (offer.offer_id, offer.price.amount_minor, offer.months_at_offer_price) == (change.id, 199, 2)
+    rule = offer.listening
+    assert (rule.artist_id, rule.artist_name, rule.min_seconds, rule.within_days) == (4, "Doppelfenster", 10_800, 30)
+    assert offer.audience == "Free listeners in Germany, with more than 3 hours of Doppelfenster in the last 30 days"
+    # Two hours; five hours before the 30 days; a Family subscriber; a listener of another market; nobody.
+    for subscriber in (202, 204, 203, 101, 0):
+        assert await listed_to(world, "DE", subscriber) == [], subscriber
+    # The window moves with the day: three weeks later, the fan's hours are behind it.
+    world.clock.at = datetime(2026, 11, 30, 11, 0, tzinfo=UTC)
+    assert await listed_to(world, "DE", 201) == []
+
+
+async def test_the_other_offers_are_listed_to_everyone(world):
+    await scheduled(world, student_autumn(), MARKETING, FINANCE)
+    world.clock.at = datetime(2026, 10, 26, 8, 0, tzinfo=UTC)
+    await world.engine.activate_due()
+    # Nobody; a verified student; one who paid before, outside the audience; a listener of another market.
+    for subscriber in (0, 101, 104, 201):
+        [offer] = await listed_to(world, "IT", subscriber)
+        assert offer.title == "Student Autumn Pass" and not offer.HasField("listening"), subscriber
 
 
 async def test_the_struck_through_price_is_the_list_price_in_force_that_day(world):

@@ -3,9 +3,10 @@
 // sent back, an Idempotency-Key for every change and an X-Request-Id of the
 // test's own, to be found again in the audit log.
 //
-// The site's end-to-end test launches its offer through here while the
-// console of stage 4 is being built; once the two are joined, the launch goes
-// through the console's pages instead.
+// The site's end-to-end tests launch their changes through here (an offer, an
+// offer for an artist's listeners, a prepaid pass, a price migration): the
+// console's own pages have tests of their own, and the site's tests are about
+// the site.
 import { randomUUID } from "node:crypto";
 
 export type Answer = { readonly status: number; readonly body: any; readonly text: string };
@@ -78,6 +79,32 @@ export function studentAutumnPass(startsLocal: string, endsLocal: string) {
   };
 }
 
+/**
+ * The album release of the business book's §14.2, as marketing writes it:
+ * two months of Individual at 1,99 € in Italy, for the Free listeners who
+ * played Ottoline Marr for more than 2 hours in the last 30 days, while her
+ * new record, Low Tide Hymns, is out.
+ */
+export function albumRelease(startsLocal: string, endsLocal: string) {
+  return {
+    title: "Low Tide Hymns",
+    plan: "individual",
+    audience: { segment: "FREE_LISTENERS", listening: { artistId: 2, minSeconds: 7_200, withinDays: 30 } },
+    prices: [{ market: "IT", fixed: { amountMinor: "199", currency: "EUR" } }],
+    monthsAtOfferPrice: 2,
+    periods: [{ market: "IT", startsLocal, endsLocal }],
+    nonCombinabilityGroup: "release-offers",
+    redemptionCap: 1_500,
+    pages: [{
+      market: "IT",
+      title: "Low Tide Hymns",
+      text: "Ottoline Marr's new record is out. Two months of Individual at 1,99 € a month, for the listeners who play her most.",
+      terms: "For listeners on Free. Two months at 1,99 €, then the Individual price in force. One release offer per listener.",
+      treatment: "standard",
+    }],
+  };
+}
+
 const CHANGE = `__typename ... on Change { id state currentVersion current { version fingerprint } validation { valid eligible }
   requiredSignatures { role conditions signed } } ... on Refusal { code reason facts { name value } }`;
 
@@ -88,13 +115,64 @@ export type Launched = {
 };
 
 /**
+ * A prepaid pass (§9, §14.4) as the commercial lead writes it: three months
+ * of Individual for 29,99 € in Italy, on sale from `startsLocal`, its code
+ * good for twelve months.
+ */
+export function giftPass(startsLocal: string) {
+  return {
+    title: "Three-month gift pass",
+    plan: "individual",
+    months: 3,
+    prices: [{ market: "IT", amount: { amountMinor: "2999", currency: "EUR" } }],
+    periods: [{ market: "IT", startsLocal }],
+    codeValidMonths: 12,
+    pages: [{
+      market: "IT",
+      title: "Give three months",
+      text: "Three months of Individual, 29,99 € paid once. The code never renews, and later price changes don't touch it.",
+      terms: "A single-use code, valid for twelve months from the day it is bought. Activated, it gives three months of Individual, then Free.",
+    }],
+  };
+}
+
+/** A price migration (§8, §14.3): a higher price for one plan in one market, existing subscribers asked or told from `noticesLocal`. */
+export function priceMigration(title: string, plan: string, market: string, amountMinor: string, noticesLocal: string, startsLocal: string) {
+  return { title, plan, market, amount: { amountMinor, currency: market === "GB" ? "GBP" : "EUR" }, noticesLocal, startsLocal };
+}
+
+/** Each kind of change: the mutation that creates it, its input type, who writes it, and why it is wanted. */
+const KINDS = {
+  offer: { create: "createOffer", argument: "offer", input: "OfferInput", author: "marketing-1",
+    reason: "We are buying students for the autumn: the pass pays for itself from the second year." },
+  release: { create: "createOffer", argument: "offer", input: "OfferInput", author: "marketing-1",
+    reason: "Her new record is out: the listeners who already play her on Free are the likeliest to pay for it." },
+  prepaid: { create: "createPrepaidPass", argument: "pass", input: "PrepaidPassInput", author: "commercial-lead-1",
+    reason: "A gift for the holidays that brings new listeners in, paid in advance and never renewed." },
+  migration: { create: "createPriceMigration", argument: "migration", input: "PriceMigrationInput", author: "commercial-lead-1",
+    reason: "The plan's costs rose: the artists' share and the payment costs follow the price, and the margin holds." },
+} as const;
+
+/**
  * Marketing creates, validates and submits the offer; finance approves the
  * exact version and fingerprint; marketing schedules it. The engine then
  * activates it at its start, on its own.
  */
 export async function launchOffer(consoleUrl: string, offer: Record<string, unknown>, tag = randomUUID().slice(0, 8)): Promise<Launched> {
-  const marketing = await new ConsoleSession(consoleUrl, "marketing-1").signIn();
+  return launchChange(consoleUrl, "offer", offer, tag);
+}
+
+/**
+ * Its author creates, validates and submits the change; finance approves the
+ * exact version and fingerprint; the author schedules it. The engine then
+ * starts it on its own: an offer or a pass goes on sale, a migration asks or
+ * tells the existing subscribers.
+ */
+export async function launchChange(consoleUrl: string, kind: keyof typeof KINDS, content: Record<string, unknown>, tag = randomUUID().slice(0, 8)): Promise<Launched> {
+  const how = KINDS[kind];
+  const author = await new ConsoleSession(consoleUrl, how.author).signIn();
   const finance = await new ConsoleSession(consoleUrl, "finance-1").signIn();
+  const marketing = author;
   const requestIds: Record<string, string> = {};
   const step = async (session: ConsoleSession, action: string, query: string, variables: Record<string, unknown>) => {
     const requestId = `e2e-${action.replace("change.", "")}-${tag}`;
@@ -104,13 +182,13 @@ export async function launchOffer(consoleUrl: string, offer: Record<string, unkn
     if (result?.__typename !== "Change") throw new Error(`${action} did not go through: ${answer.text}`);
     return result;
   };
-  const created = await step(marketing, "change.created", `mutation ($o: OfferInput!) { createOffer(offer: $o) { ${CHANGE} } }`, { o: offer });
+  const created = await step(marketing, "change.created", `mutation ($o: ${how.input}!) { ${how.create}(${how.argument}: $o) { ${CHANGE} } }`, { o: content });
   const changeId: string = created.id;
   const validated = await step(marketing, "change.validated", `mutation ($id: ID!) { validateChange(changeId: $id, version: 1) { ${CHANGE} } }`, { id: changeId });
-  if (validated.state !== "VALIDATED") throw new Error(`the offer did not validate: ${JSON.stringify(validated)}`);
+  if (validated.state !== "VALIDATED") throw new Error(`the ${kind} did not validate: ${JSON.stringify(validated)}`);
   await step(marketing, "change.submitted",
-    `mutation ($id: ID!) { submitChange(changeId: $id, version: 1, authorReason: "We are buying students for the autumn: the pass pays for itself from the second year.") { ${CHANGE} } }`,
-    { id: changeId });
+    `mutation ($id: ID!, $why: String!) { submitChange(changeId: $id, version: 1, authorReason: $why) { ${CHANGE} } }`,
+    { id: changeId, why: how.reason });
   const fingerprint: string = validated.current.fingerprint;
   const approved = await step(finance, "change.approved",
     `mutation ($id: ID!, $fp: Sha256!) { approveChange(changeId: $id, version: 1, fingerprint: $fp) { ${CHANGE} } }`, { id: changeId, fp: fingerprint });

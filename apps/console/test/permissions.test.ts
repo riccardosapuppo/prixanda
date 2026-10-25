@@ -51,7 +51,7 @@ describe("the team's table", () => {
     assert.equal(everyoneReadsWords("AUDITOR"), "As Auditor you read what every role reads: the changes, the home and the audit log (§12.2).");
   });
 
-  it("gives every right to the roles the gateway's matrix allows, offers apart from list prices", () => {
+  it("gives every right to the roles the gateway's matrix allows, by kind of change", () => {
     type Allowed = readonly string[];
     const offer = (allowed: { readonly offer: Allowed }) => allowed.offer;
     const gateway: Readonly<Record<Right, Allowed>> = {
@@ -59,25 +59,41 @@ describe("the team's table", () => {
       editOffer: offer(METHOD_ROLES.SaveVersion),
       submitOffer: offer(METHOD_ROLES.SubmitChange),
       createListPrice: METHOD_ROLES.CreateChange.listPrice,
+      createPriceMigration: METHOD_ROLES.CreateChange.priceMigration,
+      createPrepaidPass: METHOD_ROLES.CreateChange.prepaid,
       simulate: METHOD_ROLES.SimulateOffer,
       approve: METHOD_ROLES.ApproveChange,
       reject: METHOD_ROLES.RejectChange,
       scheduleOffer: offer(METHOD_ROLES.ScheduleChange),
       cancelOffer: offer(METHOD_ROLES.CancelChange),
+      schedulePrice: METHOD_ROLES.ScheduleChange.priceMigration,
+      cancelPrice: METHOD_ROLES.CancelChange.priceMigration,
       suspend: METHOD_ROLES.SuspendChange,
       retryLaunch: METHOD_ROLES.RetryLaunch,
       cancelLaunch: METHOD_ROLES.CancelLaunch,
       verifyChain: METHOD_ROLES.VerifyChain,
       exportHead: METHOD_ROLES.ExportHead,
       readRevenue: FIELD_ROLES["Overview.monthlyRevenue"],
-      // §12.2: the gateway has no field for it until the prepaid pass is on sale.
-      readUnearnedValue: ["finance"],
+      readUnearnedValue: FIELD_ROLES["Overview.prepaid"],
     };
     for (const [right, roles] of Object.entries(TEAM.rights) as [Right, readonly Role[]][]) {
       assert.deepEqual([...roles].map((role) => role.toLowerCase()).sort(), [...gateway[right]].sort(), right);
     }
     // Checking a campaign is part of editing it.
     assert.deepEqual([...offer(METHOD_ROLES.ValidateChange)], TEAM.rights.editOffer.map((role) => role.toLowerCase()));
+    // Who creates a price migration or a pass also saves, checks and submits it.
+    for (const kind of ["priceMigration", "prepaid"] as const) {
+      const creates = [...METHOD_ROLES.CreateChange[kind]].sort();
+      for (const method of ["SaveVersion", "ValidateChange", "SubmitChange"] as const) assert.deepEqual([...METHOD_ROLES[method][kind]].sort(), creates, `${method} ${kind}`);
+    }
+    // A price is a price: a list price, a migration and a pass are scheduled and cancelled by the same roles.
+    for (const kind of ["listPrice", "prepaid"] as const) {
+      assert.deepEqual([...METHOD_ROLES.ScheduleChange[kind]].sort(), [...METHOD_ROLES.ScheduleChange.priceMigration].sort(), `schedule ${kind}`);
+      assert.deepEqual([...METHOD_ROLES.CancelChange[kind]].sort(), [...METHOD_ROLES.CancelChange.priceMigration].sort(), `cancel ${kind}`);
+    }
+    // A migration's simulation is open to those who simulate a campaign, and the unearned value to finance in both fields.
+    assert.deepEqual([...METHOD_ROLES.SimulateMigration].sort(), [...METHOD_ROLES.SimulateOffer].sort());
+    assert.deepEqual([...FIELD_ROLES["Overview.prepaidUnearnedEur"]], [...FIELD_ROLES["Overview.prepaid"]]);
   });
 
   it("composes the sentences from the rights, the verb agreeing with the roles", () => {
@@ -86,6 +102,10 @@ describe("the team's table", () => {
     assert.equal(whoDoes("scheduleOffer", { one: "schedules it", many: "schedule it" }, { start: false, either: true }), "Marketing or the commercial lead schedules it");
     assert.equal(whoDoes("verifyChain", { one: "verifies the chain", many: "verify the chain" }), "The auditor and the on-call engineer verify the chain");
     assert.equal(approvesWithoutScheduling(), "Finance approves but does not schedule");
+    assert.equal(approvesWithoutScheduling({ schedules: "schedulePrice" }), "Finance approves but does not schedule");
+    assert.equal(whoDoes("schedulePrice", { one: "schedules it", many: "schedule it" }, { start: false }), "the commercial lead schedules it");
+    assert.equal(whoDoes("cancelPrice", { one: "cancels it", many: "cancel it" }, { either: true }), "The commercial lead or the on-call engineer cancels it");
+    assert.equal(whoDoes("createPriceMigration", { one: "writes price migrations", many: "write price migrations" }), "The commercial lead writes price migrations");
     assert.equal(otherwiseSigner(), "the commercial lead or Finance");
     assert.equal(waitingFor([{ role: "COMMERCIAL_LEAD", conditions: [], why: "", signed: false }]), "Waiting for the commercial lead or Finance");
   });

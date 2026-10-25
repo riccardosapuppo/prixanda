@@ -3,6 +3,11 @@
 # gateway keeps which one in an HttpOnly cookie of its own, and every call
 # acts for that listener. It is not a sign-in, and nothing here moves money:
 # the student verifier and the payment provider are simulated.
+#
+# The account also holds the price changes of the running subscription (§8),
+# with every date the engine worked out, and the prepaid passes the listener
+# bought (§9), each with its code: the account is the session's own, so a code
+# reaches only the browser of the listener who bought it.
 
 fragment SiteAccount on Account {
   market
@@ -20,6 +25,9 @@ fragment SiteAccount on Account {
     fullPrice
     nextBillingOn
     nextCharge
+    endsOn
+    prepaidCode
+    prepaidPrice
   }
   payment {
     ...SitePayment
@@ -27,6 +35,53 @@ fragment SiteAccount on Account {
   studentVerification {
     ...SiteVerification
   }
+  priceChanges {
+    ...SitePriceChange
+  }
+  prepaidCodes {
+    ...SitePrepaidCode
+  }
+}
+
+fragment SitePriceChange on PriceChange {
+  id
+  plan
+  oldPrice
+  newPrice
+  kind
+  sentAt
+  windowEnds {
+    local
+    utc
+  }
+  newSubscribersFrom {
+    local
+    utc
+  }
+  state
+  newPriceFrom
+  appliesFrom
+  ifNoLeavesOn
+  leavesOn
+  ifNoAnswer
+  legalBasis
+}
+
+fragment SitePrepaidCode on PrepaidCode {
+  code
+  passId
+  title
+  plan
+  market
+  months
+  price
+  boughtAt
+  validUntil
+  state
+  payment {
+    ...SitePayment
+  }
+  activatedOn
 }
 
 fragment SitePayment on Payment {
@@ -96,6 +151,22 @@ mutation SiteVerifyStudent {
     __typename
     ... on StudentVerification {
       ...SiteVerification
+    }
+    ... on Refusal {
+      code
+      reason
+    }
+  }
+}
+
+# A yes or a no to a price change (§8). In a consent market the two answers
+# weigh the same; in a notice market the site only offers the no, which ends
+# the subscription before the new price applies.
+mutation SiteAnswerPriceChange($priceChangeId: ID!, $accept: Boolean!) {
+  answerPriceChange(priceChangeId: $priceChangeId, accept: $accept) {
+    __typename
+    ... on PriceChange {
+      ...SitePriceChange
     }
     ... on Refusal {
       code

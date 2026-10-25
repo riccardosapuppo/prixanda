@@ -6,8 +6,8 @@
 //
 // The internal token is COMMERCE_INTERNAL_TOKEN when it is set. When it is
 // not, it is the file .data/internal-token: 32 random bytes in hex, created by
-// whichever of the engine or the gateway starts first (the coordinator's
-// convention 4, 24 October).
+// whichever of the engine or the gateway starts first (convention 4 of
+// proto/README.md).
 //
 // The creation is exclusive and whole: the secret is written to a file of
 // this process and then linked into place, which fails if the file already

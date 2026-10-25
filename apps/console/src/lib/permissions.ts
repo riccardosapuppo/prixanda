@@ -23,11 +23,15 @@ export type Right =
   | "editOffer"
   | "submitOffer"
   | "createListPrice"
+  | "createPriceMigration"
+  | "createPrepaidPass"
   | "simulate"
   | "approve"
   | "reject"
   | "scheduleOffer"
   | "cancelOffer"
+  | "schedulePrice"
+  | "cancelPrice"
   | "suspend"
   | "retryLaunch"
   | "cancelLaunch"
@@ -72,19 +76,26 @@ export const TEAM = {
   },
   /** Who holds each right, in the order the book names them ("finance and the commercial lead", "the auditor and the on-call engineer"). */
   rights: {
-    // Marketing creates, edits and submits campaigns; the commercial lead owns the price list (§12.1).
+    // Marketing creates, edits and submits campaigns; the commercial lead owns the price list (§12.1), and with it
+    // the price changes for existing subscribers (§8) and the prepaid passes, which are prices too (§9). Who
+    // creates a kind of change also edits, checks and submits it.
     createOffer: ["MARKETING"],
     editOffer: ["MARKETING"],
     submitOffer: ["MARKETING"],
     createListPrice: ["COMMERCIAL_LEAD"],
+    createPriceMigration: ["COMMERCIAL_LEAD"],
+    createPrepaidPass: ["COMMERCIAL_LEAD"],
     simulate: ["MARKETING", "COMMERCIAL_LEAD", "FINANCE"],
     // The roles that approve also send back; the engine decides which signature a version needs (§7.3, §7.4).
     approve: ["FINANCE", "COMMERCIAL_LEAD"],
     reject: ["FINANCE", "COMMERCIAL_LEAD"],
-    // Finance approves but does not schedule: separation of duties.
+    // Finance approves but does not schedule: separation of duties. A price (a list price, a price migration, a
+    // prepaid pass) is scheduled by the commercial lead alone.
     scheduleOffer: ["MARKETING", "COMMERCIAL_LEAD"],
+    schedulePrice: ["COMMERCIAL_LEAD"],
     // Cancelling a scheduled start is part of the on-call engineer's "roll back a launch".
     cancelOffer: ["MARKETING", "COMMERCIAL_LEAD", "ON_CALL"],
+    cancelPrice: ["COMMERCIAL_LEAD", "ON_CALL"],
     suspend: ["ON_CALL"],
     // §12.1: the on-call engineer retries or cancels a launch that stopped.
     retryLaunch: ["ON_CALL"],
@@ -152,9 +163,9 @@ export function asRole(role: Role | null, options: { readonly start?: boolean } 
   return options.start === false ? words : capital(words);
 }
 
-/** "Finance approves but does not schedule": the roles that approve and do not schedule a start (separation of duties). */
-export function approvesWithoutScheduling(options: { readonly start?: boolean } = {}): string {
-  const roles = holdsOnly("approve", "scheduleOffer");
+/** "Finance approves but does not schedule": the roles that approve and do not schedule a start (separation of duties); schedules: the right that schedules the kind of change at hand. */
+export function approvesWithoutScheduling(options: { readonly start?: boolean; readonly schedules?: Right } = {}): string {
+  const roles = holdsOnly("approve", options.schedules ?? "scheduleOffer");
   return `${people(roles, { start: options.start ?? true })} ${roles.length > 1 ? "approve but do not schedule" : "approves but does not schedule"}`;
 }
 

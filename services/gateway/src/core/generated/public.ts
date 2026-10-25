@@ -7,7 +7,7 @@ import type { DateValue } from '../scalars.ts';
 import type { MarketCodeValue } from '../scalars.ts';
 import type { PlanCodeValue } from '../scalars.ts';
 import type { GraphQLResolveInfo, GraphQLScalarType, GraphQLScalarTypeConfig } from 'graphql';
-import type { PublicMarketModel, PublicEntitlementsModel, PublicPriceBreakdownModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicPaymentModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel, PublicPriceChangeModel, PublicPrepaidPassModel, PublicPrepaidCodeModel, PublicPrepaidPurchaseModel } from '../models.ts';
+import type { PublicMarketModel, PublicEntitlementsModel, PublicPriceBreakdownModel, PublicPlanModel, PublicListPriceModel, PublicMarketTimeModel, PublicOfferModel, PublicQuoteModel, PublicDemoListenerModel, PublicMeModel, PublicAccountModel, PublicSubscriptionModel, PublicStudentVerificationModel, PublicPaymentModel, PublicReceiptModel, PublicConfirmationModel, PublicRefusalModel, PublicPriceChangeModel, PublicPrepaidPassModel, PublicPrepaidCodeModel, PublicPrepaidPurchaseModel, PublicOfferListeningModel } from '../models.ts';
 import type { PublicContext } from '../context.ts';
 export type Maybe<T> = T | null;
 export type InputMaybe<T> = Maybe<T>;
@@ -44,7 +44,12 @@ export type Query = {
   readonly plans: ReadonlyArray<Plan>;
   /** The list prices of a market, past, current and announced (§4.1). */
   readonly prices: ReadonlyArray<ListPrice>;
-  /** The offers on sale now in a market: shown if and only if their prices are in force (§7.5). */
+  /**
+   * The offers on sale now in a market: shown if and only if their prices are
+   * in force (§7.5). An offer for an artist's listeners is listed only to the
+   * session's listener, when they are in its audience today, and never to a
+   * visitor without a session (§6.8).
+   */
   readonly offers: ReadonlyArray<Offer>;
   /** The prepaid passes on sale now in a market (§9): months of a plan paid once, sold as a code to keep or to give. */
   readonly prepaidPasses: ReadonlyArray<PrepaidPass>;
@@ -244,6 +249,18 @@ export type Offer = {
   readonly needsStudentCheck: Scalars['Boolean']['output'];
   /** Where the offer price goes in each of its months (§5); null when the engine does not give it. */
   readonly breakdown?: Maybe<PriceBreakdown>;
+  /** What its audience asks of their listening (§14.2): such an offer reaches only the listeners in it (§6.8). Null when it asks nothing. */
+  readonly listening?: Maybe<OfferListening>;
+};
+
+/** What an offer for an artist's listeners asks for (§14.2): more than minSeconds of the artist in the last withinDays days, in the market's calendar. */
+export type OfferListening = {
+  readonly __typename?: 'OfferListening';
+  readonly artistId: Scalars['ID']['output'];
+  /** The artist's name, as the catalog writes it. */
+  readonly artist: Scalars['String']['output'];
+  readonly minSeconds: Scalars['Int']['output'];
+  readonly withinDays: Scalars['Int']['output'];
 };
 
 export type Quote = {
@@ -657,6 +674,7 @@ export type ResolversTypes = {
   ListPrice: ResolverTypeWrapper<PublicListPriceModel>;
   MarketTime: ResolverTypeWrapper<PublicMarketTimeModel>;
   Offer: ResolverTypeWrapper<PublicOfferModel>;
+  OfferListening: ResolverTypeWrapper<PublicOfferListeningModel>;
   Quote: ResolverTypeWrapper<PublicQuoteModel>;
   DemoListener: ResolverTypeWrapper<PublicDemoListenerModel>;
   Me: ResolverTypeWrapper<PublicMeModel>;
@@ -705,6 +723,7 @@ export type ResolversParentTypes = {
   ListPrice: PublicListPriceModel;
   MarketTime: PublicMarketTimeModel;
   Offer: PublicOfferModel;
+  OfferListening: PublicOfferListeningModel;
   Quote: PublicQuoteModel;
   DemoListener: PublicDemoListenerModel;
   Me: PublicMeModel;
@@ -835,6 +854,14 @@ export type OfferResolvers<ContextType = PublicContext, ParentType extends Resol
   audience: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   needsStudentCheck: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   breakdown: Resolver<Maybe<ResolversTypes['PriceBreakdown']>, ParentType, ContextType>;
+  listening: Resolver<Maybe<ResolversTypes['OfferListening']>, ParentType, ContextType>;
+};
+
+export type OfferListeningResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['OfferListening'] = ResolversParentTypes['OfferListening']> = {
+  artistId: Resolver<ResolversTypes['ID'], ParentType, ContextType>;
+  artist: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  minSeconds: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  withinDays: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
 };
 
 export type QuoteResolvers<ContextType = PublicContext, ParentType extends ResolversParentTypes['Quote'] = ResolversParentTypes['Quote']> = {
@@ -1027,6 +1054,7 @@ export type Resolvers<ContextType = PublicContext> = {
   ListPrice: ListPriceResolvers<ContextType>;
   MarketTime: MarketTimeResolvers<ContextType>;
   Offer: OfferResolvers<ContextType>;
+  OfferListening: OfferListeningResolvers<ContextType>;
   Quote: QuoteResolvers<ContextType>;
   DemoListener: DemoListenerResolvers<ContextType>;
   Me: MeResolvers<ContextType>;

@@ -22,6 +22,7 @@ import { AuditEventsDocument, CancelLaunchDocument, LaunchRunDocument, RetryLaun
 import {
   elapsed, INCIDENT_KIND, INCIDENT_LOOK, type LaunchDetail, launchActions, launchWords, MAX_FAILURES, now, publication, STEP_LOOK, STEP_NAME, stepCounts, stepLook,
 } from "../../lib/launch.ts";
+import { approvalHref } from "../../lib/kinds.ts";
 import { marketName, marketZone } from "../../lib/markets.ts";
 import { asRole, can, primaryRole, whoDoes } from "../../lib/permissions.ts";
 import { useAction, useGatewayQuery } from "../../lib/react/gateway.tsx";
@@ -46,7 +47,7 @@ export function LaunchRunScreen() {
         <>
           <LaunchChip launch={launch} />
           <span>
-            <Link href={`/campaigns/approval/?id=${launch.change.id}`}>{launch.title} v{launch.version}</Link>, {marketName(query.data.markets, launch.starts.market)}.
+            <Link href={approvalHref(launch.kind, launch.change.id)}>{launch.title} v{launch.version}</Link>, {marketName(query.data.markets, launch.starts.market)}.
             Starts {formatLocalWithUtc(launch.starts.local, marketZone(query.data.markets, launch.starts.market))}
           </span>
         </>
@@ -232,7 +233,7 @@ function OnCall({ launch }: { readonly launch: LaunchDetail }) {
     return launch.state === "DONE" ? (
       <p className="text-sm text-ink-2">
         Published: there is nothing to try again. To take the change off the site, {whoDoes("suspend", { one: "suspends it", many: "suspend it" }, { start: false, either: true })} on its{" "}
-        <Link href={`/campaigns/approval/?id=${launch.change.id}`}>approval page</Link>, with a reason.
+        <Link href={approvalHref(launch.kind, launch.change.id)}>approval page</Link>, with a reason.
       </p>
     ) : null;
   }

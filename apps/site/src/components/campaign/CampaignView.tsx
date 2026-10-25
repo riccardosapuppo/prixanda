@@ -7,7 +7,8 @@
 //
 // The address names the market and the offer: /campaign/?market=IT&offer=42.
 // The site is a static build, so one page serves every campaign and reads
-// which one from the address.
+// which one from the address. An offer for an artist's listeners is on sale
+// only for them (§6.8): to anyone else, its address reads as one not on sale.
 import { formatSitePrice, type MoneyLike } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
@@ -74,7 +75,9 @@ function CampaignPage({ offer, market, marketName, minimum, planName }: {
   const list = formatSitePrice(offer.listPrice, market);
   const months = offer.monthsAtOfferPrice;
   const scene = monthsScene(months);
-  const audienceTag = offer.needsStudentCheck ? copy.campaign.studentsIn(marketName) : copy.campaign.planIn(planName, marketName);
+  const audienceTag = offer.listening
+    ? copy.listening.tag(offer.listening.artist)
+    : offer.needsStudentCheck ? copy.campaign.studentsIn(marketName) : copy.campaign.planIn(planName, marketName);
   const until = offer.takeableUntil ? lastDayBefore(offer.takeableUntil.local) : null;
   const tag = offer.takeableUntil ? `${audienceTag} · until ${lastDayBefore(offer.takeableUntil.local, { withYear: false })}` : audienceTag;
 
@@ -124,7 +127,8 @@ function CampaignPage({ offer, market, marketName, minimum, planName }: {
       {offer.breakdown ? <PromiseBand breakdown={offer.breakdown} minimum={minimum} market={market} /> : null}
       <section aria-label="Details of the offer" className="wrap grid gap-x-12 gap-y-4 border-t border-cord pt-8 pb-16 md:grid-cols-2">
         <p className="m-0 max-w-[62ch]">
-          {offer.audience}.{offer.needsStudentCheck ? ` ${copy.campaign.studentCheckNote}` : null}
+          {offer.listening ? copy.listening.forListeners(offer.listening) : `${offer.audience}.`}
+          {offer.needsStudentCheck ? ` ${copy.campaign.studentCheckNote}` : null}
         </p>
         <p className="m-0 max-w-[62ch] text-md text-ink-2">
           {offer.terms}

@@ -4,8 +4,8 @@
 // not yet earned. On the site: the passes on sale in a market, a
 // demonstration purchase whose code is PENDING until the provider settles its
 // payment, the code activated by its buyer or by whoever was given it, and
-// every refusal in the gateway's words. The fake engine follows the
-// coordinator's behaviours for the engine's §14.4 service.
+// every refusal in the gateway's words. The fake engine follows the engine's
+// behaviours (proto/README.md) for its §14.4 service.
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { ChangeState, type PrepaidPassContent } from "contracts/commerce/v1/changes";

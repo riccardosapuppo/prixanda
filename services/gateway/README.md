@@ -142,8 +142,8 @@ back the same; another answer, or one after the window, is refused as
 `ANSWER_CLOSED` with the gateway's sentence; another listener's price change
 is not found.
 
-Where a price goes is public by the coordinator's decision of 24 October,
-because it is the promise of §1.2: each market's VAT rate and the artists'
+Where a price goes is public, because it is the promise of §1.2 and §5 of
+the business book: each market's VAT rate and the artists'
 guaranteed minimum (`Market.vatBasisPoints`, `Market.artistsMinimum`), and
 the breakdown of a plan's list price and of an offer's price (`breakdown`:
 price, VAT, net, the artists' share, the top-up the music service adds to
@@ -151,6 +151,16 @@ reach the minimum, payment costs, what the service keeps). For the Student
 Autumn Pass in Italy that reads: of the artists' €3.00, €1.47 comes from the
 subscriber and €1.53 from the service (§14.1). The engine of stage 5 sends no
 breakdown with its offers, and the site gets `null` there.
+
+Since stage 7, an offer for an artist's listeners (§14.2) reaches only them
+(§6.8): `offers(market)` passes the session's listener to the engine, which
+lists such an offer only when they are in its audience that day, and never
+to a visitor without a session; the other offers are listed to everyone.
+`Offer.listening` says what its audience asks of their listening (the
+artist's id and name, `minSeconds` and `withinDays`), so the site words it
+with the engine's numbers; it is null for an offer that asks nothing. A
+listener outside the audience who asks for its quote anyway is refused as
+`NOT_ELIGIBLE`.
 
 Since stage 7, the prepaid passes (§9, §14.4): months of a plan paid once,
 sold as a single-use code to keep or to give. `prepaidPasses(market)` lists
@@ -569,8 +579,9 @@ and the prepaid passes (`test/prepaid-passes.test.ts`). They
 run the real gateway over HTTP against a fake engine
 (`test/support/fake-engine.ts`): every service of the contract, in memory,
 served over real gRPC on 127.0.0.1:4613, with the engine's
-behaviours as the coordinator fixed them (codes, metadata, idempotency,
-refusals, the role matrix written again on its own) and, for the
+behaviours of the contract's conventions (`proto/README.md`: codes,
+metadata, idempotency, refusals, and the role matrix, written again on its
+own) and, for the
 subscriber's service, the engine's own order of checks, its six demo
 listeners and its billing schedule. The
 clock is injected, so sessions expire, quotes run out, subscriptions reach

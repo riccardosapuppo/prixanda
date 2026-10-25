@@ -101,15 +101,20 @@ dataset and checks every invariant on it, then stops the cluster and removes
 it. Each suite must reach a written minimum number of checks: a suite that
 checked nothing does not pass.
 
-The site's suites (stage 5) check its types, its GraphQL operations against
-the public schema, its unit tests, its static build, and, end to end, the
-whole system with a headless Chromium: the Student Autumn Pass launched, on
-the site within a measured time, a student subscribed at the right price,
+The site's suites (stages 5 and 7) check its types, its GraphQL operations
+against the public schema, its unit tests, its static build, and, end to end,
+the whole system with a headless Chromium: the Student Autumn Pass launched,
+on the site within a measured time, a student subscribed at the right price,
 every step in the audit log, the same journey on the keyboard alone, and the
-pages fitted at five widths. Run them alone with
-`npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e`;
-the end-to-end test needs Playwright's Chromium (`npx playwright install
-chromium`, a download) and is reported as not run without it. Details in
+pages fitted at five widths (site-e2e); a gift pass bought and activated,
+the Family subscriber in Germany asked for consent and the Individual
+subscriber in Italy told in advance, each with the engine's dates, and the
+code in no log line (site-e2e-7); the album release shown to a fan at the
+engine's price, and to none of the listeners outside its audience nor a
+visitor, even across an exit and an entry (site-e2e-fans). Run them alone with
+`npm run check -- --only site-types,site-codegen,site-unit,site-build,site-e2e,site-e2e-7,site-e2e-fans`;
+the end-to-end tests need Playwright's Chromium (`npx playwright install
+chromium`, a download) and are reported as not run without it. Details in
 [apps/site/README.md](apps/site/README.md).
 
 A local development database, kept between runs in `.data`:

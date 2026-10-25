@@ -1,12 +1,14 @@
 "use client";
 // The home: the five things the commercial team looks at first, each leading
-// to an action (the owner's brief): what waits for approval, what launches in
-// the next seven days, today's incidents, who pays by plan and market, and
-// this month's revenue without VAT. Two figures are reserved (§12.2):
+// to an action: what waits for approval, what launches in the next seven
+// days, today's incidents, who pays by plan and market, and this month's
+// revenue without VAT. Two figures are reserved (§12.2):
 // revenue for finance and the commercial lead, the value of prepaid passes
-// sold and not yet earned for finance (§9.2, with the prepaid pass: its place
-// is kept, without numbers). Every other role finds, in the same place, who
-// reads them. Below, the week as lanes.
+// sold and not yet earned for finance alone (§9.2): by market, the codes
+// sold, activated and expired unused, and the net value not yet earned, with
+// its total in euros. Every other role finds, in the same place, who reads
+// them, and the console does not even ask for them in their name. Below, the
+// week as lanes.
 //
 // The first row has two columns that end together: the approvals, each with
 // what it changes, and beside them the launches above the incidents. An open
@@ -20,6 +22,7 @@ import type { ReactNode } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { ButtonLink, Chip, Empty, ErrorPanel, Loading, Locked, StateChip } from "../../components/ui.tsx";
 import { HomeDocument, type HomeQuery } from "../../graphql/generated.ts";
+import { approvalHref } from "../../lib/kinds.ts";
 import { byMarketOrder, marketName, marketZone, PLAN_ORDER, planName } from "../../lib/markets.ts";
 import {
   can, conditionSigner, conditionWords, decide, decisionSentence, everyoneReadsWords, primaryRole, signerWords, waitingFor, whoDoes,
@@ -39,7 +42,7 @@ export function HomeScreen() {
   const now = useMinute();
   const readsRevenue = can(viewer.roles, "readRevenue");
   const readsUnearned = can(viewer.roles, "readUnearnedValue");
-  const home = useGatewayQuery(HomeDocument, { readsRevenue });
+  const home = useGatewayQuery(HomeDocument, { readsRevenue, readsUnearned });
 
   return (
     <>
@@ -64,7 +67,7 @@ export function HomeScreen() {
             <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] xl:gap-12">
               <div className="home-column">
                 <SubscribersZone overview={home.data.overview} markets={home.data.markets} now={now} />
-                {readsUnearned ? <UnearnedToCome /> : <UnearnedLocked viewer={viewer} />}
+                {readsUnearned ? <UnearnedZone overview={home.data.overview} markets={home.data.markets} /> : <UnearnedLocked viewer={viewer} />}
               </div>
               <div className="home-column">
                 {readsRevenue ? <RevenueZone overview={home.data.overview} markets={home.data.markets} /> : <RevenueLocked viewer={viewer} />}
@@ -102,7 +105,7 @@ function ApprovalsZone({ waiting, markets, viewer }: { readonly waiting: Overvie
         <ul role="list" className="grid">
           {waiting.slice(0, SHOWN).map((change) => {
             const content = change.details.current.content;
-            const plan = content.__typename === "OfferContent" || content.__typename === "ListPriceContent" ? content.plan : "";
+            const plan = "plan" in content ? content.plan : "";
             const decision = decide({
               state: change.state,
               version: change.details.current.version,
@@ -116,7 +119,7 @@ function ApprovalsZone({ waiting, markets, viewer }: { readonly waiting: Overvie
                   <h3 className="text-base font-bold leading-snug">
                     {change.title} <span className="font-semibold text-ink-2">v{change.currentVersion}</span>
                   </h3>
-                  <ButtonLink href={`/campaigns/approval/?id=${change.id}`} size="small" iconAfter="arrow-right">
+                  <ButtonLink href={approvalHref(change.kind, change.id)} size="small" iconAfter="arrow-right">
                     Review<span className="sr-only"> {change.title} v{change.currentVersion}</span>
                   </ButtonLink>
                 </div>
@@ -174,7 +177,7 @@ function LaunchesZone({ launches, markets }: { readonly launches: Overview["laun
                 <h3 className="text-base font-bold leading-snug">
                   {launch.title} <span className="font-semibold text-ink-2">v{launch.change.currentVersion}</span>
                 </h3>
-                <ButtonLink href={`/campaigns/approval/?id=${launch.change.id}`} size="small" iconAfter="arrow-right">
+                <ButtonLink href={approvalHref(launch.change.kind, launch.change.id)} size="small" iconAfter="arrow-right">
                   Open<span className="sr-only"> {launch.title}</span>
                 </ButtonLink>
               </div>
@@ -201,7 +204,7 @@ type Incident = Overview["incidentsToday"][number];
 
 /** Where an incident leads: its launch, or the change when the engine has not begun to launch it. */
 function incidentHref(incident: Incident): string {
-  return incident.launchId ? launchHref(incident.launchId) : `/campaigns/approval/?id=${incident.change.id}`;
+  return incident.launchId ? launchHref(incident.launchId) : approvalHref(incident.change.kind, incident.change.id);
 }
 
 /** The open incidents, above everything: a scheduled change that is not live as planned. */
@@ -388,21 +391,73 @@ function RevenueLocked({ viewer }: { readonly viewer: Viewer }) {
 
 const UNEARNED_TITLE = "Prepaid passes sold, not yet earned";
 
-/** The value of prepaid passes sold and not yet earned, for Finance: its place, without numbers until the prepaid pass is on sale (§9.2). */
-function UnearnedToCome() {
+/**
+ * The value of prepaid passes sold and not yet earned, for Finance (§9.2): in
+ * each market, the codes paid for, of which activated and expired unused,
+ * and their net value not yet earned, in the market's currency and in euros;
+ * the total in euros at the declared rate.
+ */
+function UnearnedZone({ overview, markets }: { readonly overview: Overview; readonly markets: Markets }) {
+  const rows = overview.prepaid ?? [];
+  const byMarket = byMarketOrder(markets).map((market) => ({ market, row: rows.find((entry) => entry.market === market.code) ?? null })).filter((entry) => entry.row !== null);
+  const sold = rows.reduce((sum, row) => sum + row.sold, 0);
   return (
-    <section className="zone zone--reserved" aria-labelledby="home-unearned">
-      <ZoneHead id="home-unearned" title={UNEARNED_TITLE} />
-      <div className="reserved">
-        <p className="flex items-baseline gap-2 font-semibold">
-          <Icon name="gift" size={18} className="translate-y-0.5 text-ink-2" />
-          It arrives with the prepaid pass, which is not on sale yet.
-        </p>
-        <p className="max-w-[56ch] text-sm text-ink-2">
-          Then, by market: the net value of the passes sold and not yet earned. A pass is earned in equal monthly parts from its activation, the last part
-          taking the remainder; an unused code stays unearned until it expires (§9.2).
-        </p>
-      </div>
+    <section className="zone" aria-labelledby="home-unearned">
+      <ZoneHead
+        id="home-unearned"
+        count={overview.prepaidUnearnedEur ? formatMoney(overview.prepaidUnearnedEur) : undefined}
+        title={UNEARNED_TITLE}
+        action={<ButtonLink href="/passes/" size="small">Prepaid passes</ButtonLink>}
+      />
+      {sold === 0 ? (
+        <Empty icon="gift">No code sold yet. Once a pass is on sale and a listener buys a code, its net value appears here by market, earned month by month from its activation.</Empty>
+      ) : (
+        <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="home-unearned">
+          <table className="data min-w-[34rem]">
+            <thead>
+              <tr>
+                <th scope="col">Market</th>
+                <th scope="col">Sold</th>
+                <th scope="col">Activated</th>
+                <th scope="col">Expired unused</th>
+                <th scope="col" className="sep">Not yet earned</th>
+                <th scope="col">EUR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byMarket.map(({ market, row }) => row ? (
+                <tr key={market.code}>
+                  <th scope="row">{market.name}</th>
+                  <td>{formatCount(row.sold)}</td>
+                  <td>{formatCount(row.activated)}</td>
+                  <td>{formatCount(row.expired)}</td>
+                  <td className="sep text-ink-2">{row.unearned.currency !== "EUR" ? formatMoney(row.unearned) : ""}</td>
+                  <td className="font-bold">{formatMoney(row.unearnedEur)}</td>
+                </tr>
+              ) : null)}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row">All markets</th>
+                <td>{formatCount(sold)}</td>
+                <td>{formatCount(rows.reduce((sum, row) => sum + row.activated, 0))}</td>
+                <td>{formatCount(rows.reduce((sum, row) => sum + row.expired, 0))}</td>
+                <td className="sep" />
+                <td>{overview.prepaidUnearnedEur ? formatMoney(overview.prepaidUnearnedEur) : "none"}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      <p className="flex items-baseline gap-1.5 text-xs text-ink-2">
+        <Icon name="info" size={14} className="translate-y-0.5" />
+        Net of VAT. A pass is earned in equal monthly parts from its activation, the last part taking the remainder; an unused code stays unearned until it expires (§9.2).
+        {rows.some((row) => row.unearned.currency !== "EUR") ? ` UK converted at ${overview.exchangeRateNote}` : ""}
+      </p>
+      <p className="flex items-baseline gap-1.5 text-xs text-ink-2">
+        <Icon name="flask" size={14} className="translate-y-0.5" />
+        Simulated data: codes bought on the demo site with the simulated payment provider.
+      </p>
     </section>
   );
 }

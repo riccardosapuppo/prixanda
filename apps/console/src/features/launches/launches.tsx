@@ -9,6 +9,7 @@ import { useId, useState } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, Chip, Empty, ErrorPanel, Loading, StateChip } from "../../components/ui.tsx";
 import { ChangesDocument, LaunchesDocument, LaunchRunsDocument, type LaunchState, MarketsDocument } from "../../graphql/generated.ts";
+import { approvalHref } from "../../lib/kinds.ts";
 import { launchHref, launchLook, type LaunchSummary, launchWords, STEP_NAME } from "../../lib/launch.ts";
 import { type MarketInfo, marketName, marketZone } from "../../lib/markets.ts";
 import { whoDoes } from "../../lib/permissions.ts";
@@ -55,7 +56,7 @@ function RunsTable({ rows, markets, labelledBy }: { readonly rows: readonly Laun
               <tr key={row.id}>
                 <th scope="row"><Link href={launchHref(row.id)} className="font-bold">{row.run}</Link></th>
                 <td className="wrap">
-                  <Link href={`/campaigns/approval/?id=${row.change.id}`}>{row.title}</Link> <span className="text-ink-2">v{row.version}</span>
+                  <Link href={approvalHref(row.kind, row.change.id)}>{row.title}</Link> <span className="text-ink-2">v{row.version}</span>
                 </td>
                 <td className="wrap"><LaunchChip launch={row} /></td>
                 <td className="wrap">{marketName(markets, row.starts.market)}: {formatLocalWithUtc(row.starts.local, zone)}</td>
@@ -159,7 +160,7 @@ export function LaunchesScreen() {
               {upcoming.data.overview.launchesNext7Days.map((launch) => (
                 <li key={`${launch.change.id}-${launch.starts.market}`} className="grid gap-1.5 border-b border-cord py-3">
                   <span className="flex flex-wrap items-center justify-between gap-3">
-                    <Link href={`/campaigns/approval/?id=${launch.change.id}`} className="font-bold">{launch.title} v{launch.change.currentVersion}</Link>
+                    <Link href={approvalHref(launch.change.kind, launch.change.id)} className="font-bold">{launch.title} v{launch.change.currentVersion}</Link>
                     <StateChip state={launch.state} />
                   </span>
                   <span className="text-sm text-ink-2">{marketName(upcoming.data.markets, launch.starts.market)}: {formatLocalWithUtc(launch.starts.local, marketZone(upcoming.data.markets, launch.starts.market))}</span>
@@ -178,7 +179,7 @@ export function LaunchesScreen() {
               {scheduled.data.changes.nodes.map((change) => (
                 <li key={change.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-cord py-3">
                   <span className="grid gap-1">
-                    <Link href={`/campaigns/approval/?id=${change.id}`} className="font-bold">{change.title} v{change.currentVersion}</Link>
+                    <Link href={approvalHref(change.kind, change.id)} className="font-bold">{change.title} v{change.currentVersion}</Link>
                     <span className="text-xs text-ink-2">{change.markets.map((code) => marketName(markets.data?.markets ?? [], code)).join(", ")} · last change {formatInstantIn(change.updatedAt, CONSOLE_ZONE)}</span>
                   </span>
                   <StateChip state={change.state} />

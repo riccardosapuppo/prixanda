@@ -1,6 +1,7 @@
-// The keyboard alone creates and approves a campaign (the owner's brief: a
-// keyboard path to create, approve and activate): no click and no mouse;
-// Tab, Enter, Space and typing.
+// The keyboard alone creates and approves a campaign (the console keeps a
+// keyboard path to create, approve and activate, as the README says), and
+// writes and submits a price migration: no click and no mouse; Tab, Enter,
+// Space, the arrows and typing.
 import { expect, test } from "@playwright/test";
 import { tabTo } from "./support.ts";
 
@@ -82,4 +83,47 @@ test("Marketing creates and submits a campaign with the keyboard alone; Finance 
   await expect(dialog.getByRole("button", { name: "Approve v1" })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByText(/Approved v1 as Finance/)).toBeVisible();
+});
+
+test("the commercial lead writes and submits a price migration with the keyboard alone", async ({ page }) => {
+  await page.goto("/sign-in/");
+  await tabTo(page, page.getByRole("button", { name: "Enter as Commercial lead", exact: true }));
+  await page.keyboard.press("Enter");
+  await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
+
+  await tabTo(page, page.getByRole("link", { name: "Price migrations" }).first());
+  await page.keyboard.press("Enter");
+  await page.waitForURL(/\/price-migrations\/$/);
+  await tabTo(page, page.getByRole("link", { name: "New price migration" }));
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "New price", level: 2 })).toBeVisible();
+
+  // The book's example fills the dates; the rest is changed by hand: Individual in the United Kingdom.
+  await tabTo(page, page.getByRole("button", { name: "Fill in the Family price rise in Germany" }));
+  await page.keyboard.press("Enter");
+  await tabTo(page, page.getByLabel("Migration name"));
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type(`Keyboard rise ${RUN}`);
+  await tabTo(page, page.getByRole("radio", { name: /^Germany/ }));
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("radio", { name: /^United Kingdom/ })).toBeChecked();
+  await tabTo(page, page.getByLabel("Plan", { exact: true }));
+  await page.keyboard.type("Individual");
+  await expect(page.getByLabel("Plan", { exact: true })).toHaveValue("individual");
+  await tabTo(page, page.getByLabel("New price in United Kingdom, VAT included"));
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("10.49");
+  await tabTo(page, page.getByRole("button", { name: "Continue" }));
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Dates" })).toBeFocused();
+  await tabTo(page, page.getByRole("button", { name: "Continue" }));
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Check and submit" })).toBeFocused();
+
+  await tabTo(page, page.getByRole("button", { name: "Save v1 and check it" }));
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("The change in business words")).toContainText("United Kingdom, Individual: from £9.49 to £10.49");
+  await tabTo(page, page.getByRole("button", { name: "Submit v1 for approval" }));
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("v1 is in approval.", { exact: true })).toBeVisible();
 });

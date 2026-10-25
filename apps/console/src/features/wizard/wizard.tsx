@@ -19,6 +19,7 @@ import { Icon } from "design/icon";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ConflictPanel, Findings, Steps } from "../../components/change-parts.tsx";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, ButtonLink, Callout, Chip, ErrorPanel, Loading, Locked, StateChip } from "../../components/ui.tsx";
 import {
@@ -31,6 +32,7 @@ import {
   type OfferContent, type OfferForm, type Problem, type Segment, STEPS, type StepIndex, toInput,
 } from "../../lib/offer-form.ts";
 import { listeningWords } from "../../lib/diff.ts";
+import { approvalHref } from "../../lib/kinds.ts";
 import { asRole, can, conditionSigner, primaryRole, signatureWords, signerWords, whoDoes } from "../../lib/permissions.ts";
 import { useClock } from "../../lib/react/clock.tsx";
 import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
@@ -204,11 +206,13 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
   const save = useAction(SaveOfferVersionDocument, "save-offer-version");
   const validate = useAction(ValidateChangeDocument, "validate-change");
   const submit = useAction(SubmitChangeDocument, "submit-change");
-  const busy = create.isPending || save.isPending || validate.isPending || submit.isPending;
+  // From the click to the check's answer, the version being checked is the only one: no second click creates another.
+  const [checking, setChecking] = useState(false);
+  const busy = checking || create.isPending || save.isPending || validate.isPending || submit.isPending;
   const failure = create.error ?? save.error ?? validate.error ?? submit.error;
 
   /** Saves the form as a new version when it differs; returns the change and its version, or null when nothing could be saved. */
-  async function persist(): Promise<{ id: string; version: number } | null> {
+  async function persist(options: { readonly open?: boolean } = {}): Promise<{ id: string; version: number; created: boolean } | null> {
     setRefusal(null);
     const typed = toInput(form, facts);
     if ("problems" in typed) {
@@ -222,10 +226,11 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
         return null;
       }
       await refresh();
-      onCreated(result.id);
-      return { id: result.id, version: result.currentVersion };
+      // Checking opens the new change only once its validation is stored (onCheck).
+      if (options.open !== false) onCreated(result.id);
+      return { id: result.id, version: result.currentVersion, created: true };
     }
-    if (conflict === null && !dirty) return { id: change.id, version: base.version };
+    if (conflict === null && !dirty) return { id: change.id, version: base.version, created: false };
     const result = (await save.mutateAsync({ changeId: change.id, baseVersion: base.version, offer: typed.input })).saveOfferVersion as ResultUnion;
     if (result.__typename === "Refusal") {
       // A refusal names the version that made this save stale. If the person
@@ -239,7 +244,7 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
     moveBase({ version: result.currentVersion, content: offerContent(result) });
     setStaleRefusal(null);
     await refresh();
-    return { id: result.id, version: result.currentVersion };
+    return { id: result.id, version: result.currentVersion, created: false };
   }
 
   async function onSave() {
@@ -258,16 +263,23 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
   }
 
   async function onCheck() {
-    const all = checkStep(form, 4, facts, now);
-    if (all.length) {
-      setTouched(new Set(all.map((problem) => problem.field)));
-      return;
+    if (checking) return;
+    setChecking(true);
+    try {
+      const all = checkStep(form, 4, facts, now);
+      if (all.length) {
+        setTouched(new Set(all.map((problem) => problem.field)));
+        return;
+      }
+      const done = await persist({ open: false }).catch(() => null);
+      if (done === null) return;
+      const result = (await validate.mutateAsync({ changeId: done.id, version: done.version }).catch(() => null))?.validateChange as ResultUnion | undefined;
+      if (result && result.__typename === "Refusal" && result.code !== "INVALID") setRefusal({ code: result.code, reason: result.reason });
+      await refresh();
+      if (done.created) onCreated(done.id);
+    } finally {
+      setChecking(false);
     }
-    const done = await persist().catch(() => null);
-    if (done === null) return;
-    const result = (await validate.mutateAsync({ changeId: done.id, version: done.version }).catch(() => null))?.validateChange as ResultUnion | undefined;
-    if (result && result.__typename === "Refusal" && result.code !== "INVALID") setRefusal({ code: result.code, reason: result.reason });
-    await refresh();
   }
 
   async function onSubmit() {
@@ -308,7 +320,7 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
           {change === null
             ? `${asRole(role)} you read the campaigns and do not start one.`
             : `${asRole(role)} you read this one, with its fields read-only${reviews ? ", and you review it in Approvals" : ""}.`}
-          {change !== null && reviews ? <> <Link href={`/campaigns/approval/?id=${change.id}`}>Open v{change.currentVersion} in Approvals</Link></> : null}
+          {change !== null && reviews ? <> <Link href={approvalHref("OFFER", change.id)}>Open v{change.currentVersion} in Approvals</Link></> : null}
         </Locked>
       ) : !editableState && change ? (
         <Locked>This change is {change.state.toLowerCase()}: it takes no new versions. To offer something else, start a new campaign.</Locked>
@@ -322,7 +334,7 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
         setStaleRefusal(null);
         void refresh();
       }} /> : null}
-      <Stepper step={step} form={form} facts={facts} now={now} onStep={(next) => onStep(next)} />
+      <Steps names={STEPS} current={step} done={(index) => checkStep(form, index as StepIndex, facts, now).length === 0} onStep={(next) => onStep(next as StepIndex)} />
       <div className="grid grid-cols-1 items-start gap-8 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] xl:gap-12">
         <form className="grid min-w-0 content-start gap-6" noValidate onSubmit={(event) => event.preventDefault()} aria-labelledby="step-heading">
           <div className="grid gap-0.5">
@@ -362,31 +374,6 @@ function WizardForm({ change, markets, step, viewerCanEdit, now, onStep, onCreat
         <SitePreview form={form} markets={markets} plans={previewPlans} />
       </div>
     </WizardFrame>
-  );
-}
-
-function Stepper({ step, form, facts, now, onStep }: { readonly step: StepIndex; readonly form: OfferForm; readonly facts: MarketFacts; readonly now: Date; readonly onStep: (step: StepIndex) => void }) {
-  return (
-    <ol className="m-0 grid list-none grid-cols-5 gap-1 p-0" aria-label="Steps">
-      {STEPS.map((name, index) => {
-        const done = index < step && checkStep(form, index as StepIndex, facts, now).length === 0;
-        const current = index === step;
-        return (
-          <li key={name}>
-            <button type="button" onClick={() => onStep(index as StepIndex)} className="grid w-full gap-0.5 border-0 bg-transparent p-0 pb-1.5 text-left" {...(current ? { "aria-current": "step" as const } : {})}>
-              <span className={`mb-1.5 block h-2.5 ${done ? "bg-silk-indigo shadow-[inset_0_2px_0_var(--color-indigo)]" : current ? "weave-open bg-stone-0 shadow-[inset_0_2px_0_var(--color-ink)]" : "bg-stone-2 shadow-[inset_0_2px_0_var(--color-edge)]"}`} />
-              <span className="flex items-baseline gap-1.5 text-md font-bold">
-                <span className={`font-semibold ${current ? "text-ink underline decoration-2 underline-offset-4 lg:no-underline" : "text-ink-2"}`}>{index + 1}</span>
-                <span className={`max-lg:sr-only ${current ? "lg:underline lg:decoration-2 lg:underline-offset-4" : ""}`}>{name}</span>
-              </span>
-              <span className="inline-flex items-center gap-1 text-xs text-ink-2 max-lg:hidden">
-                {done ? <><Icon name="check" size={13} />Done</> : current ? "Now" : "Next"}
-              </span>
-            </button>
-          </li>
-        );
-      })}
-    </ol>
   );
 }
 
@@ -649,24 +636,15 @@ function StepCheck({ change, dirty, canEdit, busy, problems, reason, reasonError
       {current && validation ? (
         <>
           {change?.sentence ? <p className="sentence" aria-label="The change in business words">{change.sentence}</p> : null}
-          <section className="grid gap-2" aria-labelledby="checks-heading">
-            <h3 id="checks-heading" className="text-base font-bold">What the engine checked in v{validation.version}</h3>
-            <ul role="list" className="grid">
-              {validation.findings.length === 0 ? <li className="py-2 text-ink-2">No finding: nothing blocks it and no condition asks for {conditionSigner()}.</li> : null}
-              {validation.findings.map((finding, index) => (
-                <li key={index} className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 border-b border-cord py-2">
-                  <Icon name={finding.severity === "BLOCKING" ? "x-circle" : finding.severity === "NEEDS_SIGNATURE" ? "signature" : "info"} size={18} className={`mt-0.5 ${finding.severity === "BLOCKING" ? "text-madder" : "text-indigo"}`} />
-                  <span>
-                    <b>{finding.severity === "BLOCKING" ? "Blocks the submission" : finding.severity === "NEEDS_SIGNATURE" ? "Asks for a signature" : "For information"}</b>: {finding.message}
-                    {finding.severity === "BLOCKING" && STEP_OF_CHECK[finding.check] !== undefined ? (
-                      <> <button type="button" className="font-semibold text-indigo underline underline-offset-4" onClick={() => onGoTo(STEP_OF_CHECK[finding.check] ?? 0)}>Go to step {(STEP_OF_CHECK[finding.check] ?? 0) + 1}</button></>
-                    ) : null}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="text-sm text-ink-2"><b className="text-ink">{validation.eligible.toLocaleString("en-GB")}</b> people eligible right now, counted in the simulated data by the engine.</p>
-          </section>
+          <Findings
+            version={validation.version}
+            findings={validation.findings}
+            stepOf={STEP_OF_CHECK}
+            stepNames={STEPS}
+            onGoTo={(next) => onGoTo(next as StepIndex)}
+            none={`No finding: nothing blocks it and no condition asks for ${conditionSigner()}.`}
+          />
+          <p className="text-sm text-ink-2"><b className="text-ink">{validation.eligible.toLocaleString("en-GB")}</b> people eligible right now, counted in the simulated data by the engine.</p>
           {validation.valid && change ? (
             <section className="grid gap-3" aria-labelledby="signs-heading">
               <h3 id="signs-heading" className="text-base font-bold">Who has to sign</h3>
@@ -726,16 +704,4 @@ function StepCheck({ change, dirty, canEdit, busy, problems, reason, reasonError
   );
 }
 
-function ConflictPanel({ conflict, startedFrom, onLoad }: { readonly conflict: Change; readonly startedFrom: number; readonly onLoad: () => void }) {
-  const author = conflict.current.author.label;
-  return (
-    <Callout tone="error" icon="warning" role="alert">
-      <p className="font-bold">Someone saved v{conflict.currentVersion} while you were editing v{startedFrom}.</p>
-      <p>{author} saved it on {formatInstantIn(conflict.current.createdAt, CONSOLE_ZONE)}. Your edits are still in the form and were not saved: nothing overwrote their version (§6.3).</p>
-      <div className="mt-2 flex flex-wrap gap-2">
-        <Button size="small" icon="arrows-clockwise" onClick={onLoad}>Load v{conflict.currentVersion} and drop my edits</Button>
-      </div>
-    </Callout>
-  );
-}
 
