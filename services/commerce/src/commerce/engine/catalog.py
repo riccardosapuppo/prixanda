@@ -45,7 +45,10 @@ ARTISTS = (
     "left join lateral (select title, released_on from release where artist_id = a.id "
     "order by released_on desc, id desc limit 1) r on true "
     "where ($1::text = '' or strpos(lower(a.name), lower($1::text)) > 0) "
-    "and (cardinality($2::int[]) = 0 or a.id = any($2::int[])) "
+    # The ids as JSON text, as every statement of the engine takes them (engine/database.py): PGlite in the browser
+    # takes plain values only.
+    "and (jsonb_array_length($2::text::jsonb) = 0 "
+    "or a.id in (select jsonb_array_elements_text($2::text::jsonb)::int)) "
     "and ($3::text is null or (a.name, a.id) > ($3::text, $4::int)) "
     "order by a.name, a.id limit $5")
 
@@ -253,7 +256,7 @@ class Catalog:
             raise InvalidArgument("page.size is a positive number")
         size = min(request.page.size or ARTISTS_PAGE_DEFAULT, ARTISTS_PAGE_MAX)
         name, artist_id = _after_artist(request.page.after) if request.page.after else (None, None)
-        rows = await tx.fetch(ARTISTS, search, list(request.ids), name, artist_id, size + 1)
+        rows = await tx.fetch(ARTISTS, search, json.dumps(list(request.ids)), name, artist_id, size + 1)
         page, more = rows[:size], len(rows) > size
         response = catalog_pb2.ListArtistsResponse(artists=[catalog_pb2.Artist(
             id=row["id"], name=row["name"], label=row["label"], country=row["country"].strip(),

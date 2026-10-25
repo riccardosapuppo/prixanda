@@ -14,11 +14,26 @@ fault and never an answer.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
+from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Any, Protocol
 
 Row = Mapping[str, Any]
+
+# What a statement's parameters may be: the plain values above, and the few both drivers turn into the same text
+# (instants, dates, decimals, bytes, UUIDs). A list or a mapping is refused by the server's adapter as by the
+# browser's, so that a statement the server's tests pass runs in the browser as well.
+PARAMETER_TYPES = (str, int, float, bool, bytes, bytearray, memoryview, datetime, date, time, Decimal, uuid.UUID)
+
+
+def check_parameters(args: tuple) -> None:
+    for value in args:
+        if value is not None and not isinstance(value, PARAMETER_TYPES):
+            raise TypeError(f"a parameter of type {type(value).__name__}: the engine's statements take plain values "
+                            "(engine/database.py)")
 
 UNIQUE_VIOLATION = "23505"
 FOREIGN_KEY_VIOLATION = "23503"

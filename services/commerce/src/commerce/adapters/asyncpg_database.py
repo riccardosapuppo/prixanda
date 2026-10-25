@@ -18,7 +18,7 @@ from typing import Any
 
 import asyncpg
 
-from commerce.engine.database import DatabaseError, DatabaseUnavailable, Row
+from commerce.engine.database import DatabaseError, DatabaseUnavailable, Row, check_parameters
 
 # Connection exceptions (class 08), the server shutting down or not yet ready
 # (57P01 to 57P03), too many connections (53300) and a statement cancelled by
@@ -61,6 +61,7 @@ class _Connection:
         self._connection = connection
 
     async def _run(self, method: str, sql: str, args: tuple) -> Any:
+        check_parameters(args)
         try:
             return await getattr(self._connection, method)(sql, *args)
         except _FAULTS as error:
