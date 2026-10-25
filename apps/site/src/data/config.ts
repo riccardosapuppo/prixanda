@@ -18,7 +18,7 @@ export const PAYMENT_POLL_MS = 1_000;
 export const PAYMENT_POLL_LIMIT_MS = 30_000;
 
 /**
- * Built for the demo's sandbox (SANDBOX=1, BRIEF-TAPPA-8-DEMO.md): the
+ * Built for the browser demo's sandbox (SANDBOX=1, stage 8): the
  * requests go to the sandbox's worker in this browser, not to a gateway.
  */
 export const SANDBOX_MODE: boolean = process.env.SITE_SANDBOX === "1";

@@ -1,4 +1,4 @@
-// The site in the demo's sandbox (stage 8, BRIEF-TAPPA-8-DEMO.md, part 3).
+// The site in the browser demo's sandbox (stage 8; docs/business.md keeps it apart from the full system).
 // Built with SANDBOX=1, the site sends its requests to the sandbox's worker
 // instead of the gateway over HTTP: the same schema, the engine's own Python
 // code and the same migrations, running in this browser for every tab of the

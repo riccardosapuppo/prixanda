@@ -1,4 +1,4 @@
-// The demo in the browser, assembled (stage 8, BRIEF-TAPPA-8-DEMO.md): one
+// The demo in the browser, assembled (stage 8; the browser sandbox of docs/business.md): one
 // static folder that any host can serve, with the site at /, the console at
 // /console/ and the sandbox at /sandbox/, the worker that runs the engine's
 // Python code over PGlite and the gateway's core for every tab of the origin.
@@ -38,7 +38,7 @@ export const PARTS = [
     args: [] as string[],
     out: join(repoRoot, "packages", "sandbox", "dist"),
     at: "sandbox",
-    owner: "the gateway's agent (packages/sandbox/scripts/build.ts)",
+    owner: "the sandbox package (packages/sandbox/scripts/build.ts)",
   },
   {
     name: "site",

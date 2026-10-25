@@ -1,4 +1,4 @@
-// The site in the assembled demo (stage 8, BRIEF-TAPPA-8-DEMO.md, part 3):
+// The site in the assembled browser demo (stage 8):
 // dist/demo/ served on DEMO_URL (npm run demo:serve, or the check's suite
 // demo), headless Chromium, one browser with its tabs, as a visitor has.
 //
