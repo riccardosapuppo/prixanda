@@ -10,15 +10,14 @@
 // pending, and the simulated provider settles it moments later. While one is
 // pending the page reads the account again every second, for thirty seconds
 // at most; then it says the provider has not answered yet, and lets the
-// visitor ask again.
+// visitor ask again, for thirty seconds more each time (useMeWhileWaiting).
 import { formatSitePrice, type MoneyLike } from "design";
 import { Icon } from "design/icon";
 import type { Route } from "next";
 import Link from "next/link";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect } from "react";
 import { copy } from "../../content/copy.ts";
-import { PAYMENT_POLL_LIMIT_MS, PAYMENT_POLL_MS } from "../../data/config.ts";
-import { type Me, useMarkets, useMe, usePlans, useSignOut } from "../../data/hooks.ts";
+import { type Me, useMarkets, useMeWhileWaiting, usePlans, useSignOut } from "../../data/hooks.ts";
 import { isSiteMarket, type SiteMarket } from "../../data/markets.ts";
 import type { SitePaymentFragment } from "../../graphql/generated.ts";
 import { lastDayBefore, siteDay, siteDayAt } from "../../lib/dates.ts";
@@ -32,22 +31,7 @@ const waiting = (me: Me | null | undefined) =>
   me?.account.payment?.state === "PENDING" || (me?.account.prepaidCodes ?? []).some((code) => code.state === "PENDING");
 
 export function AccountView() {
-  const [timedOut, setTimedOut] = useState(false);
-  const stopped = useRef(false);
-  const me = useMe({ readAgain: (read) => (waiting(read) && !stopped.current ? PAYMENT_POLL_MS : false) });
-  const pending = waiting(me.data);
-
-  // Thirty seconds of asking at most, from the moment the payment is seen pending.
-  useEffect(() => {
-    if (!pending) return;
-    stopped.current = false;
-    setTimedOut(false);
-    const timer = setTimeout(() => {
-      stopped.current = true;
-      setTimedOut(true);
-    }, PAYMENT_POLL_LIMIT_MS);
-    return () => clearTimeout(timer);
-  }, [pending]);
+  const { me, timedOut, checkAgain } = useMeWhileWaiting(waiting);
 
   useEffect(() => {
     document.title = `${copy.account.title} · ${copy.service}`;
@@ -65,15 +49,7 @@ export function AccountView() {
         </div>
       ) : null}
       {me.isSuccess && me.data !== null ? (
-        <Account
-          me={me.data}
-          timedOut={timedOut}
-          onCheckAgain={() => {
-            stopped.current = false;
-            setTimedOut(false);
-            void me.refetch();
-          }}
-        />
+        <Account me={me.data} timedOut={timedOut} onCheckAgain={checkAgain} />
       ) : null}
     </section>
   );

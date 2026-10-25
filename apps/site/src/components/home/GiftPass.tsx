@@ -16,10 +16,11 @@ import { formatSitePrice } from "design";
 import { Icon } from "design/icon";
 import type { Route } from "next";
 import Link from "next/link";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useRef, useState } from "react";
 import { copy } from "../../content/copy.ts";
-import { PAYMENT_POLL_LIMIT_MS, PAYMENT_POLL_MS } from "../../data/config.ts";
-import { type Me, type PrepaidPass, useBuyPrepaidPass, useMarkets, useMe, usePlans, usePrepaidPassesEverywhere } from "../../data/hooks.ts";
+import {
+  type Me, type PrepaidPass, useBuyPrepaidPass, useMarkets, useMe, useMeWhileWaiting, usePlans, usePrepaidPassesEverywhere,
+} from "../../data/hooks.ts";
 import { newIdempotencyKey } from "../../data/ids.ts";
 import { isSiteMarket, type SiteMarket } from "../../data/markets.ts";
 import { siteDay } from "../../lib/dates.ts";
@@ -189,23 +190,11 @@ function Confirm({ pass, marketName }: { readonly pass: PrepaidPass; readonly ma
  * pending code is not shown as one that works.
  */
 function Bought({ code }: { readonly code: string }) {
-  const [timedOut, setTimedOut] = useState(false);
-  const stopped = useRef(false);
   const find = (me: Me | null | undefined) => me?.account.prepaidCodes.find((each) => each.code === code);
-  const me = useMe({ readAgain: (read) => (find(read)?.state === "PENDING" && !stopped.current ? PAYMENT_POLL_MS : false) });
+  // Asked again every second while the code waits for its payment, thirty seconds per round.
+  const { me, timedOut, checkAgain } = useMeWhileWaiting((read) => find(read)?.state === "PENDING");
   const bought = find(me.data);
   const state = bought?.state ?? "PENDING";
-
-  useEffect(() => {
-    if (state !== "PENDING") return;
-    stopped.current = false;
-    setTimedOut(false);
-    const timer = setTimeout(() => {
-      stopped.current = true;
-      setTimedOut(true);
-    }, PAYMENT_POLL_LIMIT_MS);
-    return () => clearTimeout(timer);
-  }, [state]);
 
   if (state === "PENDING") {
     return (
@@ -214,15 +203,7 @@ function Bought({ code }: { readonly code: string }) {
         <p role="status" className="m-0" data-code-state="PENDING">{timedOut ? copy.gift.slow : copy.gift.waiting}</p>
         {timedOut ? (
           <p className="m-0">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                stopped.current = false;
-                setTimedOut(false);
-                void me.refetch();
-              }}
-            >
+            <button type="button" className="btn" onClick={checkAgain}>
               <Icon name="arrows-clockwise" size={16} />
               {copy.gift.checkAgain}
             </button>
