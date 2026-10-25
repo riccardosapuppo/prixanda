@@ -226,6 +226,28 @@ describe("the sandbox's backend", () => {
     assert.equal((await site.graphql("public", "{ me { id } }")).json.data.me, null, "the sessions ended with the demo");
   });
 
+  test("runs the jobs before a command's answer: the engine's saving of a moved clock is done when the tab hears it", async () => {
+    const engine = fakeBrowserEngine();
+    // Jobs that take a while, as the engine's do when they wait for its saving: counted when they end.
+    const tick = engine.tick.bind(engine);
+    let ended = 0;
+    engine.tick = async () => {
+      const ran = await tick();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      ended += 1;
+      return ran;
+    };
+    const { tab } = start(engine);
+    const console = tab();
+    console.send({ kind: "hello", app: "console", build: "build-0001" });
+    await console.next(isReady);
+    for (const [name, args] of [["arm-fault", { step: "notify" }], ["clear-fault", undefined], ["skip-to-next-launch", undefined], ["reset", undefined]] as const) {
+      const before = ended;
+      await console.command(name, args);
+      assert.ok(ended > before, `${name}: the jobs ended before its answer`);
+    }
+  });
+
   test("ignores a message of the wrong shape, and answers the next one", async () => {
     const engine = fakeBrowserEngine();
     const { tab } = start(engine);

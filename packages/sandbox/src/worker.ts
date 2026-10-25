@@ -240,47 +240,56 @@ export function createBackend(options: BackendOptions): Backend {
     void runJobs();
   }
 
-  async function command(port: Port, request: Command) {
-    const reply = (status: number, body: CommandResults[keyof CommandResults] | CommandError) => {
-      port.postMessage({ kind: "reply", id: request.id, status, headers: JSON_TYPE, body: json(body) });
-    };
-    try {
-      const { engine, gateway } = await boot();
-      switch (request.name) {
-        case "status": {
-          const next = await engine.clock.nextDue();
-          const armed = engine.faults.armed();
-          const status: Status = {
-            build: options.build, now: engine.clock.now().toISOString(), nextDue: next === null ? null : next.toISOString(),
-            armed: armed === null ? null : (parseArmFault({ step: armed })?.step ?? null), shared: options.shared, tabs: tabs.size,
-          };
-          return reply(200, status);
-        }
-        case "reset":
-          await engine.reset();
-          gateway.reset();
-          broadcast({ kind: "reset" });
-          return reply(200, { now: engine.clock.now().toISOString() });
-        case "arm-fault": {
-          const args = parseArmFault(request.args);
-          if (args === null) return reply(400, { error: "arm-fault takes { step }, one of check, prepare, publish, notify and verify." });
-          engine.faults.arm(args.step);
-          return reply(200, { armed: args.step });
-        }
-        case "clear-fault":
-          engine.faults.clear();
-          return reply(200, { armed: null });
-        case "skip-to-next-launch": {
-          const skipped = await engine.skipToNextLaunch();
-          if (skipped === null) return reply(409, { error: "No launch is due." });
-          const changed: readonly Changed[] = skipped.changed;
-          if (changed.length > 0) broadcast({ kind: "changed", what: changed });
-          return reply(200, { from: skipped.from.toISOString(), to: skipped.to.toISOString(), changed });
-        }
+  type Answer = readonly [status: number, body: CommandResults[keyof CommandResults] | CommandError];
+
+  async function perform(request: Command): Promise<Answer> {
+    const { engine, gateway } = await boot();
+    switch (request.name) {
+      case "status": {
+        const next = await engine.clock.nextDue();
+        const armed = engine.faults.armed();
+        const status: Status = {
+          build: options.build, now: engine.clock.now().toISOString(), nextDue: next === null ? null : next.toISOString(),
+          armed: armed === null ? null : (parseArmFault({ step: armed })?.step ?? null), shared: options.shared, tabs: tabs.size,
+        };
+        return [200, status];
       }
-    } catch (error) {
-      return reply(503, { error: error instanceof Error ? error.message : String(error) });
+      case "reset":
+        await engine.reset();
+        gateway.reset();
+        broadcast({ kind: "reset" });
+        return [200, { now: engine.clock.now().toISOString() }];
+      case "arm-fault": {
+        const args = parseArmFault(request.args);
+        if (args === null) return [400, { error: "arm-fault takes { step }, one of check, prepare, publish, notify and verify." }];
+        engine.faults.arm(args.step);
+        return [200, { armed: args.step }];
+      }
+      case "clear-fault":
+        engine.faults.clear();
+        return [200, { armed: null }];
+      case "skip-to-next-launch": {
+        const skipped = await engine.skipToNextLaunch();
+        if (skipped === null) return [409, { error: "No launch is due." }];
+        const changed: readonly Changed[] = skipped.changed;
+        if (changed.length > 0) broadcast({ kind: "changed", what: changed });
+        return [200, { from: skipped.from.toISOString(), to: skipped.to.toISOString(), changed }];
+      }
     }
+  }
+
+  async function command(port: Port, request: Command) {
+    let answer: Answer;
+    try {
+      answer = await perform(request);
+    } catch (error) {
+      answer = [503, { error: error instanceof Error ? error.message : String(error) }];
+    }
+    // A command may have moved the demo's clock or its data, which the engine saves without holding the call: the jobs
+    // run before the tab hears the answer, and the next tick waits for that saving, so a tab closed then loses nothing.
+    await runJobs();
+    const [status, body] = answer;
+    port.postMessage({ kind: "reply", id: request.id, status, headers: JSON_TYPE, body: json(body) });
   }
 
   return {
