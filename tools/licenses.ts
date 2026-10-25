@@ -4,11 +4,12 @@
 //
 //   npm run licenses    prints the count by licence and writes reports/licenses.json
 //
-// Three inventories. npm's lockfile records each package's licence. The
+// Four inventories. npm's lockfile records each package's licence. The
 // engine's Python environment is read with importlib.metadata. The files
 // `npm run setup` downloads (Flyway's jars and the Java runtime, in
 // tools/flyway-lock.json) carry no machine-readable licence, so theirs are
-// written below, from what each jar or its parent POM declares.
+// written below, from what each jar or its parent POM declares. And the
+// sandbox serves two Python wheels and the standard library inside Pyodide.
 //
 // A package passes when its licence expression holds only licences the policy
 // accepts. The few that do not are exceptions named one by one, each with the
@@ -17,6 +18,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { lockedWheels } from "../packages/sandbox/src/engine/build/wheels.ts";
 import { repoRoot, venvPython } from "./lib/paths.ts";
 import { run } from "./lib/run.ts";
 
@@ -178,12 +180,34 @@ function setupEntries(): Entry[] {
   return [...jars, { source: "setup", name: "Eclipse Temurin JRE", version: jreVersion, license: jreLicense, devOnly: true, verdict: judge("Eclipse Temurin JRE", jreLicense) }];
 }
 
+// What the sandbox serves besides its npm packages: the two wheels it loads in
+// Pyodide, named by Pyodide's lock (their licences as their METADATA declares
+// them), and the CPython standard library inside Pyodide's own files.
+const WHEEL_LICENSES: Record<string, string> = { protobuf: "BSD-3-Clause", tzdata: "Apache-2.0" };
+
+function sandboxEntries(): Entry[] | string {
+  let wheels: { name: string; file: string }[];
+  try {
+    wheels = lockedWheels();
+  } catch (error) {
+    return `the sandbox's wheels could not be read from Pyodide's lock (${error instanceof Error ? error.message : String(error)}): npm install`;
+  }
+  const entries = wheels.map((wheel): Entry => {
+    const version = wheel.file.split("-")[1] ?? "?";
+    const license = WHEEL_LICENSES[wheel.name] ?? "(none declared)";
+    return { source: "setup", name: `${wheel.name} (wheel for Pyodide)`, version, license, devOnly: false, verdict: judge(wheel.name, license) };
+  });
+  return [...entries, { source: "setup", name: "CPython standard library (in Pyodide)", version: "3.13", license: "PSF-2.0", devOnly: false, verdict: judge("cpython", "PSF-2.0") }];
+}
+
 export type Inventory = { readonly entries: readonly Entry[]; readonly unknown: readonly Entry[]; readonly notRead: readonly string[] };
 
 export async function licenseInventory(): Promise<Inventory> {
   const python = await pythonEntries();
-  const entries = [...npmEntries(), ...(typeof python === "string" ? [] : python), ...setupEntries()];
-  return { entries, unknown: entries.filter((entry) => entry.verdict === ""), notRead: typeof python === "string" ? [python] : [] };
+  const sandbox = sandboxEntries();
+  const entries = [...npmEntries(), ...(typeof python === "string" ? [] : python), ...setupEntries(), ...(typeof sandbox === "string" ? [] : sandbox)];
+  const notRead = [python, sandbox].filter((part): part is string => typeof part === "string");
+  return { entries, unknown: entries.filter((entry) => entry.verdict === ""), notRead };
 }
 
 export function writeReport(inventory: Inventory): string {
