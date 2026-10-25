@@ -5,9 +5,25 @@
   "description": "The demo in the browser: the engine in Pyodide over PGlite and the gateway's core, in one worker that the site and the console of an origin share.",
   "license": "MIT",
   "exports": {
-    "./protocol": "./src/protocol.ts"
+    "./protocol": "./src/protocol.ts",
+    "./client": "./src/client.ts",
+    "./engine": "./src/engine/index.ts"
   },
   "scripts": {
+    "build": "node scripts/build.ts",
+    "measure": "node scripts/measure.ts",
     "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.16.0",
+    "@connectrpc/connect": "2.2.0",
+    "@electric-sql/pglite": "0.5.8",
+    "contracts": "file:../../packages/contracts",
+    "gateway": "file:../../services/gateway",
+    "pyodide": "0.29.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright": "1.62.1"
   }
 }

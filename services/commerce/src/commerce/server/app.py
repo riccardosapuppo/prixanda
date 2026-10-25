@@ -22,19 +22,19 @@ import asyncio
 import signal
 import sys
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import grpc
 
 from commerce.adapters.asyncpg_database import AsyncpgDatabase
 from commerce.engine.engine import Engine
-from commerce.engine.launches import Probe, run_id
+from commerce.engine.jobs import Jobs
+from commerce.engine.launches import Probe
 from commerce.server.config import Config
 from commerce.server.grpc_server import Health, generic_handlers, health_server
-from commerce.server.logs import JsonLog
+from commerce.engine.logs import JsonLog
 
 MAX_MESSAGE = 4 * 1024 * 1024
-PRUNE_EVERY = timedelta(hours=1)
 
 
 class SystemClock:
@@ -64,61 +64,6 @@ def _stop_requests(loop: asyncio.AbstractEventLoop, stop: asyncio.Event, config:
             loop.call_soon_threadsafe(request_stop, "standard input closed")
 
         threading.Thread(target=watch_stdin, name="stdin-watch", daemon=True).start()
-
-
-class Jobs:
-    """The engine's jobs, one pass at a time, with a log line for each change of state."""
-
-    def __init__(self, engine: Engine, log: JsonLog) -> None:
-        self.engine = engine
-        self.log = log
-        self.pruned_at: datetime | None = None
-        self.failing: str | None = None  # the error the last pass failed with
-        self.ending: dict[int, str] = {}  # the error an offer's end last failed with
-
-    async def run_pass(self) -> None:
-        engine, log = self.engine, self.log
-        try:
-            for happened in await engine.run_launches():
-                log(happened.level, happened.event, **{"launch": happened.launch, "run": run_id(happened.launch),
-                                                       "change": happened.change, **happened.detail})
-            for outcome in await engine.end_due():
-                if outcome.action == "ended":
-                    self.ending.pop(outcome.change_id, None)
-                    log("info", "offer_ended", change=outcome.change_id, snapshot=outcome.snapshot_id)
-                elif outcome.action == "failed" and self.ending.get(outcome.change_id) != outcome.error:
-                    self.ending[outcome.change_id] = outcome.error or ""
-                    log("warning", "offer_end_failed", change=outcome.change_id, error=outcome.error)
-            for expired in await engine.expire_prepaid_codes():
-                log("info", "prepaid_code_expired", prepaid=expired.code_id, market=expired.market,
-                    valid_until=expired.valid_until)
-            for settled in await engine.settle_migrations():
-                log("info", "price_change_settled", **{**settled.dates, "price_change": settled.price_change,
-                                                       "change": settled.change, "subscription": settled.subscription,
-                                                       "state": settled.state, "effect": settled.effect})
-            for delivery in await engine.deliver_outbox():
-                if delivery.delivered:
-                    log("info", "outbox_delivered", **{**delivery.facts, "message": delivery.message_id, "topic": delivery.topic,
-                                                       "consumer": delivery.consumer, "attempts": delivery.attempts})
-                else:
-                    log("warning", "outbox_delivery_failed", message=delivery.message_id, topic=delivery.topic,
-                        consumer=delivery.consumer, attempts=delivery.attempts, error=delivery.error)
-            now = engine.clock.now()
-            if self.pruned_at is None or now - self.pruned_at >= PRUNE_EVERY:
-                pruned = await engine.prune_idempotency_keys()
-                self.pruned_at = now
-                if pruned:
-                    log("info", "idempotency_keys_pruned", keys=pruned)
-            if self.failing is not None:
-                log("info", "jobs_working_again", after=self.failing)
-                self.failing = None
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:  # the next pass tries again; a launch resumes where it stopped
-            text = f"{type(error).__name__}: {error}"
-            if text != self.failing:
-                log("warning", "jobs_pass_failed", error=text)
-            self.failing = text
 
 
 async def _jobs(engine: Engine, interval: float, log: JsonLog) -> None:

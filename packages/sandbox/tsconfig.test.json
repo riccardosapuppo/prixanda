@@ -1,0 +1,13 @@
+{
+  // The tests of the sandbox's gateway side and its build's script, which
+  // Node 24 runs as they are: Node's types, and a browser's beside them for
+  // the modules they import, which are checked again here.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [
+    "src/protocol.ts", "src/client.ts", "src/worker.ts", "src/backend.ts", "src/gateway/**/*.ts",
+    "test/*.ts", "test/support/**/*.ts", "scripts/**/*.ts"
+  ]
+}

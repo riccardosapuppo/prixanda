@@ -78,6 +78,10 @@ PURPOSES = {
     "verify": "The live catalog, or the price list, shows the change as approved.",
 }
 LEAD = timedelta(minutes=1)
+# The scheduled changes whose launch has not opened yet.
+_UNOPENED = ("select c.id, c.kind, c.current_version, v.content::text as content from change c "
+             "join change_version v on v.change_id = c.id and v.version = c.current_version "
+             "where c.state = 'scheduled' and not exists (select from launch l where l.change_id = c.id) order by c.id")
 LATE_AFTER = timedelta(minutes=5)
 MAX_FAILURES = 5
 WAITS = (5, 15, 45, 135)  # seconds after the 1st, 2nd, 3rd and 4th failure in a row
@@ -109,6 +113,15 @@ class Withdrawn(Exception):
 
 class NotVerified(Exception):
     """The live catalog, or the price list, does not show the change as it was published."""
+
+
+@dataclass(frozen=True)
+class Due:
+    """A launch that has work at a moment: its opening, or its next attempt."""
+
+    at: datetime
+    change: int
+    starts: datetime  # the change's first start, when it is in force
 
 
 @dataclass(frozen=True)
@@ -262,10 +275,7 @@ class Launches:
         now = self.clock.now()
         async with self.db.transaction(readonly=True) as tx:
             ref = await reference.load(tx, now)
-            rows = await tx.fetch(
-                "select c.id, c.kind, c.current_version, v.content::text as content from change c "
-                "join change_version v on v.change_id = c.id and v.version = c.current_version "
-                "where c.state = 'scheduled' and not exists (select from launch l where l.change_id = c.id) order by c.id")
+            rows = await tx.fetch(_UNOPENED)
         happened = []
         for row in rows:
             content = from_json(json.loads(row["content"]))
@@ -317,6 +327,31 @@ class Launches:
                 if opened is not None:
                     happened.append(opened)
         return happened
+
+    async def due(self, change_id: int | None = None) -> list[Due]:
+        """The launches waiting for a moment of their own, the earliest first: the opening of a scheduled change's
+        launch (its first start less LEAD), and the next attempt of a launch under way, which can be now, or already
+        past when no pass ran since. A refused or failed launch waits for a person, and is not among them. Only one
+        change's, when given. The browser's demo skips its clock along them (stage 8)."""
+        now = self.clock.now()
+        async with self.db.transaction(readonly=True, isolation="repeatable_read") as tx:
+            ref = await reference.load(tx, now)
+            unopened = await tx.fetch(_UNOPENED)
+            running = await tx.fetch(
+                f"select change_id, {utc_text('coalesce(retry_at, $1::text::timestamptz)')} as at, "
+                f"{utc_text('starts_at')} as starts from launch where state = 'running'", format_instant(now))
+        found = [Due(parse_instant(r["at"]), r["change_id"], parse_instant(r["starts"])) for r in running]
+        for row in unopened:
+            content = from_json(json.loads(row["content"]))
+            starts = [to_instant(moment, ref.markets[market].zone) for market, moment in records.starts_of(content)]
+            if starts:
+                found.append(Due(min(starts) - LEAD, row["id"], min(starts)))
+        return sorted((d for d in found if change_id is None or d.change == change_id), key=lambda d: (d.at, d.change))
+
+    async def next_due(self) -> datetime | None:
+        """When a launch next has work (due): None when none waits."""
+        found = await self.due()
+        return found[0].at if found else None
 
     async def _runnable(self) -> list[int]:
         async with self.db.transaction(readonly=True) as tx:

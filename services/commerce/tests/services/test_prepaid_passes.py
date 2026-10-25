@@ -19,7 +19,7 @@ from commerce.engine import prepaid
 from commerce.engine.errors import InvalidArgument, NotFound
 from commerce.engine.providers import FAILED, ChargeResult, ProviderEvent
 from commerce.server.app import Jobs
-from commerce.server.logs import JsonLog
+from commerce.engine.logs import JsonLog
 from commerce.v1 import (
     catalog_pb2, changes_pb2, common_pb2, overview_pb2, simulation_pb2, subscriptions_pb2,
 )

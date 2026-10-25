@@ -1,0 +1,12 @@
+{
+  // The engine's build and tests (src/engine/build, test/engine), which run
+  // in Node and import the browser's modules: Node's types, and a browser's
+  // beside them for the modules they import (src/engine/tsconfig.json checks
+  // those alone, without Node's).
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2024", "dom"],
+    "types": ["node"]
+  },
+  "include": ["src/engine/build/**/*.ts", "test/engine/**/*.ts"]
+}
