@@ -1,9 +1,10 @@
 # The home: what waits, what launches, what broke, who pays, what comes in
 # (the owner's brief: every number leads to an action). The revenue fields
-# are asked for only in a role that reads them (§12.2): the gateway answers
+# are asked for only in a role that reads them, and the value of prepaid
+# passes not yet earned only by finance (§12.2, §9.2): the gateway answers
 # FORBIDDEN on them to the others, so the console does not ask.
 
-query Home($readsRevenue: Boolean!) {
+query Home($readsRevenue: Boolean!, $readsUnearned: Boolean!) {
   overview {
     waitingForApproval {
       ...SummaryFields
@@ -27,6 +28,12 @@ query Home($readsRevenue: Boolean!) {
               plan
             }
             ... on ListPriceContent {
+              plan
+            }
+            ... on PriceMigrationContent {
+              plan
+            }
+            ... on PrepaidPassContent {
               plan
             }
           }
@@ -67,6 +74,7 @@ query Home($readsRevenue: Boolean!) {
       resolution
       change {
         id
+        kind
       }
     }
     payingSubscribers {
@@ -87,6 +95,15 @@ query Home($readsRevenue: Boolean!) {
     monthlyRevenueEur @include(if: $readsRevenue)
     monthlyTopUps @include(if: $readsRevenue)
     exchangeRateNote
+    prepaid @include(if: $readsUnearned) {
+      market
+      sold
+      activated
+      expired
+      unearned
+      unearnedEur
+    }
+    prepaidUnearnedEur @include(if: $readsUnearned)
   }
   markets {
     ...MarketFields
@@ -146,6 +163,7 @@ query Launches {
       }
       change {
         id
+        kind
         currentVersion
       }
     }

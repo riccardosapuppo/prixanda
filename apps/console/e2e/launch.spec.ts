@@ -11,7 +11,7 @@
 // on-call engineer's actions are refused by the server to every other role,
 // and to a launch that is done.
 import { expect, test } from "@playwright/test";
-import { asPerson, axe, callByHand, enterAs, switchTo } from "./support.ts";
+import { asPerson, axe, callByHand, enterAs, launchClockGuard, recordNotRun, switchTo } from "./support.ts";
 
 const RUN = Date.now().toString(36);
 
@@ -31,6 +31,10 @@ const LAUNCH = "id run state retryAt snapshotBefore snapshotAfter steps { name s
 
 test("a scheduled offer launches step by step, a cut publish is tried again, and the timeline shows it", async ({ page }) => {
   test.setTimeout(150_000);
+  // The night the clocks of Paris go back or forward, a start minutes away cannot be scheduled there: not run, and said why.
+  const blocked = launchClockGuard("Europe/Paris");
+  if (blocked) recordNotRun(test.info().title, blocked);
+  test.skip(blocked !== null, blocked ?? "");
   const marketing = asPerson("marketing-1");
   const finance = asPerson("finance-1");
   await marketing.signIn();

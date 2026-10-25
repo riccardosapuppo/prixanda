@@ -17,6 +17,29 @@ query Markets {
   }
 }
 
+# What each market's law asks before an existing subscriber pays more, and
+# what the music service chose to do: two parts, never mixed (§8.1).
+query PriceChangePolicies {
+  markets {
+    code
+    name
+    priceChangePolicy {
+      law {
+        requirement
+        basis
+        sources
+      }
+      choice {
+        windowDays
+        afterWindow
+        words
+        alternatives
+        label
+      }
+    }
+  }
+}
+
 query Plans($market: MarketCode!) {
   plans(market: $market) {
     code

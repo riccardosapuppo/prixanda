@@ -8,8 +8,16 @@
 // back are confirmed in a dialog that names the version and its fingerprint.
 //
 // After approval the same page moves the change on: Marketing or the
-// commercial lead schedules the launch; a scheduled launch can be cancelled
-// with a reason; the on-call engineer suspends a live offer with a reason.
+// commercial lead schedules the launch of an offer, the commercial lead
+// that of a price (a price migration, a prepaid pass); a scheduled launch can
+// be cancelled with a reason; the on-call engineer suspends a live offer or
+// a pass on sale with a reason. A price migration that started is never
+// suspended (§4.2): its page says where its existing subscribers stand.
+//
+// The page is the same for every kind of change; what it shows as evidence
+// follows the kind: a campaign's simulation, a price migration's rules of
+// its market (the law apart from the music service's choice, §8.1) and its
+// simulation, a prepaid pass's prices, months and periods of sale.
 import { formatCount, formatMoney, formatPercent } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
@@ -24,14 +32,17 @@ import {
 } from "../../graphql/generated.ts";
 import { launchHref, launchLook } from "../../lib/launch.ts";
 import { describeChanges } from "../../lib/diff.ts";
-import { marketName, marketZone } from "../../lib/markets.ts";
+import { kindOf, progressHref } from "../../lib/kinds.ts";
+import { marketName, marketZone, planName } from "../../lib/markets.ts";
 import {
-  type ApprovalView, approvesWithoutScheduling, can, decide, decisionSentence, primaryRole, ROLE_NAME, type Role, sendsBack, signerWords, whoDoes,
+  type ApprovalView, approvesWithoutScheduling, can, conditionSigner, decide, decisionSentence, primaryRole, ROLE_NAME, type Role, sendsBack, signerWords, whoDoes,
 } from "../../lib/permissions.ts";
 import { useAction, useGatewayQuery, useRefreshChanges } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
-import { CampaignTabs } from "../campaigns/tabs.tsx";
+import { ChangeTabs } from "../campaigns/tabs.tsx";
+import { MigrationInShort } from "../migration/in-short.tsx";
+import { MarketPolicy } from "../migration/policy.tsx";
 
 type Change = NonNullable<ChangeQuery["change"]>;
 type Event = AuditEventsQuery["auditEvents"]["nodes"][number];
@@ -68,7 +79,7 @@ export function ApprovalScreen() {
     <>
       {head}
       <PageBody className="gap-6">
-        <CampaignTabs changeId={data.id} current="approval" />
+        <ChangeTabs kind={data.kind} changeId={data.id} current="approval" />
         <div className="grid grid-cols-1 items-start gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,23rem)] xl:gap-12">
           <div className="order-2 grid min-w-0 content-start gap-8 xl:order-1">
             <Evidence change={data} events={events.data?.auditEvents.nodes ?? []} markets={markets.data?.markets ?? []} />
@@ -103,7 +114,10 @@ function Evidence({ change, events, markets }: { readonly change: Change; readon
   const differences = previous ? describeChanges(previous.content, change.current.content, markets) : [];
   const sentBack = events.filter((event) => event.action === "change.rejected");
   const lastSentBack = sentBack[0] ?? null;
-  const offer = change.current.content.__typename === "OfferContent" ? change.current.content : null;
+  const content = change.current.content;
+  const offer = content.__typename === "OfferContent" ? content : null;
+  const migration = content.__typename === "PriceMigrationContent" ? content : null;
+  const pass = content.__typename === "PrepaidPassContent" ? content : null;
   const firstMarket = offer?.prices[0]?.market ?? null;
 
   return (
@@ -139,6 +153,12 @@ function Evidence({ change, events, markets }: { readonly change: Change; readon
         </Block>
       ) : null}
 
+      {migration ? (
+        <div className="border-t-2 border-ink pt-3">
+          <MarketPolicy market={migration.market} />
+        </div>
+      ) : null}
+
       <Block id="who-signs" title="Who has to sign">
         {change.requiredSignatures.length === 0 ? <p className="text-ink-2">Who signs is known once the version is checked.</p> : (
           <ul role="list" className="grid gap-2">
@@ -162,20 +182,35 @@ function Evidence({ change, events, markets }: { readonly change: Change; readon
         ) : null}
       </Block>
 
-      {firstMarket && can(viewer.roles, "simulate") ? <SimulationInShort change={change} market={firstMarket} marketLabel={marketName(markets, firstMarket)} /> : (
+      {pass ? <PassInShort pass={pass} markets={markets} /> : migration ? (
+        <Block id="simulation" title="The simulation, in short">
+          {can(viewer.roles, "simulate") ? <MigrationInShort changeId={change.id} version={change.currentVersion} /> : (
+            <p className="text-ink-2">{whoDoes("simulate", { one: "runs simulations", many: "run simulations" })}; the conditions that ask for a signature are above, with the reasons the engine gave.</p>
+          )}
+        </Block>
+      ) : firstMarket && can(viewer.roles, "simulate") ? <SimulationInShort change={change} market={firstMarket} marketLabel={marketName(markets, firstMarket)} /> : (
         <Block id="simulation" title="The simulation, in short">
           <p className="text-ink-2">{whoDoes("simulate", { one: "runs simulations", many: "run simulations" })}; the conditions that ask for a signature are above, with the reasons the engine gave.</p>
         </Block>
       )}
 
-      <Block id="reason" title="Why it is worth running, in the author's words">
-        {change.authorReason ? (
+      {offer ? (
+        <Block id="reason" title="Why it is worth running, in the author's words">
+          {change.authorReason ? (
+            <blockquote className="said m-0">
+              <p>{change.authorReason}</p>
+              <footer className="text-xs text-ink-2">{change.current.author.label}, with v{change.currentVersion}</footer>
+            </blockquote>
+          ) : <p className="text-ink-2">The author gave no reason: none is required when the simulated contribution is not negative (§7.3, condition 4).</p>}
+        </Block>
+      ) : change.authorReason ? (
+        <Block id="reason" title={migration ? "Why the price rises, in the author's words" : "In the author's words"}>
           <blockquote className="said m-0">
             <p>{change.authorReason}</p>
             <footer className="text-xs text-ink-2">{change.current.author.label}, with v{change.currentVersion}</footer>
           </blockquote>
-        ) : <p className="text-ink-2">The author gave no reason: none is required when the simulated contribution is not negative (§7.3, condition 4).</p>}
-      </Block>
+        </Block>
+      ) : null}
 
       <Block id="fingerprint" title="Version and fingerprint">
         <p>An approval names v{change.currentVersion} and the fingerprint of its content (§7.2). Any edit makes v{change.currentVersion + 1}, and approvals don't carry over.</p>
@@ -252,12 +287,43 @@ function SimulationInShort({ change, market, marketLabel }: { readonly change: C
   );
 }
 
-/** The launches of a change, newest first: where its activation stands, and the way to its timeline. */
-function ItsLaunches({ changeId }: { readonly changeId: string }) {
+type PassContentView = Extract<Change["current"]["content"], { readonly __typename: "PrepaidPassContent" }>;
+
+/** A prepaid pass in short: in each market, its price paid once, the months it gives, when it is on sale, how long a code waits. */
+function PassInShort({ pass, markets }: { readonly pass: PassContentView; readonly markets: readonly { readonly code: string; readonly name: string; readonly timeZone: string; readonly currency: string }[] }) {
+  return (
+    <Block id="pass" title="The pass, in short">
+      <p className="max-w-[75ch]">
+        {planName(pass.plan)} for {pass.months} month{pass.months === 1 ? "" : "s"}, paid once and never renewed; a code sold waits up to {pass.codeValidMonths} months to be activated, then expires, unused. Price changes made after a sale never touch it (§9.1).
+      </p>
+      <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="pass">
+        <table className="data min-w-[30rem]">
+          <thead><tr><th scope="col">Market</th><th scope="col">Price, paid once</th><th scope="col" className="wrap">On sale</th></tr></thead>
+          <tbody>
+            {pass.prices.map((price) => {
+              const period = pass.periods.find((entry) => entry.market === price.market);
+              const zone = marketZone(markets, price.market);
+              return (
+                <tr key={price.market}>
+                  <th scope="row">{marketName(markets, price.market)}</th>
+                  <td className="font-bold">{formatMoney(price.amount)}</td>
+                  <td className="wrap">{period ? `${formatLocalWithUtc(period.startsLocal, zone)}${period.endsLocal ? ` until ${formatLocalWithUtc(period.endsLocal, zone)}` : ", no end announced"}` : "not set"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Block>
+  );
+}
+
+/** The launches of a change, newest first: where its activation stands, and the way to its timeline; with a title, a section of its own, shown only when there is a launch. */
+export function ItsLaunches({ changeId, title }: { readonly changeId: string; readonly title?: string }) {
   const launches = useGatewayQuery(LaunchRunsDocument, { filter: { changeId }, first: 5, after: null });
   const runs = launches.data?.launches.nodes ?? [];
   if (runs.length === 0) return null;
-  return (
+  const list = (
     <ul role="list" className="grid gap-1.5">
       {runs.map((run) => {
         const look = launchLook(run);
@@ -270,6 +336,13 @@ function ItsLaunches({ changeId }: { readonly changeId: string }) {
         );
       })}
     </ul>
+  );
+  if (title === undefined) return list;
+  return (
+    <section className="grid gap-2 border-t border-cord pt-3" aria-labelledby={`launches-of-${changeId}`}>
+      <h2 id={`launches-of-${changeId}`} className="text-base font-bold">{title}</h2>
+      {list}
+    </section>
   );
 }
 
@@ -298,9 +371,24 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
   // Sending back has its own rule: a role that reviews, not an author (lib/permissions.ts).
   const backable = sendsBack(view, viewer);
   const fingerprint = change.current.fingerprint;
-  const offer = change.current.content.__typename === "OfferContent" ? change.current.content : null;
-  const firstStart = offer?.periods[0] ?? null;
-  const startWords = firstStart ? `${marketName(markets, firstStart.market)}: ${formatLocalWithUtc(firstStart.startsLocal, marketZone(markets, firstStart.market))}` : "its start date";
+  const content = change.current.content;
+  const offer = content.__typename === "OfferContent" ? content : null;
+  const migration = content.__typename === "PriceMigrationContent" ? content : null;
+  const pass = content.__typename === "PrepaidPassContent" ? content : null;
+  const kind = kindOf(change.kind);
+  const firstStart = offer?.periods[0] ?? pass?.periods[0] ?? null;
+  const startWords = migration
+    ? `${marketName(markets, migration.market)}: ${formatLocalWithUtc(migration.noticesLocal, marketZone(markets, migration.market))}, when the existing subscribers are asked or told; new subscribers pay it from ${formatLocalWithUtc(migration.startsLocal, marketZone(markets, migration.market))}`
+    : firstStart ? `${marketName(markets, firstStart.market)}: ${formatLocalWithUtc(firstStart.startsLocal, marketZone(markets, firstStart.market))}` : "its start date";
+  const schedules = kind.schedules;
+  const cancels = kind.cancels;
+  // The engine suspends a live offer or a pass on sale; a list price or a price migration in force is never edited (§4.2).
+  const suspendable = change.kind === "OFFER" || change.kind === "PREPAID";
+  const again = change.kind === "PRICE_MIGRATION"
+    ? whoDoes("createPriceMigration", { one: "writes a new price migration", many: "write a new price migration" }, { start: false, either: true })
+    : change.kind === "PREPAID"
+      ? whoDoes("createPrepaidPass", { one: "writes a new pass", many: "write a new pass" }, { start: false, either: true })
+      : whoDoes("createOffer", { one: "starts a new campaign", many: "start a new campaign" }, { start: false, either: true });
 
   const after = async (result: Result, words: string) => {
     if (result.__typename === "Refusal") {
@@ -365,12 +453,12 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
       ) : null}
 
       {change.state === "APPROVED" ? (
-        offer && can(viewer.roles, "scheduleOffer") ? (
+        schedules && can(viewer.roles, schedules) ? (
           <>
             <p>Approved. It starts only once it is scheduled: {startWords}.</p>
             <Button weight="primary" icon="calendar-check" busy={schedule.isPending} onClick={() => setConfirming("schedule")} className="justify-self-start">Schedule the launch</Button>
           </>
-        ) : <Locked>Approved. {whoDoes("scheduleOffer", { one: "schedules the launch", many: "schedule the launch" })}; {approvesWithoutScheduling({ start: false })}.</Locked>
+        ) : schedules ? <Locked>Approved. {whoDoes(schedules, { one: "schedules the launch", many: "schedule the launch" })}; {approvesWithoutScheduling({ start: false, schedules })}.</Locked> : <Locked>Approved.</Locked>
       ) : null}
 
       {["SCHEDULED", "ACTIVE", "SUSPENDED", "CANCELLED", "ENDED"].includes(change.state) ? <ItsLaunches changeId={change.id} /> : null}
@@ -378,18 +466,25 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
       {change.state === "SCHEDULED" ? (
         <>
           <p>Scheduled: {startWords}. The engine begins its launch a minute before, runs it step by step, and publishes the catalog with it in one transaction (§7.5).</p>
-          {offer && can(viewer.roles, "cancelOffer") ? (
+          {cancels && can(viewer.roles, cancels) ? (
             <Button icon="x-circle" onClick={() => setReasonOpen(reasonOpen === "cancel" ? null : "cancel")} aria-expanded={reasonOpen === "cancel"} aria-controls="decision-reason-form" className="justify-self-start">Cancel the launch</Button>
-          ) : <Locked>{whoDoes("cancelOffer", { one: "can cancel a scheduled launch", many: "can cancel a scheduled launch" })}.</Locked>}
+          ) : cancels ? <Locked>{whoDoes(cancels, { one: "can cancel a scheduled launch", many: "can cancel a scheduled launch" })}.</Locked> : null}
         </>
       ) : null}
 
-      {change.state === "ACTIVE" ? (
+      {change.state === "ACTIVE" && migration ? (
         <>
-          <p>Live on the site.</p>
-          {can(viewer.roles, "suspend") ? (
+          <p>Started: the existing subscribers were {change.migration?.requirement === "NOTICE" ? "told" : "asked"}, and new subscribers pay the new price from its start.</p>
+          {change.migration ? <p className="text-sm">{change.migration.asked.toLocaleString("en-GB")} asked or told; {change.migration.waiting.toLocaleString("en-GB")} waiting, {change.migration.accepted.toLocaleString("en-GB")} accepted, {change.migration.declined.toLocaleString("en-GB")} declined, {change.migration.lapsed.toLocaleString("en-GB")} lapsed.</p> : null}
+          <ButtonLink href={progressHref(change.id)} size="small" icon="users" className="justify-self-start">See the progress</ButtonLink>
+          <p className="text-xs text-ink-2">A price migration in force is not suspended: its price is in the price list, which is never edited (§4.2), and the subscribers were asked or told already. To go back for new subscribers, {whoDoes("createListPrice", { one: "creates a new list price", many: "create a new list price" }, { start: false })} and {conditionSigner()} signs it.</p>
+        </>
+      ) : change.state === "ACTIVE" ? (
+        <>
+          <p>{pass ? "On sale on the site." : "Live on the site."}</p>
+          {suspendable && can(viewer.roles, "suspend") ? (
             <Button icon="pause" onClick={() => setReasonOpen(reasonOpen === "suspend" ? null : "suspend")} aria-expanded={reasonOpen === "suspend"} aria-controls="decision-reason-form" className="justify-self-start">Suspend it</Button>
-          ) : <Locked>{whoDoes("suspend", { one: "suspends a live offer", many: "suspend a live offer" })}, with a reason.</Locked>}
+          ) : suspendable ? <Locked>{whoDoes("suspend", { one: pass ? "takes a pass off sale" : "suspends a live offer", many: pass ? "take a pass off sale" : "suspend a live offer" })}, with a reason.</Locked> : null}
         </>
       ) : null}
 
@@ -432,7 +527,7 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
       >
         <p>This approval names v{change.currentVersion} and its fingerprint:</p>
         <p className="code">{fingerprint}</p>
-        <Callout icon="warning"><b>This can't be undone.</b> Any edit afterwards makes v{change.currentVersion + 1}, which needs its own approval. Once every signature is there, {whoDoes("scheduleOffer", { one: "schedules it", many: "schedule it" }, { start: false, either: true })}.</Callout>
+        <Callout icon="warning"><b>This can't be undone.</b> Any edit afterwards makes v{change.currentVersion + 1}, which needs its own approval. Once every signature is there, {whoDoes(schedules ?? "scheduleOffer", { one: "schedules it", many: "schedule it" }, { start: false, either: true })}.</Callout>
       </ConfirmDialog>
 
       <ConfirmDialog
@@ -467,13 +562,13 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
           else setConfirming(null);
         }}
       >
-        <p>The engine activates v{change.currentVersion} (fingerprint {short(fingerprint)}) at {startWords}, and the site shows it from then.</p>
+        <p>The engine activates v{change.currentVersion} (fingerprint {short(fingerprint)}) at {startWords}{migration ? "." : ", and the site shows it from then."}</p>
         <Callout icon="info">Until then it can still be cancelled, with a reason.</Callout>
       </ConfirmDialog>
 
       <ConfirmDialog
         open={confirming === "cancel" || confirming === "suspend"}
-        title={confirming === "cancel" ? "Cancel the launch?" : "Suspend the live offer?"}
+        title={confirming === "cancel" ? "Cancel the launch?" : pass ? "Take the pass off sale?" : "Suspend the live offer?"}
         confirmLabel={confirming === "cancel" ? "Cancel the launch" : "Suspend it"}
         confirmIcon={confirming === "cancel" ? "x-circle" : "pause"}
         busy={cancel.isPending || suspend.isPending}
@@ -482,13 +577,13 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
           const result = confirming === "cancel"
             ? (await cancel.mutateAsync({ changeId: change.id, reason: reason.trim() }).catch(() => null))?.cancelChange as Result | undefined
             : (await suspend.mutateAsync({ changeId: change.id, reason: reason.trim() }).catch(() => null))?.suspendChange as Result | undefined;
-          if (result) await after(result, confirming === "cancel" ? "Cancelled: it will not start." : "Suspended: the site no longer shows it.");
+          if (result) await after(result, confirming === "cancel" ? "Cancelled: it will not start." : pass ? "Suspended: the pass is off sale." : "Suspended: the site no longer shows it.");
           else setConfirming(null);
         }}
       >
         <p>{change.title} v{change.currentVersion}, with this reason:</p>
         <blockquote className="said m-0"><p>{reason.trim()}</p></blockquote>
-        <Callout icon="warning"><b>This can't be undone.</b> To offer it again, {whoDoes("createOffer", { one: "starts a new campaign", many: "start a new campaign" }, { start: false, either: true })}.</Callout>
+        <Callout icon="warning"><b>This can't be undone.</b> To {change.kind === "PRICE_MIGRATION" ? "raise the price later" : change.kind === "PREPAID" ? "sell it again" : "offer it again"}, {again}.</Callout>
       </ConfirmDialog>
       {busy ? <span className="sr-only" role="status">Sending</span> : null}
       <ButtonLink href="/approvals/" size="small" weight="quiet" icon="arrow-left" className="justify-self-start">All approvals</ButtonLink>

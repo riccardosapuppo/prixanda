@@ -3,7 +3,7 @@
 // scrolls sideways (tables and the week's lanes scroll inside their own
 // boxes), and no text is cut.
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
-import { asPerson, enterAs, layoutProblems, submittedOffer } from "./support.ts";
+import { asPerson, enterAs, layoutProblems, notRunForTheClocks, recordNotRun, submittedMigration, submittedOffer } from "./support.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -19,9 +19,12 @@ const RUN = Date.now().toString(36);
 let context: BrowserContext;
 let page: Page;
 let changeId = "";
+let migrationId = "";
 
 test.beforeAll(async ({ browser }) => {
   changeId = await submittedOffer(`Layout Pass ${RUN}`, `layout-${RUN}`);
+  // Duo in Germany: a plan and a market no other test raises, so that no migration overlaps another.
+  migrationId = await submittedMigration(`Duo price rise, Germany ${RUN}`, "duo", "DE", { amountMinor: "1599", currency: "EUR" });
   context = await browser.newContext();
   page = await context.newPage();
   await enterAs(page, "Marketing");
@@ -81,6 +84,10 @@ test("the approval", async () => {
 });
 
 test("a launch's timeline (the launch test, before this file, ran one)", async () => {
+  // When the launch test was not run for the clocks, there is no launch to look at, for the same reason.
+  const blocked = notRunForTheClocks[0] ?? null;
+  if (blocked) recordNotRun(test.info().title, blocked);
+  test.skip(blocked !== null, blocked ?? "");
   const reader = asPerson("marketing-1");
   await reader.signIn();
   const first = (await reader.query("query { launches(first: 1) { nodes { id run } } }")).launches.nodes[0] as { id: string; run: string } | undefined;
@@ -89,6 +96,27 @@ test("a launch's timeline (the launch test, before this file, ran one)", async (
     await expect(on.getByRole("heading", { name: `Launch timeline: ${first?.run}`, level: 1 })).toBeVisible();
     await expect(on.getByRole("heading", { name: "Live now" })).toBeVisible();
   });
+});
+
+test("the price migrations: the list, the form's first and last steps, the simulation, the approval and the progress", async () => {
+  await atEveryWidth("/price-migrations/", heading("Price migrations"));
+  await atEveryWidth("/price-migrations/new/", heading("New price"));
+  await atEveryWidth(`/price-migrations/edit/?id=${migrationId}&step=3`, async (on) => {
+    await expect(on.getByLabel("The change in business words")).toBeVisible();
+  });
+  await atEveryWidth(`/price-migrations/simulation/?id=${migrationId}`, async (on) => {
+    await expect(on.getByRole("heading", { name: /^If \d+% accept, revenue/ })).toBeVisible();
+  });
+  await atEveryWidth(`/price-migrations/approval/?id=${migrationId}`, async (on) => {
+    await expect(on.getByRole("heading", { name: "Decision" })).toBeVisible();
+    await expect(on.getByRole("region", { name: "What the law asks" })).toBeVisible();
+  });
+  await atEveryWidth(`/price-migrations/progress/?id=${migrationId}`, heading(/^Progress:/));
+});
+
+test("the prepaid passes: the list and the form", async () => {
+  await atEveryWidth("/passes/", heading("Prepaid passes"));
+  await atEveryWidth("/passes/new/", heading("The pass"));
 });
 
 test("the audit log, the price list and the launches", async () => {

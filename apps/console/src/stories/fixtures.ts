@@ -79,6 +79,7 @@ export function studentPass(state: Change["state"] = "IN_APPROVAL", signed = fal
     requiredSignatures: [{ role: "FINANCE", conditions: [2, 4], why: "Finance must sign: conditions 2 and 4 of §7.3.", signed }],
     sentence: "Italy, Student: from €5.79 to €2.99 for 3 months, new subscribers only; 10,000 eligible; conflicts: none.",
     authorReason: "We are buying students now. At 55% retention after month 3 the pass pays for itself in the second year.",
+    migration: null,
   };
 }
 

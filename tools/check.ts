@@ -42,7 +42,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 14, contractFiles: 47, migrations: 17, pythonTests: 721, invariants: 17, generatedSubscribers: 5_000,
+  typecheckedFiles: 15, contractFiles: 47, migrations: 17, pythonTests: 721, invariants: 17, generatedSubscribers: 5_000,
   faultsInjected: 12, measuredQueries: 7,
   // npm's lockfile lists every platform's packages; the Python environment
   // has one more on Windows (colorama, for pytest).
@@ -684,6 +684,11 @@ const SUITES: Suite[] = [
         const outcome = await runEndToEnd(cluster, database, reports);
         const counted = `${outcome.tests} tests, ${outcome.failures} failed, ${outcome.skipped} skipped`;
         if (outcome.code !== 0 || outcome.failures > 0) return failed(counted, outcome.output.slice(-3000));
+        // The night a market's clocks change, the tests with a real launch minutes away are not run, and say why and
+        // from when: the suite is not run either, never passed. Any other skip is a test that checked nothing.
+        if (outcome.skipped > 0 && outcome.skipped === outcome.notRun.length) {
+          return { outcome: "not run", counted, detail: [...new Set(outcome.notRun.map((entry) => entry.reason))].join("\n") };
+        }
         if (outcome.skipped > 0) return failed(counted, "a skipped test checked nothing");
         if (outcome.tests < CONSOLE_FLOOR.e2eTests) return failed(counted, `fewer than ${CONSOLE_FLOOR.e2eTests} tests`);
         return passed(counted);
@@ -811,7 +816,7 @@ async function siteNodeTests(suite: string, files: string[], floor: number): Pro
 const designDir = join(repoRoot, "packages", "design");
 const consoleDir = join(repoRoot, "apps", "console");
 const CONSOLE_FLOOR = {
-  designFiles: 4, designTests: 77, files: 88, operations: 29, unitTests: 60, stories: 27, pages: 13, e2eTests: 26,
+  designFiles: 4, designTests: 77, files: 117, operations: 35, unitTests: 87, stories: 42, pages: 23, e2eTests: 32,
 };
 /** The gateway the console is built for: the one its end-to-end tests start. */
 const CONSOLE_GATEWAY_URL = E2E_GATEWAY_URL;

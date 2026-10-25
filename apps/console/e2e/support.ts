@@ -2,11 +2,16 @@
 // switching person from the rail, axe on the screen in front of us, the
 // gateway called by hand from inside the page (with the page's own session
 // cookie and CSRF token, the way a curious person with the devtools would),
-// and a guard that refuses every request leaving 127.0.0.1.
+// a guard that refuses every request leaving 127.0.0.1, and, for the tests'
+// own setup, the console's API as a person of the team and the site's API as
+// one of the demo's listeners.
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { type BrowserContext, expect, type Locator, type Page } from "@playwright/test";
 
 export const GATEWAY_URL = process.env["GATEWAY_URL"] ?? `http://127.0.0.1:${process.env["GATEWAY_INTERNAL_PORT"] ?? 4621}/graphql`;
+export const SITE_API_URL = process.env["GATEWAY_PUBLIC_URL"] ?? `http://127.0.0.1:${process.env["GATEWAY_PUBLIC_PORT"] ?? 4622}/graphql`;
 
 /** Refuses every request to a host other than 127.0.0.1 or localhost, and counts them. */
 export async function onlyLocal(context: BrowserContext): Promise<{ readonly refused: () => readonly string[] }> {
@@ -170,6 +175,142 @@ export async function submittedOffer(title: string, group: string): Promise<stri
   );
   if (submitted.submitChange.state !== "IN_APPROVAL") throw new Error(`the test offer was not submitted: ${JSON.stringify(submitted.submitChange)}`);
   return id;
+}
+
+/**
+ * The first clock change of a zone between two instants: a minute after
+ * which its wall clock does not read one minute later (the clocks go forward:
+ * the local times between do not exist), or a wall-clock time that an
+ * instant an hour away reads too (the clocks go back: it repeats). Null when
+ * the clocks run straight.
+ */
+export function clockChange(zone: string, from: Date, to: Date): { readonly kind: "repeat" | "skip"; readonly at: Date } | null {
+  const hour = 3_600_000;
+  const start = Math.floor(from.getTime() / 60_000) * 60_000;
+  for (let at = start; at <= to.getTime(); at += 60_000) {
+    const wall = wallTime(new Date(at), zone);
+    if (wallTime(new Date(at - hour), zone) === wall || wallTime(new Date(at + hour), zone) === wall) return { kind: "repeat", at: new Date(at) };
+    const next = new Date(Date.parse(`${wall}:00Z`) + 60_000).toISOString().slice(0, 16);
+    if (wallTime(new Date(at + 60_000), zone) !== next) return { kind: "skip", at: new Date(at + 60_000) };
+  }
+  return null;
+}
+
+const utcWords = (at: Date) => `${at.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+
+/**
+ * Whether a test that schedules a real launch minutes from now can run in a
+ * market. On the night its clocks go back (or forward) the local times there
+ * repeat (or do not exist), and the console and the engine rightly refuse a
+ * start at such a time (§3.7): a launch minutes away cannot be scheduled.
+ * Then the test is not run, and says why and from when (UTC) it can run again;
+ * null when nothing stands in the way in the next minutes.
+ */
+export function launchClockGuard(zone: string, minutes = 20, now = new Date()): string | null {
+  const ahead = (at: Date) => new Date(at.getTime() + minutes * 60_000);
+  const change = clockChange(zone, now, ahead(now));
+  if (change === null) return null;
+  let retry = new Date(Math.ceil(now.getTime() / 60_000) * 60_000);
+  for (let tries = 0; tries < 6 * 60 && clockChange(zone, retry, ahead(retry)) !== null; tries++) retry = new Date(retry.getTime() + 60_000);
+  return `Not run for the clocks: ${zone} ${change.kind === "repeat" ? "repeats" : "skips"} its local times at ${utcWords(change.at)}, and a launch `
+    + `minutes from now cannot be scheduled there (the console and the engine refuse a time the clocks ${change.kind} there, §3.7). It can run again from ${utcWords(retry)}.`;
+}
+
+/** The tests not run for the clocks in this run: a later test that needs their launch is not run either, for the same reason. */
+export const notRunForTheClocks: string[] = [];
+
+/** Records a test not run for the clocks, where e2e/run.ts reads it, and keeps it for the tests after it. */
+export function recordNotRun(test: string, reason: string): void {
+  notRunForTheClocks.push(reason);
+  const reports = process.env["E2E_REPORTS"];
+  if (!reports) return;
+  mkdirSync(reports, { recursive: true });
+  appendFileSync(join(reports, "console-e2e-not-run.jsonl"), `${JSON.stringify({ test, reason })}\n`);
+}
+
+/** An instant's wall-clock time in a zone, the contract's way: 2026-10-25T10:45. */
+function wallTime(at: Date, zone: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+}
+
+/**
+ * A local time at least a number of minutes ahead in a zone, at a whole
+ * minute, the contract's way. A time the clocks repeat that night (between
+ * 02:00 and 03:00 when they go back) is no time to start anything: the
+ * console and the engine refuse it, so the next unambiguous minute is taken.
+ */
+export function minutesAhead(minutes: number, zone: string, from = new Date()): string {
+  const wanted = Math.ceil((from.getTime() + minutes * 60_000) / 60_000) * 60_000;
+  const hour = 3_600_000;
+  for (let at = wanted; at < wanted + 3 * hour; at += 60_000) {
+    const wall = wallTime(new Date(at), zone);
+    if (wallTime(new Date(at - hour), zone) === wall || wallTime(new Date(at + hour), zone) === wall) continue;
+    // A test that waits for a launch cannot wait hours: on the night the clocks go back, it says why instead.
+    if (at - wanted > 10 * 60_000) {
+      throw new Error(`${zone} repeats its local times tonight until ${wall}: a launch minutes from now cannot be scheduled there. Run the end-to-end tests after the clocks went back.`);
+    }
+    return wall;
+  }
+  throw new Error(`no unambiguous local time in ${zone} in the next three hours`);
+}
+
+/** A local date some days after a local time of the contract, at a time of day: "2026-11-02T09:00" + 30 days at 00:00. */
+export function daysAfter(local: string, days: number, time: string): string {
+  const date = new Date(`${local.slice(0, 10)}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return `${date.toISOString().slice(0, 10)}T${time}`;
+}
+
+/** A price migration written, checked and submitted by the commercial lead through the gateway: something to look at. */
+export async function submittedMigration(title: string, plan: string, market: string, amount: { readonly amountMinor: string; readonly currency: string }): Promise<string> {
+  const lead = asPerson("commercial-lead-1");
+  await lead.signIn();
+  const noticesLocal = nextMondayAtNine();
+  const migration = { title, plan, market, amount, noticesLocal, startsLocal: daysAfter(noticesLocal, 30, "00:00") };
+  const created = await lead.mutate("mutation ($m: PriceMigrationInput!) { createPriceMigration(migration: $m) { __typename ... on Change { id } ... on Refusal { code reason } } }", { m: migration });
+  if (created.createPriceMigration.__typename !== "Change") throw new Error(`the test migration was not created: ${JSON.stringify(created.createPriceMigration)}`);
+  const id = String(created.createPriceMigration.id);
+  await lead.mutate("mutation ($id: ID!) { validateChange(changeId: $id, version: 1) { __typename } }", { id });
+  const submitted = await lead.mutate("mutation ($id: ID!) { submitChange(changeId: $id, version: 1) { __typename ... on Change { state } ... on Refusal { code reason } } }", { id });
+  if (submitted.submitChange.state !== "IN_APPROVAL") throw new Error(`the test migration was not submitted: ${JSON.stringify(submitted.submitChange)}`);
+  return id;
+}
+
+type Listener = {
+  signIn(): Promise<void>;
+  query(query: string, variables?: Record<string, unknown>): Promise<any>;
+  mutate(query: string, variables?: Record<string, unknown>): Promise<any>;
+};
+
+/** The site's API as one of the demo's listeners, named by their title at the entrance (DEMONSTRATION MODE, not a sign-in). */
+export function asListener(title: string): Listener {
+  let cookie = "";
+  let csrf = "";
+  const send = async (query: string, variables: Record<string, unknown>, mutation: boolean) => {
+    const headers: Record<string, string> = { "content-type": "application/json", "x-request-id": `test:${crypto.randomUUID()}` };
+    if (cookie) headers["cookie"] = cookie;
+    if (mutation && csrf) headers["x-csrf-token"] = csrf;
+    if (mutation) headers["idempotency-key"] = `test:${crypto.randomUUID()}`;
+    const response = await fetch(SITE_API_URL, { method: "POST", headers, body: JSON.stringify({ query, variables }) });
+    const set = response.headers.get("set-cookie");
+    if (set) cookie = set.split(";")[0] ?? "";
+    const body = (await response.json()) as { data?: any; errors?: { message: string }[] };
+    if (body.errors?.length) throw new Error(`${body.errors[0]?.message}`);
+    return body.data;
+  };
+  return {
+    async signIn() {
+      const listeners = (await send("query { demoListeners { id title } }", {}, false)).demoListeners as { id: string; title: string }[];
+      const found = listeners.find((listener) => listener.title === title);
+      if (found === undefined) throw new Error(`no demo listener "${title}": ${listeners.map((listener) => listener.title).join(", ")}`);
+      const me = await send("mutation ($id: ID!) { signInAsListener(listenerId: $id) { csrfToken } }", { id: found.id }, true);
+      csrf = me.signInAsListener.csrfToken;
+    },
+    query: (query, variables = {}) => send(query, variables, false),
+    mutate: (query, variables = {}) => send(query, variables, true),
+  };
 }
 
 /** Presses Tab until the element has the focus: the keyboard's own way there. */
