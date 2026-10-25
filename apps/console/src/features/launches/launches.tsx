@@ -13,7 +13,7 @@ import { approvalHref } from "../../lib/kinds.ts";
 import { launchHref, launchLook, type LaunchSummary, launchWords, STEP_NAME } from "../../lib/launch.ts";
 import { type MarketInfo, marketName, marketZone } from "../../lib/markets.ts";
 import { whoDoes } from "../../lib/permissions.ts";
-import { useGatewayQuery } from "../../lib/react/gateway.tsx";
+import { useGatewayPages, useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useWatch } from "../../lib/react/watch.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
 
@@ -79,23 +79,24 @@ function RunsTable({ rows, markets, labelledBy }: { readonly rows: readonly Laun
   );
 }
 
-function RunsPage({ state, after, labelledBy, last, onMore }: {
-  readonly state: LaunchState | null;
-  readonly after: string | null;
-  readonly labelledBy: string;
-  readonly last: boolean;
-  readonly onMore: (next: string) => void;
-}) {
+/**
+ * The runs, a page at a time, read again at the pace of a page that watches.
+ * The pages loaded are read again together, in order from the first, each
+ * with the cursor the page before it gives now (useGatewayPages): a launch
+ * that begins moves every page's edge by one, and the run at the old edge,
+ * a failed one perhaps, stays on the list.
+ */
+function Runs({ state, labelledBy }: { readonly state: LaunchState | null; readonly labelledBy: string }) {
   const watch = useWatch();
-  const page = useGatewayQuery(LaunchRunsDocument, { filter: state ? { state } : null, first: PAGE, after }, {
+  const runs = useGatewayPages(LaunchRunsDocument, (after) => ({ filter: state ? { state } : null, first: PAGE, after }), (page) => page.launches.next, {
     ...watch,
-    // A launch that runs moves on in seconds: while one is on the page, the page is read again sooner.
-    ...(watch.refetchInterval ? { refetchInterval: (data) => (data?.launches.nodes.some((run) => run.state === "RUNNING") ? RUNNING_EVERY_MS : watch.refetchInterval ?? false) } : {}),
+    // A launch that runs moves on in seconds: while one is on the list, the list is read again sooner.
+    ...(watch.refetchInterval ? { refetchInterval: (data) => (data?.pages.some((page) => page.launches.nodes.some((run) => run.state === "RUNNING")) ? RUNNING_EVERY_MS : watch.refetchInterval ?? false) } : {}),
   });
-  if (page.isPending) return <Loading what="the launches" lines={5} />;
-  if (page.isError) return <ErrorPanel error={page.error} retry={() => void page.refetch()} />;
-  const rows = page.data.launches.nodes;
-  if (rows.length === 0 && after === null) {
+  if (runs.isPending) return <Loading what="the launches" lines={5} />;
+  if (runs.data === undefined) return <ErrorPanel error={runs.error} retry={() => void runs.refetch()} />;
+  const rows = runs.data.pages.flatMap((page) => page.launches.nodes);
+  if (rows.length === 0) {
     return (
       <Empty icon="rocket-launch">
         No launch here yet. The engine begins one a minute before a scheduled change starts, and runs it step by step.
@@ -104,9 +105,11 @@ function RunsPage({ state, after, labelledBy, last, onMore }: {
   }
   return (
     <>
-      <RunsTable rows={rows} markets={page.data.markets} labelledBy={labelledBy} />
-      {last && page.data.launches.next ? (
-        <Button size="small" icon="arrow-down" onClick={() => onMore(page.data.launches.next ?? "")} className="justify-self-start">
+      <RunsTable rows={rows} markets={runs.data.pages[0]?.markets ?? []} labelledBy={labelledBy} />
+      {runs.isError ? (
+        <ErrorPanel error={runs.error} retry={() => void (runs.isFetchNextPageError ? runs.fetchNextPage() : runs.refetch())} />
+      ) : runs.hasNextPage ? (
+        <Button size="small" icon="arrow-down" busy={runs.isFetchingNextPage} onClick={() => void runs.fetchNextPage()} className="justify-self-start">
           Show {PAGE} more
         </Button>
       ) : null}
@@ -116,7 +119,6 @@ function RunsPage({ state, after, labelledBy, last, onMore }: {
 
 export function LaunchesScreen() {
   const [filter, setFilter] = useState("all");
-  const [pages, setPages] = useState<readonly (string | null)[]>([null]);
   const chosen = FILTERS.find((entry) => entry.id === filter) ?? FILTERS[0];
   const watch = useWatch();
   const scheduled = useGatewayQuery(ChangesDocument, { filter: { states: ["SCHEDULED", "ACTIVE"] }, first: 50, after: null }, watch);
@@ -138,10 +140,7 @@ export function LaunchesScreen() {
                   key={entry.id}
                   type="button"
                   aria-pressed={filter === entry.id}
-                  onClick={() => {
-                    setFilter(entry.id);
-                    setPages([null]);
-                  }}
+                  onClick={() => setFilter(entry.id)}
                   className={`min-h-9 rounded-control border px-3 text-sm font-semibold ${filter === entry.id ? "border-ink bg-ink text-stone-0" : "border-edge bg-stone-0 hover:bg-stone-2"}`}
                 >
                   {entry.label}
@@ -149,9 +148,7 @@ export function LaunchesScreen() {
               ))}
             </div>
           </div>
-          {pages.map((after, index) => (
-            <RunsPage key={`${filter}-${after ?? "first"}`} state={chosen?.state ?? null} after={after} labelledBy={runsId} last={index === pages.length - 1} onMore={(next) => setPages((current) => [...current, next])} />
-          ))}
+          <Runs state={chosen?.state ?? null} labelledBy={runsId} />
           <p className="flex max-w-[72ch] items-baseline gap-2 text-sm text-ink-2">
             <Icon name="info" size={15} className="translate-y-0.5" />
             <span>

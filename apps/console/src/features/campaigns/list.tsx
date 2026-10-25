@@ -126,7 +126,6 @@ export function PassesScreen() {
 function ChangesScreen({ list }: { readonly list: ListOf }) {
   const viewer = useViewer();
   const [filter, setFilter] = useState("all");
-  const [pages, setPages] = useState<readonly (string | null)[]>([null]);
   const chosen = FILTERS.find((entry) => entry.id === filter) ?? FILTERS[0];
   const headingId = useId();
   const states = chosen?.states ? [...chosen.states] : null;
@@ -150,10 +149,7 @@ function ChangesScreen({ list }: { readonly list: ListOf }) {
                   key={entry.id}
                   type="button"
                   aria-pressed={filter === entry.id}
-                  onClick={() => {
-                    setFilter(entry.id);
-                    setPages([null]);
-                  }}
+                  onClick={() => setFilter(entry.id)}
                   className={`min-h-9 rounded-control border px-3 text-sm font-semibold ${filter === entry.id ? "border-ink bg-ink text-stone-0" : "border-edge bg-stone-0 hover:bg-stone-2"}`}
                 >
                   {entry.label}
@@ -161,36 +157,38 @@ function ChangesScreen({ list }: { readonly list: ListOf }) {
               ))}
             </div>
           </div>
-          {pages.map((after, index) => (
-            <ChangesPage key={`${filter}-${after ?? "first"}`} list={list} states={states} after={after} labelledBy={headingId} last={index === pages.length - 1} onMore={(next) => setPages((current) => [...current, next])} />
-          ))}
+          <Changes list={list} states={states} labelledBy={headingId} />
         </section>
       </PageBody>
     </>
   );
 }
 
-function ChangesPage({ list, states, after, labelledBy, last, onMore }: {
-  readonly list: ListOf;
-  readonly states: ChangeState[] | null;
-  readonly after: string | null;
-  readonly labelledBy: string;
-  readonly last: boolean;
-  readonly onMore: (next: string) => void;
-}) {
-  const page = useGatewayQuery(ChangesDocument, { filter: { kind: list.kind, ...(states ? { states } : {}) }, first: 25, after });
-  if (page.isPending) return <Loading what={`the ${list.title.toLowerCase()}`} lines={6} />;
-  if (page.isError) return <ErrorPanel error={page.error} retry={() => void page.refetch()} />;
-  const rows = page.data.changes.nodes;
-  if (rows.length === 0 && after === null) {
-    return <Empty icon={kindOf(list.kind).icon}>{list.empty}</Empty>;
-  }
+/** A list of one kind is read this many changes at a time. */
+const LIST_PAGE = 25;
+
+/**
+ * The changes of one kind, a page at a time. When a change moves (an action,
+ * or in the sandbox the worker's word), the pages loaded are read again
+ * together, in order from the first, each with the cursor the page before it
+ * gives now (useGatewayPages): a change edited or created comes to the top,
+ * every page's edge moves with it, and the change at an old edge stays on
+ * the list.
+ */
+function Changes({ list, states, labelledBy }: { readonly list: ListOf; readonly states: ChangeState[] | null; readonly labelledBy: string }) {
+  const changes = useGatewayPages(ChangesDocument, (after) => ({ filter: { kind: list.kind, ...(states ? { states } : {}) }, first: LIST_PAGE, after }), (page) => page.changes.next);
+  if (changes.isPending) return <Loading what={`the ${list.title.toLowerCase()}`} lines={6} />;
+  if (changes.data === undefined) return <ErrorPanel error={changes.error} retry={() => void changes.refetch()} />;
+  const rows = changes.data.pages.flatMap((page) => page.changes.nodes);
+  if (rows.length === 0) return <Empty icon={kindOf(list.kind).icon}>{list.empty}</Empty>;
   return (
     <>
       <ChangesTable rows={rows} labelledBy={labelledBy} kind={list.kind} />
-      {last && page.data.changes.next ? (
-        <Button size="small" icon="arrow-down" onClick={() => onMore(page.data.changes.next ?? "")} className="justify-self-start">
-          Show 25 more
+      {changes.isError ? (
+        <ErrorPanel error={changes.error} retry={() => void (changes.isFetchNextPageError ? changes.fetchNextPage() : changes.refetch())} />
+      ) : changes.hasNextPage ? (
+        <Button size="small" icon="arrow-down" busy={changes.isFetchingNextPage} onClick={() => void changes.fetchNextPage()} className="justify-self-start">
+          Show {LIST_PAGE} more
         </Button>
       ) : null}
     </>
