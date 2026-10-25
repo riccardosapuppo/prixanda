@@ -1,7 +1,7 @@
 // The messages between a tab of the demo, the site's or the console's, and
-// the sandbox's worker, both ways (stage 8, BRIEF-TAPPA-8-DEMO.md, «I punti
-// di contatto»). The gateway's side writes this file; the engine's and the
-// apps' read it, and whoever changes it asks the coordinator first.
+// the sandbox's worker, both ways (stage 8, the demo in the browser). The
+// gateway's side of the package writes this file, the engine's side and the
+// apps read it: a change to it is made on every side at once.
 //
 // One worker for the whole origin. A SharedWorker is the same instance only
 // for the same script address and the same name: the worker is built on its
@@ -143,8 +143,14 @@ export type CommandResults = {
   readonly reset: { readonly now: string };
   readonly "arm-fault": { readonly armed: LaunchStep };
   readonly "clear-fault": { readonly armed: null };
-  /** The demo's clock moved to the next launch due, and the jobs ran: 409 when no launch is due. */
-  readonly "skip-to-next-launch": { readonly now: string; readonly ran: number };
+  /**
+   * The demo's clock moved to the next launch due, the launch ran (its tries
+   * after a simulated fault too), and the clock stopped at its change's start:
+   * from and to are the demo's times before and after, ISO 8601 with Z, and
+   * changed what the tabs read again, as every tab is told. 409 when no launch
+   * is due.
+   */
+  readonly "skip-to-next-launch": { readonly from: string; readonly to: string; readonly changed: readonly Changed[] };
 };
 
 export type CommandError = { readonly error: string };

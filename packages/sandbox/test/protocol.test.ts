@@ -31,7 +31,7 @@ describe("the sandbox's protocol", () => {
     assert.equal(WORKER_NAME, "plancia-sandbox");
   });
 
-  test("names what the engine's tick() changes, the demo's commands and the steps of a launch, as the brief fixed them", () => {
+  test("names what the engine's tick() changes, the demo's commands and the steps of a launch, as the project's conventions fix them", () => {
     assert.deepEqual([...CHANGES], ["catalog", "changes", "launches", "accounts", "audit"]);
     assert.deepEqual([...COMMANDS], ["status", "reset", "arm-fault", "clear-fault", "skip-to-next-launch"]);
     assert.deepEqual([...LAUNCH_STEPS], ["check", "prepare", "publish", "notify", "verify"]);
