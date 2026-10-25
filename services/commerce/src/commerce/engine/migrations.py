@@ -43,7 +43,7 @@ from commerce.domain.money import Money, format_money
 from commerce.domain.offers import PriceMigration, from_json
 from commerce.engine import charging, contract, outbox, records, reference
 from commerce.engine.call import Call, Clock
-from commerce.engine.database import Connection, Database, utc_text
+from commerce.engine.database import Connection, Database, DatabaseUnavailable, utc_text
 from commerce.engine.errors import InvalidArgument, NotFound, Refused
 from commerce.v1 import common_pb2, subscriptions_pb2
 
@@ -293,6 +293,7 @@ class Settled:
     state: str
     effect: str  # left, new_price or none
     dates: dict[str, str]
+    error: str | None = None  # the window could not be settled: nothing changed, and the next pass tries again
 
 
 class Migrations:
@@ -347,18 +348,26 @@ class Migrations:
     # -- the end of the windows ---------------------------------------------------
 
     async def settle_due(self) -> list[Settled]:
-        """Acts on every window that ended: once each, in its own transaction. Returns what it did, for the log."""
+        """Acts on every window that ended: once each, in its own transaction. Returns what it did, for the log. A
+        window that cannot be settled holds up none of the others: it is returned with its error, and tried again."""
         now = self.clock.now()
         async with self.db.transaction(readonly=True) as tx:
-            due = [r["id"] for r in await tx.fetch(
-                "select id from price_change_request where settled_at is null and window_ends_at <= $1::text::timestamptz "
-                "order by window_ends_at, id", format_instant(now))]
+            due = await tx.fetch(
+                "select id, change_id, subscription_id from price_change_request where settled_at is null "
+                "and window_ends_at <= $1::text::timestamptz order by window_ends_at, id", format_instant(now))
         done = []
-        for request_id in due:
-            async with self.db.transaction() as tx:
-                outcome = await self._settle(tx, request_id)
-                if outcome is not None:
-                    done.append(outcome)
+        for row in due:
+            try:
+                async with self.db.transaction() as tx:
+                    outcome = await self._settle(tx, row["id"])
+            except DatabaseUnavailable:
+                raise
+            except Exception as error:
+                done.append(Settled(row["id"], row["change_id"], row["subscription_id"], "failed", "none", {},
+                                    error=f"{type(error).__name__}: {error}"))
+                continue
+            if outcome is not None:
+                done.append(outcome)
         return done
 
     async def _settle(self, tx: Connection, request_id: int) -> Settled | None:

@@ -17,10 +17,14 @@ to do, and how to tell that it is resolved.
   `launch_started`, `launch_step_done`, `launch_step_failed` and
   `launch_step_interrupted` (warning), `launch_refused` and `launch_failed`
   (warning), `launch_done`, `launch_cancelled`, `incident_opened` (warning),
-  `incident_closed`, `jobs_pass_failed` (warning, once per cause) and
+  `incident_closed`, `jobs_pass_failed` (warning, once per job and cause,
+  with the job: one that fails for a fault of its own holds up none of the
+  others, and a database that cannot be reached ends the pass) and
   `jobs_working_again`, `outbox_delivery_failed` (warning),
   `price_change_settled` (once per request, at the end of its window, with
-  the state and the effect on the subscription), `prepaid_code_expired`
+  the state and the effect on the subscription), `price_change_settle_failed`
+  (warning, once per request and cause: the other windows settle, and this
+  one is tried again on each pass), `prepaid_code_expired`
   (once per code not activated by its last day, named by its number, never
   by the code, which is a bearer secret), `offer_ended` (an offer, or a
   prepaid pass, whose periods are over), and, from the

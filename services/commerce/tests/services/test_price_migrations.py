@@ -274,6 +274,63 @@ async def test_the_server_s_jobs_settle_the_window_and_log_each_request_once(wor
     assert len(told) == 4 and {line["consumer"] for line in told} == {"listeners"}
 
 
+async def test_a_window_that_cannot_be_settled_holds_up_neither_the_others_nor_the_outbox(world, monkeypatch):
+    """A fault no rule foresaw in one request's end of window: the other three settle and their listeners are told in
+    the same pass, the failure is logged once with its request, and the request settles once the fault is gone."""
+    await started(world)
+    world.clock.at = at(2026, 12, 17, 23, 0, 5)
+    stuck = await world.owner.fetchval("select min(id) from price_change_request")
+    fault = {"on": True}
+    settle = migrations.Migrations._settle
+
+    async def faulty(self, tx, request_id):
+        if fault["on"] and request_id == stuck:
+            raise RuntimeError("a fault in the end of a window")
+        return await settle(self, tx, request_id)
+
+    monkeypatch.setattr(migrations.Migrations, "_settle", faulty)
+    logs = io.StringIO()
+    jobs = Jobs(world.engine, JsonLog(world.clock.now, logs))
+    for _ in range(2):
+        await jobs.run_pass()
+        world.clock.advance(seconds=5)
+    lines = [json.loads(line) for line in logs.getvalue().splitlines()]
+    assert len([line for line in lines if line["event"] == "price_change_settled"]) == 3
+    told = [line for line in lines if line["event"] == "outbox_delivered" and line["topic"] == migrations.OUTCOME]
+    assert len(told) == 3
+    [failed] = [line for line in lines if line["event"] == "price_change_settle_failed"]
+    assert (failed["level"], failed["price_change"], failed["error"]) == (
+        "warning", stuck, "RuntimeError: a fault in the end of a window")
+    fault["on"] = False
+    await jobs.run_pass()
+    lines = [json.loads(line) for line in logs.getvalue().splitlines()]
+    assert [line["price_change"] for line in lines if line["event"] == "price_change_settled"][-1] == stuck
+    assert not [line for line in lines if line["event"] == "jobs_pass_failed"]
+
+
+async def test_a_job_that_fails_holds_up_none_of_the_jobs_after_it(world, monkeypatch):
+    """The end of the windows fails for a fault of its own: the outbox after it still delivers the requests, the job's
+    failure is logged once, and once more when it works again."""
+    await started(world)
+
+    async def faulty():
+        raise RuntimeError("a fault in one job")
+
+    monkeypatch.setattr(world.engine, "settle_migrations", faulty)
+    logs = io.StringIO()
+    jobs = Jobs(world.engine, JsonLog(world.clock.now, logs))
+    for _ in range(2):
+        await jobs.run_pass()
+    lines = [json.loads(line) for line in logs.getvalue().splitlines()]
+    told = [line for line in lines if line["event"] == "outbox_delivered" and line["topic"] == migrations.REQUEST]
+    assert len(told) == 4
+    monkeypatch.undo()
+    await jobs.run_pass()
+    lines = [json.loads(line) for line in logs.getvalue().splitlines()]
+    assert [(line["event"], line.get("job")) for line in lines if line["event"].startswith("jobs_")] == [
+        ("jobs_pass_failed", "price changes"), ("jobs_working_again", "price changes")]
+
+
 # -- a notice market ---------------------------------------------------------------------
 
 async def test_in_italy_a_notice_applies_the_price_unless_the_listener_leaves(world):
