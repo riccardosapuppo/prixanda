@@ -18,12 +18,15 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { buildEngineAssets } from "../packages/sandbox/src/engine/build/assets.ts";
 import { flyway } from "./lib/flyway.ts";
 import { measure } from "./lib/measure.ts";
 import { dataDir, migrationsDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
 import { assertFree } from "./lib/ports.ts";
 import { type Cluster, createDatabase, dropDatabase, startCluster } from "./lib/postgres.ts";
 import { run } from "./lib/run.ts";
+import { measureSandbox } from "./lib/sandbox-measure.ts";
+import { compare, counts as schemaCounts, describe as describeSchema, LEFT_OUT } from "./lib/schema.ts";
 
 type Outcome = "passed" | "failed" | "not run";
 type Result = { suite: string; outcome: Outcome; counted: string; detail: string; seconds: number };
@@ -388,6 +391,143 @@ const SUITES: Suite[] = [
       }
     },
   },
+  // The engine in the browser (stage 8): the files the demo's build serves at
+  // /sandbox/ (packages/sandbox/src/engine/build), made once per run into
+  // reports/sandbox-engine; the engine's tests in Node and in headless
+  // Chromium; the schema of the snapshot against the one Flyway builds; the
+  // measuring tool tried once (the numbers to quote: npm run measure:sandbox).
+  {
+    name: "sandbox-types",
+    what: "tsc over the engine's side of the sandbox: what the browser runs with a browser's types and none of Node's, the build and its tests with Node's",
+    needsDatabase: false,
+    async run() {
+      const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+      if (!existsSync(tsc)) return notRun("typescript is not installed: npm install");
+      const counted: string[] = [];
+      for (const [config, floor, label] of [[join("src", "engine", "tsconfig.json"), SANDBOX_FLOOR.browserFiles, "in the browser"],
+        ["tsconfig.engine.json", SANDBOX_FLOOR.nodeFiles, "with Node"]] as const) {
+        const ran = await run(process.execPath, [tsc, "-p", config, "--listFiles"], { cwd: sandboxDir });
+        const ours = ran.output.split(/\r?\n/).filter((line) => line.replaceAll("\\", "/").includes("/packages/sandbox/") && line.endsWith(".ts")
+          && !line.includes("node_modules")).length;
+        counted.push(`${ours} ${label}`);
+        if (ran.code !== 0) return failed(counted.join(", "), ran.output.split(/\r?\n/).filter((line) => /error TS\d+/.test(line)).slice(0, 8).join("\n") || ran.output.slice(0, 2000));
+        if (ours < floor) return failed(counted.join(", "), `${config}: fewer than ${floor} files checked`);
+      }
+      return passed(counted.join(", "));
+    },
+  },
+  {
+    name: "sandbox-build",
+    what: "the engine's files for the browser: Pyodide and its two wheels checked by the lock, PGlite, the commerce package without grpc or asyncpg, the migrations, the snapshot of the small data, read back by the build",
+    needsDatabase: false,
+    async run() {
+      const built = await sandboxAssets();
+      const files = Object.keys(built.files).length;
+      const bytes = Object.values(built.files).reduce((sum, n) => sum + n, 0);
+      const snapshot = built.files[`engine/${built.manifest.snapshot}`] ?? 0;
+      const migrations = (await readdir(migrationsDir)).filter((name) => /^V\d+__\w+\.sql$/.test(name)).length;
+      const counted = `${files} files, ${(bytes / 1e6).toFixed(1)} MB; snapshot ${(snapshot / 1e6).toFixed(1)} MB, `
+        + `${built.snapshot.counts["subscribers"] ?? 0} subscribers; ${built.engineFiles.length} modules of commerce`;
+      if (files < SANDBOX_FLOOR.files) return failed(counted, `fewer than ${SANDBOX_FLOOR.files} files`);
+      if (built.engineFiles.length < SANDBOX_FLOOR.modules) return failed(counted, `fewer than ${SANDBOX_FLOOR.modules} modules in the package`);
+      if (built.snapshot.applied.length !== migrations) return failed(counted, `the snapshot applied ${built.snapshot.applied.length} of ${migrations} migrations`);
+      if ((built.snapshot.counts["subscribers"] ?? 0) < FLOOR.generatedSubscribers) return failed(counted, "the snapshot holds fewer subscribers than the small size");
+      return passed(counted, `${built.snapshot.walDropped} WAL segments left out; built in ${(built.snapshot.ms / 1000).toFixed(1)} s`);
+    },
+  },
+  {
+    name: "sandbox-schema",
+    what: "the schema in the browser's snapshot equals the one Flyway builds on PostgreSQL 18, the migrations' history and checksums included; a change is found; the data has the server generator's fingerprint",
+    needsDatabase: true,
+    async run({ cluster }) {
+      if (!cluster) return notRun("no database");
+      if (!existsSync(venvPython)) return notRun("no Python environment: npm run setup");
+      const built = await sandboxAssets();
+      const server = await describeSchema((sql) => cluster.sql(TEMPLATE, sql));
+      const { PGlite } = await import("@electric-sql/pglite");
+      const { btree_gist } = await import("@electric-sql/pglite/contrib/btree_gist");
+      const snapshot = await readFile(join(built.outDir, "engine", built.manifest.snapshot));
+      const lite = await PGlite.create({ loadDataDir: new Blob([new Uint8Array(snapshot)]), extensions: { btree_gist } });
+      let browser: Awaited<ReturnType<typeof describeSchema>>;
+      let found: number;
+      try {
+        const query = async (sql: string) => (await lite.query<Record<string, unknown>>(sql)).rows;
+        browser = await describeSchema(query);
+        // A comparison that cannot fail checks nothing: a grant taken back in PGlite must show.
+        await lite.exec("revoke select on market from commerce_app");
+        found = compare(server, await describeSchema(query)).length;
+      } finally {
+        await lite.close();
+      }
+      const differences = compare(server, browser);
+      const n = schemaCounts(server);
+      // The same small data: the server's generator into PostgreSQL 18, against the snapshot's fingerprint.
+      const database = "commerce_sandbox";
+      await dropDatabase(cluster, database);
+      await createDatabase(cluster, database, TEMPLATE);
+      let fingerprint = "";
+      try {
+        const commerce = join(repoRoot, "services", "commerce");
+        const env = { ...process.env, PYTHONPATH: join(commerce, "src") };
+        const url = cluster.url(database, "owner");
+        const generated = await run(venvPython, ["-m", "commerce.generate", "--url", url, "--size", "small", "--seed", "7"], { cwd: commerce, env });
+        if (generated.code !== 0) return failed("-", generated.output.slice(-3000));
+        fingerprint = (await run(venvPython, ["-m", "commerce.generate", "--url", url, "--fingerprint"], { cwd: commerce, env })).output.trim();
+      } finally {
+        await dropDatabase(cluster, database);
+      }
+      const counted = `${n["relations"]} relations, ${n["columns"]} columns, ${n["constraints"]} constraints, ${n["indexes"]} indexes, `
+        + `${n["triggers"]} triggers, ${n["functions"]} functions, ${n["history"]} migrations: ${differences.length} parts differ; `
+        + `data ${fingerprint === built.manifest.fingerprint ? "the same" : "different"}`;
+      if (differences.length) {
+        return failed(counted, differences.map((d) => `${d.part}: server ${d.onlyLeft.slice(0, 2).join(" ; ")} / PGlite ${d.onlyRight.slice(0, 2).join(" ; ")}`).join("\n"));
+      }
+      if (found === 0) return failed(counted, "a grant taken back in PGlite went unseen: the comparison checks nothing");
+      if (fingerprint !== built.manifest.fingerprint) return failed(counted, `the server's data ${fingerprint}, the snapshot's ${built.manifest.fingerprint}`);
+      const short = Object.entries(SANDBOX_FLOOR.schema).filter(([part, floor]) => (n[part] ?? 0) < floor);
+      if (short.length) return failed(counted, short.map(([part, floor]) => `${part}: fewer than ${floor}`).join("; "));
+      return passed(counted, `left out: ${LEFT_OUT.join("; ")}`);
+    },
+  },
+  {
+    name: "sandbox-node",
+    what: "the engine in Pyodide on PGlite in Node, behind the contract's bytes: gRPC's codes, a campaign from draft to subscription through a simulated fault, the skip to the next launch, idempotency, the clock, the reset",
+    needsDatabase: false,
+    async run() {
+      const built = await sandboxAssets();
+      return nodeTests("sandbox-node", ["test/engine/engine.test.ts"], SANDBOX_FLOOR.nodeTests, { SANDBOX_ENGINE_ASSETS: built.outDir }, sandboxDir);
+    },
+  },
+  {
+    name: "sandbox-browser",
+    what: "the engine in headless Chromium: a SharedWorker with every file from the page's origin, data kept when every tab closed, two tabs on one engine, the reset, a dedicated worker, no error in the console",
+    needsDatabase: false,
+    async run() {
+      if (!(await chromiumInstalled())) return notRun("Playwright's Chromium is not installed (npx playwright install chromium: a download)");
+      const built = await sandboxAssets();
+      await assertFree(PORTS.sandbox, "the browser's tests' static server");
+      return nodeTests("sandbox-browser", ["test/engine/browser.test.ts"], SANDBOX_FLOOR.browserTests,
+        { SANDBOX_ENGINE_ASSETS: built.outDir, SANDBOX_HARNESS_PORT: String(PORTS.sandbox) }, sandboxDir);
+    },
+  },
+  {
+    name: "sandbox-measure",
+    what: "the measuring tool of the engine in the browser, tried once: a first visit, a call, a second tab, a later visit, the memory",
+    needsDatabase: false,
+    async run() {
+      if (!(await chromiumInstalled())) return notRun("Playwright's Chromium is not installed (npx playwright install chromium: a download)");
+      const built = await sandboxAssets();
+      await assertFree(PORTS.sandbox, "the measurements' static server");
+      const report = await measureSandbox({ runs: 1, port: PORTS.sandbox, mbps: 0, latencyMs: 0, assets: built.outDir });
+      const first = report.first_visit;
+      const counted = `ready in ${(first.median_ready_ms / 1000).toFixed(1)} s, ${(first.median_downloaded_bytes / 1e6).toFixed(1)} MB; `
+        + `a later visit ${(report.later_visit.median_ready_ms / 1000).toFixed(1)} s`;
+      if (!(first.median_downloaded_bytes > 0) || !(first.median_ready_ms > 0) || report.memory.browser_mb_two_tabs === null) {
+        return failed(counted, "the report misses a number");
+      }
+      return passed(counted, "a loaded machine's numbers: quote those of npm run measure:sandbox on a quiet one");
+    },
+  },
 ];
 
 // pytest's JUnit report: the totals of its test suites.
@@ -404,6 +544,23 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
   return totals;
 }
 
+// The sandbox's engine (stage 8): what its suites must at least have checked.
+const sandboxDir = join(repoRoot, "packages", "sandbox");
+const SANDBOX_FLOOR = {
+  browserFiles: 7, nodeFiles: 19, files: 23, modules: 53, nodeTests: 8, browserTests: 6,
+  schema: { relations: 255, columns: 488, constraints: 911, indexes: 163, triggers: 86, functions: 26, history: 17 } as Record<string, number>,
+};
+let sandboxBuilt: ReturnType<typeof buildEngineAssets> | null = null;
+/** The engine's files, built once per run, the first time a suite needs them. */
+function sandboxAssets(): ReturnType<typeof buildEngineAssets> {
+  sandboxBuilt ??= buildEngineAssets(join(reports, "sandbox-engine"));
+  return sandboxBuilt;
+}
+async function chromiumInstalled(): Promise<boolean> {
+  const { chromium } = await import("playwright");
+  return existsSync(chromium.executablePath());
+}
+
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
@@ -415,12 +572,12 @@ const GATEWAY_FLOOR = {
  * time (they share the fake engine's and the gateway's ports), counting the test cases
  * of its JUnit report: a file that failed to load is a failure there too.
  */
-async function nodeTests(suite: string, files: string[], floor: number, env: Record<string, string> = {}): Promise<Omit<Result, "suite" | "seconds">> {
+async function nodeTests(suite: string, files: string[], floor: number, env: Record<string, string> = {}, cwd = gatewayDir): Promise<Omit<Result, "suite" | "seconds">> {
   if (files.length === 0) return failed("0", "no test file found");
   const report = join(reports, `${suite}.xml`);
   await rm(report, { force: true });
   const ran = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=junit", `--test-reporter-destination=${report}`,
-    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd: gatewayDir, echo: true, env: { ...process.env, ...env } });
+    "--test-reporter=dot", "--test-reporter-destination=stdout", ...files], { cwd, echo: true, env: { ...process.env, ...env } });
   if (!existsSync(report)) return failed("0", `node --test wrote no report (exit ${ran.code})`);
   const xml = await readFile(report, "utf8");
   const tests = [...xml.matchAll(/<testcase\b/g)].length;
@@ -448,7 +605,7 @@ function junitAreas(xml: string): Record<string, number> {
 
 const args = process.argv.slice(2);
 if (args.includes("--list")) {
-  for (const suite of SUITES) console.log(`${suite.name.padEnd(12)} ${suite.what}`);
+  for (const suite of SUITES) console.log(`${suite.name.padEnd(16)} ${suite.what}`);
   process.exit(0);
 }
 const onlyAt = args.indexOf("--only");
@@ -492,11 +649,11 @@ try {
 
 console.log("");
 for (const result of results) {
-  console.log(`${result.outcome.toUpperCase().padEnd(8)} ${result.suite.padEnd(12)} ${result.counted.padEnd(40)} ${result.seconds}s`);
+  console.log(`${result.outcome.toUpperCase().padEnd(8)} ${result.suite.padEnd(16)} ${result.counted.padEnd(40)} ${result.seconds}s`);
   if (result.detail && result.outcome !== "passed") console.log(`         ${result.detail.split("\n").join("\n         ")}`);
 }
 const missing = selected.filter((suite) => !results.some((result) => result.suite === suite.name));
-for (const suite of missing) console.log(`NOT RUN  ${suite.name.padEnd(12)} (an earlier suite failed)`);
+for (const suite of missing) console.log(`NOT RUN  ${suite.name.padEnd(16)} (an earlier suite failed)`);
 const anyFailed = results.some((result) => result.outcome === "failed");
 const anyNotRun = missing.length > 0 || results.some((result) => result.outcome === "not run");
 console.log(`\n[check] ${anyFailed ? "FAILED" : anyNotRun ? "INCOMPLETE: some suites did not run here" : "all suites passed"}`
