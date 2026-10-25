@@ -6,7 +6,7 @@
 // the steps, times them, and writes the machine and the conditions beside
 // the numbers, in reports/measure.json. It states numbers; it judges none.
 import { cpus, arch, platform, release, totalmem } from "node:os";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { flyway } from "./flyway.ts";
 import { commerceDir, migrationsDir, repoRoot, venvPython } from "./paths.ts";
@@ -72,6 +72,8 @@ export async function measure(cluster: Cluster, options: MeasureOptions): Promis
   const target = { port: cluster.port, database, user: cluster.owner.user, password: cluster.owner.password };
   const before = join(reports, "measure-before.json");
   const after = join(reports, "measure-after.json");
+  // A fresh clone has no reports/ yet, and the Python steps write into it.
+  await mkdir(reports, { recursive: true });
   await Promise.all([rm(before, { force: true }), rm(after, { force: true })]);
   await dropDatabase(cluster, database);
   await createDatabase(cluster, database);
