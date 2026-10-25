@@ -154,7 +154,31 @@ service tests on PGlite (`tests/pglite_world.py`).
 `npm run measure` measures the queries of §14.2 on the full data, on a
 PostgreSQL of its own on 127.0.0.1:4650 (`MEASURE_POSTGRES_PORT`), and writes
 the machine and the conditions beside the numbers in `reports/measure.json`.
-⟨The numbers, measured on a machine doing nothing else.⟩
+Measured on 25 October 2026 with `npm run measure -- --listening-days 120`:
+an Intel Core i7-10700 (8 logical processors) with 12 GB of memory, Windows
+10 Pro, Node.js 24.19 and PostgreSQL 18.4 with its usual settings
+(shared_buffers 160 MB, work_mem 4 MB); each query ran once to warm the
+cache, then five times, and the median run is given. The machine ran nothing
+else but a Windows service (PcaSvc) that kept one of the eight logical
+processors busy: 14.6% of the processor in use and 3.8 GB of memory free
+before the run. The data: 480,006 subscribers, 694,518 subscriptions,
+35,039,154 days of listening over 120 days, and 1,000,000 audit events; the
+database held 3.5 GB before V16 and 8.4 GB after it, the weekly sums adding
+31.7 million rows.
+
+| Query | Before V16 | After |
+|---|---|---|
+| the release campaign's audience (`fan_audience`) | 12,151 ms | 2,035 ms |
+| the same rule over the most played artist (`popular_audience`) | 5,913 ms | 5,760 ms |
+| one listener in that audience, as a quote asks (`fan_quote`) | 0.09 ms | 0.12 ms |
+| the newest page of the audit log | 0.08 ms | 0.10 ms |
+| a page halfway through it, by keyset | 0.09 ms | 0.08 ms |
+| the newest page of one action | 7.84 ms | 0.09 ms |
+| the newest page of one subject | 117.68 ms | 0.02 ms |
+
+Each query gave the same answer before and after. Generating the data took
+14 min 43 s (13 min 19 s of it the listening), applying V16 and V17 to it
+76 min 29 s, and the whole run 1 h 37 min.
 
 ## In the browser
 
