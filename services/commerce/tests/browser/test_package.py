@@ -230,6 +230,11 @@ def test_a_pass_says_what_the_tabs_read_again_in_the_five_words(events, words):
     assert set(words) <= set(sandbox.CHANGES)
 
 
+def test_the_story_starts_at_half_past_eight_in_rome_on_the_morning_after_the_data():
+    assert snapshot.story_start(date(2026, 10, 24)) == datetime(2026, 10, 25, 7, 30, tzinfo=UTC)  # the clocks went back
+    assert snapshot.story_start(date(2026, 6, 30)) == datetime(2026, 7, 1, 6, 30, tzinfo=UTC)
+
+
 def test_the_build_writes_csv_postgresql_reads_back():
     rows = snapshot.csv_rows([(1, None, "", 'say "hi"', True, date(2026, 10, 25), b"\x00\x01", Decimal("2.50"))])
     assert rows == '1,,"","say ""hi""",t,2026-10-25,\\x0001,2.50\n'

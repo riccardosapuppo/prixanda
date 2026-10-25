@@ -8,8 +8,8 @@
 // The session: the migrations and the demo's own state run as the owner
 // (postgres); then the session takes the engine's role, commerce, a member of
 // commerce_app, and the time zone of the server's pool, UTC. The demo's own
-// state (the clock's offset) is in a schema of its own, demo, outside the
-// product's migrations: the schema check leaves it out, and says so.
+// state (its clock's time, clock.ts) is in a schema of its own, demo, outside
+// the product's migrations: the schema check leaves it out, and says so.
 //
 // The bridge the Python engine calls (browser/pglite.py): one transaction at
 // a time, held open between its statements; each statement's result goes
@@ -36,12 +36,13 @@ end $$`;
 
 const DEMO_SCHEMA = `
 create schema if not exists demo;
-comment on schema demo is 'The browser demo''s own state, outside the product''s migrations: its clock''s offset.';
+comment on schema demo is 'The browser demo''s own state, outside the product''s migrations: its clock''s time.';
 create table if not exists demo.clock (
   id boolean primary key default true check (id),
-  offset_ms bigint not null default 0,
+  now_at timestamptz not null default now(),
   moved_at timestamptz
 );
+comment on column demo.clock.now_at is 'The demo''s time, last saved: the start of the story in the snapshot, then each jump forward.';
 insert into demo.clock (id) values (true) on conflict do nothing;`;
 
 type ErrorReply = { error: { sqlstate: string | null; message: string; constraint: string | null } };
@@ -199,8 +200,8 @@ export type Opened = {
   /** The data came from the build's snapshot now: a first visit, or a reset. */
   readonly loaded: boolean;
   readonly migrated: Migrated;
-  /** The demo clock's offset, as last saved. */
-  readonly offsetMs: number;
+  /** The demo's time, as last saved: the start of the story, or its last jump (clock.ts). */
+  readonly clockMs: number;
   /** The instant of the audit log's latest event, in milliseconds: the demo's clock never starts behind it. */
   readonly latestEventMs: number;
   /** The first saving of the data opened, which nothing waits for but the first write. */
@@ -234,7 +235,8 @@ export async function openDatabase(options: OpenOptions): Promise<Opened> {
     const clock = await pg.transaction(async (tx) => {
       await tx.exec(DEMO_SCHEMA);
       const read = await tx.query<[string, string, string]>(
-        "select offset_ms::text, coalesce((select (extract(epoch from max(at)) * 1000)::bigint from audit_event), 0)::text, "
+        "select (extract(epoch from now_at) * 1000)::bigint::text, "
+        + "coalesce((select (extract(epoch from max(at)) * 1000)::bigint from audit_event), 0)::text, "
         + "current_setting('server_version') from demo.clock", [], { rowMode: "array" });
       // The session the engine works in, kept when the transaction commits: the server pool's time zone, its role.
       await tx.exec("set time zone 'UTC'; set role commerce");
@@ -243,8 +245,8 @@ export async function openDatabase(options: OpenOptions): Promise<Opened> {
     const session = new Session(pg);
     const saved = session.save();
     saved.then(() => options.mark?.("saved in this browser"), () => {});
-    const [offset, latest, postgres] = clock.rows[0] ?? ["0", "0", ""];
-    return { session, loaded, migrated, offsetMs: Number(offset), latestEventMs: Number(latest), saved, postgres };
+    const [now, latest, postgres] = clock.rows[0] ?? ["0", "0", ""];
+    return { session, loaded, migrated, clockMs: Number(now), latestEventMs: Number(latest), saved, postgres };
   } catch (error) {
     await pg.close().catch(() => {});
     throw error;

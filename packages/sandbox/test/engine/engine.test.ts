@@ -45,6 +45,9 @@ test("the engine starts on the build's snapshot, with the versions it was built 
   assert.equal(on.engine.info.versions.python, "3.13.2");
   assert.equal(on.engine.info.versions.protobuf, "6.31.1");
   assert.match(on.engine.info.versions.postgres, /^18\./);
+  // The time of the story, not the machine's: 08:30 in Rome on the morning after the data's last day.
+  assert.equal(on.manifest.story, "2026-10-25T07:30:00Z");
+  assert.ok(Math.abs(on.engine.clock.now().getTime() - Date.parse(on.manifest.story)) < 60_000, on.engine.clock.now().toISOString());
   const markets = await rpc(on, CatalogService.method.listMarkets, {});
   assert.deepEqual(markets.markets.map((m) => m.code).sort(), ["DE", "FR", "GB", "IT"]);
   const listeners = await rpc(on, SubscriberService.method.listDemoListeners, {});
@@ -255,7 +258,7 @@ test("reset goes back to the build's snapshot", async () => {
   await on.engine.reset();
   const listed = await rpc(on, ChangeService.method.listChanges, {}, MARKETING);
   assert.equal(listed.changes.length, 0);
-  assert.ok(Math.abs(on.engine.clock.now().getTime() - Date.now()) < 60_000, "the clock is the machine's again");
+  assert.ok(Math.abs(on.engine.clock.now().getTime() - Date.parse(on.manifest.story)) < 60_000, "the clock is back at the story's start");
   assert.equal(on.engine.faults.armed(), null);
   assert.equal(await on.engine.clock.nextDue(), null);
 });

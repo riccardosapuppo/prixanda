@@ -26,6 +26,8 @@ export type Snapshot = {
   readonly data: Buffer;
   /** commerce.generate's fingerprint of the rows it wrote: the schema check compares it with the server's. */
   readonly fingerprint: string;
+  /** The start of the story on the demo's clock (commerce.browser.snapshot), ISO 8601 with Z. */
+  readonly story: string;
   readonly counts: Readonly<Record<string, number>>;
   readonly applied: readonly string[];
   readonly walDropped: number;
@@ -60,7 +62,7 @@ export async function buildSnapshot(input: {
   });
   let data: Buffer;
   let walDropped: number;
-  let summary: { fingerprint: string; counts: Record<string, number> };
+  let summary: { fingerprint: string; counts: Record<string, number>; story: string };
   const pyodide = await python;
   const module = pyodide.pyimport("commerce.browser.snapshot") as unknown as SnapshotModule;
   try {
@@ -96,6 +98,7 @@ export async function buildSnapshot(input: {
   return {
     data,
     fingerprint: summary.fingerprint,
+    story: summary.story,
     counts: summary.counts,
     applied: db.migrated.applied,
     walDropped,

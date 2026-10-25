@@ -12,8 +12,9 @@
 // again from the build's data, and says so in the progress.
 //
 // What is simulated, and says so: the payment provider and the student
-// verification (as on the server, §15), the demo's clock, which a visitor can
-// move forward, and the fault that can be armed on a step of the next launch
+// verification (as on the server, §15), the demo's clock, which keeps the
+// time of the story whatever the day (clock.ts) and which a visitor can move
+// forward, and the fault that can be armed on a step of the next launch
 // (browser/sandbox.py): the step does its work, then fails before it commits,
 // and the launch's own code recovers. The faults of the full system are
 // injected by its tests, which stop the engine's process (tests/faults).
@@ -48,7 +49,8 @@ export type BrowserEngine = {
   tick(): Promise<{ readonly ran: number; readonly changed: readonly Changed[] }>;
   readonly clock: {
     now(): Date;
-    /** Moves the demo's clock forward to that instant; an instant not after its now leaves it where it is. */
+    /** Moves the demo's clock forward to that instant; an instant not after its now leaves it where it is. The jump is
+     * saved in the background: the next tick waits for it, and so does the skip to the next launch before it answers. */
     advanceTo(instant: Date): void;
     /** When a launch is next due: a scheduled change's start less the minute ahead, or the next attempt of a launch
      * under way; it can be already past when no tick ran since. null when no launch waits for a moment. */
@@ -238,10 +240,10 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
   say("Starting the engine");
   const module = pyodide.pyimport("commerce.browser.sandbox") as unknown as { Sandbox: (...args: unknown[]) => PySandbox };
   const Sandbox = module.Sandbox;
-  const save = (session: Session) => (offsetMs: number) => session.asOwner(async (tx) => {
-    await tx.query("update demo.clock set offset_ms = $1, moved_at = now()", [offsetMs]);
+  const save = (session: Session) => (instantMs: number) => session.asOwner(async (tx) => {
+    await tx.query("update demo.clock set now_at = to_timestamp($1::bigint / 1000.0), moved_at = now()", [instantMs]);
   });
-  const startClock = (opened: Opened) => new DemoClock(Math.max(opened.offsetMs, opened.latestEventMs - Date.now(), 0), save(opened.session));
+  const startClock = (opened: Opened) => new DemoClock(Math.max(opened.clockMs, opened.latestEventMs), save(opened.session));
   let clock = startClock(db);
   const sandboxOn = (opened: Opened) => Sandbox(opened.session, () => clock.nowMs(), deps.token, log);
   let sandbox = sandboxOn(db);
@@ -282,7 +284,8 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
       }
     }),
     tick: () => {
-      const pass = ticking.then(() => gate.shared(async () => JSON.parse(await sandbox.tick()) as { ran: number; changed: Changed[] }));
+      // The clock's last jump saved first: what a pass does at the new time is never kept without the time itself.
+      const pass = ticking.then(() => clock.saved()).then(() => gate.shared(async () => JSON.parse(await sandbox.tick()) as { ran: number; changed: Changed[] }));
       ticking = pass.catch(() => {});
       return pass;
     },
@@ -316,6 +319,7 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
         clock.advanceTo(new Date(first.starts));
         await pass();
       }
+      await clock.saved();
       return { from, to: clock.now(), changed: CHANGES.filter((word) => changed.has(word)) };
     },
     faults: {

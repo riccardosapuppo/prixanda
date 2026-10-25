@@ -8,7 +8,7 @@
 // one engine for every tab, the reset, the fallback on a dedicated worker,
 // and a console with no error.
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -114,6 +114,8 @@ test("a first visit loads Pyodide, PGlite and the snapshot from the page's own o
     assert.deepEqual(started.info.applied, []);
     assert.deepEqual([started.info.versions["python"], started.info.versions["protobuf"]], ["3.13.2", "6.31.1"]);
     assert.match(started.info.versions["postgres"] ?? "", /^18\./);
+    const story = JSON.parse(await readFile(join(assetsDir(), "engine", "manifest.json"), "utf8")).story as string;
+    assert.ok(Math.abs(Date.parse(await harness<string>(tab, "now")) - Date.parse(story)) < 60_000, "the story's time, whatever the day");
     const markets = await rpc(tab, CatalogService.method.listMarkets, {});
     assert.equal(markets.markets.length, 4);
     const paths = Object.keys(served.bytes().paths);
@@ -131,10 +133,16 @@ test("the data stays in the browser: a tab opened after the last one closed find
     const first = await open(context, "?db=engine-harness-kept");
     const before = await harness<Info>(first, "info");
     const id = await scheduledOffer(first, "IT", "Student Autumn Pass");
+    // The clock moved on in the story; with no tab open, it stands still, whatever the machine's clock does.
+    const jumped = Date.parse(await harness<string>(first, "now")) + 2 * 86_400_000;
+    await harness(first, "advanceTo", new Date(jumped).toISOString());
+    await harness(first, "tick"); // as the demo's worker ticks after each command
     await closeAll(context);
     const again = await open(context, "?db=engine-harness-kept");
     const after = await harness<Info>(again, "info");
     assert.notEqual(after.workerId, before.workerId, "a new worker");
+    const resumed = Date.parse(await harness<string>(again, "now"));
+    assert.ok(resumed >= jumped && resumed < jumped + 60_000, `the clock resumed at ${new Date(resumed).toISOString()}`);
     assert.equal(after.info.loaded, false);
     assert.deepEqual(after.info.applied, []);
     const change = await rpc(again, ChangeService.method.getChange, { changeId: id }, MARKETING);
