@@ -17,7 +17,12 @@
 // SQLSTATE and constraint. PGlite writes to IndexedDB only when told to:
 // a transaction that wrote is saved before its commit answers, so a tab that
 // closes right after an answer loses nothing (PGlite's relaxedDurability
-// lost the last writes in the prototype of stage 0).
+// lost the last writes in the prototype of stage 0). The savings go one after
+// the other (Session.save), so that none answers before its data is saved.
+// The first, of the data just opened, is not waited for: the engine answers
+// meanwhile, and the first write waits for it. IndexedDB saves it in one
+// transaction, so a tab closed before it ends leaves no half of it, and
+// the next visit is a first one again (idb.ts).
 import type { Extension, PGlite, PGliteOptions, Transaction } from "@electric-sql/pglite";
 import { type Migrated, type Migration, migrate } from "./migrations.ts";
 
@@ -73,9 +78,17 @@ export class Session {
   #known = 0;
   readonly #open = new Map<number, Open>();
   #next = 1;
+  #saving: Promise<void> = Promise.resolve();
 
   constructor(pg: PGlite) {
     this.pg = pg;
+  }
+
+  /** Saves to IndexedDB what changed, after the savings asked before: it settles once all of it is saved. */
+  save(): Promise<void> {
+    const next = this.#saving.then(() => this.pg.syncToFs());
+    this.#saving = next.catch(() => {});
+    return next;
   }
 
   /** PostgreSQL's own text for every type PGlite would parse, the arrays of the migrations' types included: the engine
@@ -141,7 +154,7 @@ export class Session {
     open.finish(commit);
     try {
       await open.ended;
-      if (commit && !open.readonly) await this.pg.syncToFs();
+      if (commit && !open.readonly) await this.save();
       return "{}";
     } catch (error) {
       return errorReply(error);
@@ -154,7 +167,7 @@ export class Session {
       await tx.exec("set local role postgres");
       return work(tx);
     });
-    await this.pg.syncToFs();
+    await this.save();
     return result;
   }
 
@@ -172,10 +185,12 @@ export type OpenOptions = {
   readonly snapshot?: () => Promise<Blob>;
   readonly migrations: readonly Migration[];
   readonly progress?: (step: string) => void;
-  /** Whether the data is there already; the browser asks IndexedDB (exists below). */
+  /** Whether the data is there already; the browser asks IndexedDB (idb.ts). */
   readonly exists?: () => Promise<boolean>;
   /** How a new cluster is made: the build's (build/snapshot.ts). */
   readonly cluster?: Pick<PGliteOptions, "initDbStartParams">;
+  /** The moments of the opening, for the measurements (index.ts, info.steps): not progress a tab shows. */
+  readonly mark?: (moment: string) => void;
 };
 
 export type Opened = {
@@ -187,30 +202,9 @@ export type Opened = {
   readonly offsetMs: number;
   /** The instant of the audit log's latest event, in milliseconds: the demo's clock never starts behind it. */
   readonly latestEventMs: number;
+  /** The first saving of the data opened, which nothing waits for but the first write. */
+  readonly saved: Promise<void>;
 };
-
-/** The name IndexedDB holds a PGlite database under: Emscripten's IDBFS names it after its mount point, /pglite/<name>. */
-export function indexedDbName(dataDir: string): string {
-  if (!dataDir.startsWith("idb://")) throw new Error(`not a database of IndexedDB: ${dataDir}`);
-  return `/pglite/${dataDir.slice("idb://".length)}`;
-}
-
-export async function existsInIndexedDb(dataDir: string): Promise<boolean> {
-  if (typeof indexedDB === "undefined" || typeof indexedDB.databases !== "function") {
-    throw new Error("this browser cannot list its IndexedDB databases, which the demo needs to find its data");
-  }
-  const name = indexedDbName(dataDir);
-  return (await indexedDB.databases()).some((database) => database.name === name);
-}
-
-export async function deleteFromIndexedDb(dataDir: string): Promise<void> {
-  const name = indexedDbName(dataDir);
-  await new Promise<void>((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(name);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error ?? new Error(`IndexedDB did not delete ${name}`));
-  });
-}
 
 /** Opens the database, from IndexedDB or from the build's snapshot, applies the migrations missing, and sets the session. */
 export async function openDatabase(options: OpenOptions): Promise<Opened> {
@@ -225,18 +219,29 @@ export async function openDatabase(options: OpenOptions): Promise<Opened> {
     ...options.cluster,
   };
   const pg = await options.modules.PGlite.create(create);
+  options.mark?.("database started");
   try {
     say("Applying the migrations");
-    await pg.exec(ROLES);
+    // In transactions, which PGlite does not save on their own: the data is saved once, at the end.
+    await pg.transaction(async (tx) => {
+      await tx.exec(ROLES);
+    });
     const migrated = await migrate(pg, options.migrations);
-    await pg.exec(DEMO_SCHEMA);
-    const clock = await pg.query<[string, string]>(
-      "select offset_ms::text, coalesce((select (extract(epoch from max(at)) * 1000)::bigint from audit_event), 0)::text "
-      + "from demo.clock", [], { rowMode: "array" });
-    await pg.syncToFs();
-    await pg.exec("set time zone 'UTC'; set role commerce");
+    options.mark?.("migrations checked");
+    const clock = await pg.transaction(async (tx) => {
+      await tx.exec(DEMO_SCHEMA);
+      const read = await tx.query<[string, string]>(
+        "select offset_ms::text, coalesce((select (extract(epoch from max(at)) * 1000)::bigint from audit_event), 0)::text "
+        + "from demo.clock", [], { rowMode: "array" });
+      // The session the engine works in, kept when the transaction commits: the server pool's time zone, its role.
+      await tx.exec("set time zone 'UTC'; set role commerce");
+      return read;
+    });
+    const session = new Session(pg);
+    const saved = session.save();
+    saved.then(() => options.mark?.("saved in this browser"), () => {});
     const [offsetMs, latestEventMs] = (clock.rows[0] ?? ["0", "0"]).map(Number) as [number, number];
-    return { session: new Session(pg), loaded, migrated, offsetMs, latestEventMs };
+    return { session, loaded, migrated, offsetMs, latestEventMs, saved };
   } catch (error) {
     await pg.close().catch(() => {});
     throw error;

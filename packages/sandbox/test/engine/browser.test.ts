@@ -188,6 +188,30 @@ test("a reset starts again from the build's snapshot, and the next visit keeps t
   }
 });
 
+test("a first visit cut short, which left IndexedDB's database empty, is a first visit again", async () => {
+  const context = await browser.newContext();
+  try {
+    const other = await open(context, "?db=engine-harness-other");
+    // What IDBFS leaves when the tab closes before the first saving ends: its database, and no file in it.
+    await other.page.evaluate(() => new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open("/pglite/engine-harness-empty", 21);
+      request.onupgradeneeded = () => request.result.createObjectStore("FILE_DATA");
+      request.onsuccess = () => {
+        request.result.close();
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+    }));
+    const tab = await open(context, "?db=engine-harness-empty");
+    const started = await harness<Info>(tab, "info");
+    assert.equal(started.info.loaded, true);
+    assert.equal((await rpc(tab, CatalogService.method.listMarkets, {})).markets.length, 4);
+    assert.deepEqual(tab.errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
 test("where SharedWorker is missing, a dedicated worker serves the tab, with nothing red in its console", async () => {
   const context = await browser.newContext();
   try {

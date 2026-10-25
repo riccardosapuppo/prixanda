@@ -90,14 +90,12 @@ export type Migrated = { readonly applied: readonly string[]; readonly ms: numbe
 export async function migrate(pg: PGlite, migrations: readonly Migration[], installedBy = "postgres"): Promise<Migrated> {
   const started = performance.now();
   const sorted = [...migrations].sort((a, b) => compareVersions(a.version, b.version));
-  const exists = await pg.query<{ found: boolean }>("select to_regclass('public.flyway_schema_history') is not null as found");
-  if (!exists.rows[0]?.found) {
-    await pg.transaction(async (tx) => {
-      await tx.exec(HISTORY_TABLE);
-    });
-  }
-  const applied = (await pg.query<Applied>("select installed_rank, version, description, type, script, checksum, success "
-    + "from flyway_schema_history order by installed_rank")).rows;
+  const applied = await pg.transaction(async (tx) => {
+    const exists = await tx.query<{ found: boolean }>("select to_regclass('public.flyway_schema_history') is not null as found");
+    if (!exists.rows[0]?.found) await tx.exec(HISTORY_TABLE);
+    return (await tx.query<Applied>("select installed_rank, version, description, type, script, checksum, success "
+      + "from flyway_schema_history order by installed_rank")).rows;
+  });
   const refused = refusal(applied, sorted);
   if (refused) throw new MigrationRefused(refused);
   const done = new Set(applied.map((row) => row.version));

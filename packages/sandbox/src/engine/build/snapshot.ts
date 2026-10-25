@@ -55,7 +55,8 @@ export async function buildSnapshot(input: {
     modules: { PGlite, btree_gist },
     migrations: input.migrations,
     exists: async () => false,
-    cluster: { initDbStartParams: ["--wal-segsize=1"] },
+    // C, as the server's cluster (tools/lib/postgres.ts): the same order of text, and the same case of letters.
+    cluster: { initDbStartParams: ["--wal-segsize=1", "--locale=C"] },
   });
   let data: Buffer;
   let walDropped: number;
@@ -67,6 +68,11 @@ export async function buildSnapshot(input: {
     const pg = db.session.pg;
     await pg.exec("reset role");
     for (const setting of WAL_SETTINGS) await pg.exec(`alter system set ${setting}`);
+    // Only CREATE DATABASE reads the template databases, and the browser creates none: less to load and to save.
+    for (const template of ["template0", "template1"]) {
+      await pg.exec(`update pg_database set datistemplate = false where datname = '${template}'`);
+      await pg.exec(`drop database ${template}`);
+    }
     await pg.exec("vacuum full analyze");
     await pg.exec("checkpoint");
     const redo = (await pg.query<{ redo: string }>("select pg_walfile_name(redo_lsn) as redo from pg_control_checkpoint()")).rows[0]?.redo;

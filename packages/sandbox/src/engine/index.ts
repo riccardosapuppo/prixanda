@@ -21,7 +21,9 @@
 import type { Extension, PGlite } from "@electric-sql/pglite";
 import type { loadPyodide as LoadPyodide, PyodideAPI } from "pyodide";
 import { DemoClock } from "./clock.ts";
-import { deleteFromIndexedDb, existsInIndexedDb, type Opened, openDatabase, type PGliteModules, type Session } from "./database.ts";
+import { type Opened, openDatabase, type PGliteModules, type Session } from "./database.ts";
+import { deleteFromIndexedDb, existsInIndexedDb } from "./idb.ts";
+import type { Manifest } from "./manifest.ts";
 import { type Migration, MigrationRefused } from "./migrations.ts";
 import { loadPython, type PythonSource } from "./python.ts";
 
@@ -92,14 +94,7 @@ export type StartOptions = {
 /** The steps onProgress names during a start, in an order that varies: Python and the data load at the same time. */
 export const PROGRESS_STEPS = 5;
 
-/** What the build writes in engine/manifest.json (build/assets.ts). */
-export type Manifest = {
-  readonly engine: string;
-  readonly snapshot: string;
-  readonly migrations: string;
-  readonly fingerprint: string;
-  readonly build: string;
-};
+export type { Manifest } from "./manifest.ts";
 
 async function fetched(url: string): Promise<Response> {
   const response = await fetch(url);
@@ -205,8 +200,11 @@ function settle(proxy: unknown): void {
 export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
   const begun = performance.now();
   const steps: Record<string, number> = {};
+  const mark = (moment: string) => {
+    steps[moment] = Math.round(performance.now() - begun);
+  };
   const say = (step: string) => {
-    steps[step] = Math.round(performance.now() - begun);
+    mark(step);
     deps.onProgress?.(step);
   };
   const log = deps.onLog ?? ((line: string) => console.debug(line));
@@ -220,6 +218,7 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
       snapshot: deps.snapshot,
       migrations,
       progress: say,
+      mark,
       ...(deps.dataDir ? { dataDir: deps.dataDir } : {}),
     };
     if (fresh) return openDatabase({ ...options, exists: async () => false });
@@ -235,6 +234,7 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
 
   let db = await open(false);
   const pyodide: PyodideAPI = await pythonLoading;
+  mark("Python ready");
   say("Starting the engine");
   const module = pyodide.pyimport("commerce.browser.sandbox") as unknown as { Sandbox: (...args: unknown[]) => PySandbox };
   const save = (session: Session) => (offsetMs: number) => session.asOwner(async (tx) => {
@@ -244,6 +244,7 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
   let clock = startClock(db);
   const sandboxOn = (opened: Opened) => module.Sandbox(opened.session, () => clock.nowMs(), deps.token, log);
   let sandbox = sandboxOn(db);
+  mark("engine ready");
   const versions = JSON.parse(pyodide.runPython(
     "import json, sys, google.protobuf; json.dumps({'python': sys.version.split()[0], 'protobuf': google.protobuf.__version__})",
   ) as string) as { python: string; protobuf: string };
@@ -312,6 +313,7 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
     },
     reset: () => gate.exclusive(async () => {
       await clock.saved();
+      await db.saved.catch(() => {});
       await db.session.pg.close();
       if (deps.remove) await deps.remove();
       db = await open(true);
@@ -321,6 +323,7 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
     }),
     close: () => gate.exclusive(async () => {
       await clock.saved();
+      await db.saved.catch(() => {});
       settle(sandbox);
       await db.session.pg.close();
     }),

@@ -23,7 +23,7 @@ import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promi
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import type { Manifest } from "../index.ts";
+import type { Manifest } from "../manifest.ts";
 import { type Migration, parseScript } from "../migrations.ts";
 import { flywayChecksum } from "./checksum.ts";
 import { buildSnapshot, type Snapshot } from "./snapshot.ts";
