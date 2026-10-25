@@ -127,9 +127,12 @@ export type Status = {
   readonly nextDue: string | null;
   /** The step the simulated fault is armed at, for the next launch; null when none. */
   readonly armed: LaunchStep | null;
-  /** SharedWorker, or a dedicated worker for this one tab. */
+  /**
+   * SharedWorker, or a dedicated worker for this one tab. (How many tabs are
+   * open it cannot say: a browser does not tell a SharedWorker when one of
+   * its tabs closes.)
+   */
   readonly shared: boolean;
-  readonly tabs: number;
 };
 
 /**

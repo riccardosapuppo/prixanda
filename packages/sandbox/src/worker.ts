@@ -33,8 +33,9 @@ import {
 
 /**
  * A tab's end of the channel: a MessagePort of the SharedWorker, or the
- * dedicated worker's own scope. A port says "close" when its tab went away,
- * where the browser tells (Chromium does, and Node's ports in the tests).
+ * dedicated worker's own scope. A port says "close" when its tab went away
+ * where the platform tells (Node's ports do; Chromium tells a SharedWorker
+ * nothing, and a closed tab's port stays, its messages going nowhere).
  */
 export type Port = {
   postMessage(message: FromWorker): void;
@@ -142,6 +143,10 @@ export function createBackend(options: BackendOptions): Backend {
   let latest: Progress | null = null;
   let jobs: Promise<void> | null = null;
   let again = false;
+  /** The engine's tick under way, if any. */
+  let ticking: Promise<unknown> | null = null;
+  /** Set while a command runs that the jobs must not run beside (withoutJobs). */
+  let held: Promise<void> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const broadcast = (message: FromWorker) => {
@@ -199,8 +204,15 @@ export function createBackend(options: BackendOptions): Backend {
       do {
         again = false;
         const { engine } = await booting;
-        const { changed } = await engine.tick();
-        if (changed.length > 0) broadcast({ kind: "changed", what: changed });
+        while (held !== null) await held;
+        const tick = engine.tick();
+        ticking = tick;
+        try {
+          const { changed } = await tick;
+          if (changed.length > 0) broadcast({ kind: "changed", what: changed });
+        } finally {
+          ticking = null;
+        }
       } while (again);
     })().catch((error: unknown) => {
       log("error", "the engine's jobs failed", error);
@@ -208,6 +220,27 @@ export function createBackend(options: BackendOptions): Backend {
       jobs = null;
     });
     return jobs;
+  }
+
+  /**
+   * A command the jobs do not run beside: the skip to the next launch, which
+   * runs them itself, at each moment of the launch, and tells what they
+   * changed; the start over, which replaces what they run on. The tick under
+   * way ends first, and the next one waits for the command.
+   */
+  async function withoutJobs<T>(work: () => Promise<T>): Promise<T> {
+    while (held !== null) await held;
+    let release = () => {};
+    held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      await ticking?.catch(() => undefined);
+      return await work();
+    } finally {
+      held = null;
+      release();
+    }
   }
 
   async function hello(port: Port) {
@@ -250,15 +283,17 @@ export function createBackend(options: BackendOptions): Backend {
         const armed = engine.faults.armed();
         const status: Status = {
           build: options.build, now: engine.clock.now().toISOString(), nextDue: next === null ? null : next.toISOString(),
-          armed: armed === null ? null : (parseArmFault({ step: armed })?.step ?? null), shared: options.shared, tabs: tabs.size,
+          armed: armed === null ? null : (parseArmFault({ step: armed })?.step ?? null), shared: options.shared,
         };
         return [200, status];
       }
       case "reset":
-        await engine.reset();
-        gateway.reset();
-        broadcast({ kind: "reset" });
-        return [200, { now: engine.clock.now().toISOString() }];
+        return withoutJobs(async () => {
+          await engine.reset();
+          gateway.reset();
+          broadcast({ kind: "reset" });
+          return [200, { now: engine.clock.now().toISOString() }] as const;
+        });
       case "arm-fault": {
         const args = parseArmFault(request.args);
         if (args === null) return [400, { error: "arm-fault takes { step }, one of check, prepare, publish, notify and verify." }];
@@ -268,13 +303,14 @@ export function createBackend(options: BackendOptions): Backend {
       case "clear-fault":
         engine.faults.clear();
         return [200, { armed: null }];
-      case "skip-to-next-launch": {
-        const skipped = await engine.skipToNextLaunch();
-        if (skipped === null) return [409, { error: "No launch is due." }];
-        const changed: readonly Changed[] = skipped.changed;
-        if (changed.length > 0) broadcast({ kind: "changed", what: changed });
-        return [200, { from: skipped.from.toISOString(), to: skipped.to.toISOString(), changed }];
-      }
+      case "skip-to-next-launch":
+        return withoutJobs(async (): Promise<Answer> => {
+          const skipped = await engine.skipToNextLaunch();
+          if (skipped === null) return [409, { error: "No launch is due." }];
+          const changed: readonly Changed[] = skipped.changed;
+          if (changed.length > 0) broadcast({ kind: "changed", what: changed });
+          return [200, { from: skipped.from.toISOString(), to: skipped.to.toISOString(), changed }];
+        });
     }
   }
 

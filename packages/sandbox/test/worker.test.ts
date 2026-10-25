@@ -204,7 +204,7 @@ describe("the sandbox's backend", () => {
     engine.due = new Date("2026-10-26T07:59:00Z");
     assert.deepEqual(await console.command("status"), {
       status: 200,
-      json: { build: "build-0001", now: "2026-10-24T08:00:00.000Z", nextDue: "2026-10-26T07:59:00.000Z", armed: null, shared: true, tabs: 2 },
+      json: { build: "build-0001", now: "2026-10-24T08:00:00.000Z", nextDue: "2026-10-26T07:59:00.000Z", armed: null, shared: true },
     });
     assert.deepEqual(await console.command("arm-fault", { step: "publish" }), { status: 200, json: { armed: "publish" } });
     assert.equal((await console.command("status")).json.armed, "publish");
@@ -246,6 +246,30 @@ describe("the sandbox's backend", () => {
       await console.command(name, args);
       assert.ok(ended > before, `${name}: the jobs ended before its answer`);
     }
+  });
+
+  test("runs none of its own jobs while a skip runs them, nor while the demo starts over: the skip tells all they changed", async () => {
+    const engine = fakeBrowserEngine();
+    const { tab } = start(engine, { tickEveryMs: 5 });
+    const console = tab();
+    console.send({ kind: "hello", app: "console", build: "build-0001" });
+    await console.next(isReady);
+    const beside: Record<string, number> = {};
+    const slow = <T>(name: string, work: () => Promise<T>) => async (): Promise<T> => {
+      const before = engine.ticks;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      beside[name] = engine.ticks - before;
+      return work();
+    };
+    engine.skipToNextLaunch = slow("skip", engine.skipToNextLaunch.bind(engine));
+    engine.reset = slow("reset", engine.reset.bind(engine));
+    engine.skip = { from: new Date("2026-10-24T08:00:00Z"), to: new Date("2026-10-26T08:00:00Z"), changed: ["catalog", "launches"] };
+    assert.equal((await console.command("skip-to-next-launch")).status, 200);
+    assert.equal((await console.command("reset")).status, 200);
+    assert.deepEqual(beside, { skip: 0, reset: 0 });
+    const ticks = engine.ticks;
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.ok(engine.ticks > ticks, "the timer's jobs go on after them");
   });
 
   test("ignores a message of the wrong shape, and answers the next one", async () => {
@@ -309,23 +333,6 @@ describe("the sandbox's backend", () => {
     assert.equal((await second.next(isReady)).info.alreadyRunning, true);
     assert.deepEqual(second.received.filter(isProgress).map((message) => message.step), ["Loading the engine", "Opening the database", "Starting the gateway"]);
     assert.equal(starts(), 1);
-  });
-
-  test("a tab that closed is no longer counted, nor told what changed", async () => {
-    const engine = fakeBrowserEngine();
-    const { tab, backend } = start(engine);
-    const [site, console] = [tab(), tab()];
-    for (const each of [site, console]) {
-      each.send({ kind: "hello", app: each === site ? "site" : "console", build: "build-0001" });
-      await each.next(isReady);
-    }
-    assert.equal((await console.command("status")).json.tabs, 2);
-    site.close();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.equal((await console.command("status")).json.tabs, 1, "the closed port left the worker's tabs");
-    engine.nextChanges = ["catalog"];
-    await backend.runJobs();
-    assert.deepEqual((await console.next(isChanged)).what, ["catalog"]);
   });
 
   test("the data is one worker's at a time: a second worker on it waits, says so, and starts when the first one ends", async () => {
