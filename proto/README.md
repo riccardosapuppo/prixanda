@@ -70,10 +70,12 @@ local times and refusals, where the messages are.
    `CancelChange` and `SuspendChange`; `GetQuote`; `ExportHead`, which writes
    `audit.exported`; the listener's `VerifyStudent`, `ConfirmQuote`,
    `AnswerPriceChange`, `BuyPrepaidPass` and `ActivatePrepaidPass`; the
-   on-call engineer's `RetryLaunch` and `CancelLaunch`. The same key with the
+   on-call engineer's `RetryLaunch` and `CancelLaunch`. Each person has keys
+   of their own, and the site's calls share one space. The same key with the
    same request answers what it answered the first time, a refusal included;
-   the same key with another request, method or person is `INVALID_ARGUMENT`.
-   A gRPC error is not kept: the call can be made again.
+   the same key with another request, method or role is `INVALID_ARGUMENT`,
+   and while the first call runs, `ABORTED`. A gRPC error is not kept: the
+   call can be made again. A key is kept for a week after its call.
 3. `ValidateChange` that finds a blocking problem answers the refusal
    `REFUSAL_CODE_INVALID` (its facts: `blocking`, the number of problems, and
    `checks`, which ones) and keeps the report, which `GetChange` shows; a
