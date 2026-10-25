@@ -42,7 +42,7 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 14, contractFiles: 47, migrations: 17, pythonTests: 781, invariants: 17, generatedSubscribers: 5_000,
+  typecheckedFiles: 17, contractFiles: 47, migrations: 17, pythonTests: 781, invariants: 17, generatedSubscribers: 5_000,
   faultsInjected: 12, measuredQueries: 7,
 };
 // The change in two times (migrations V12 and V14): the version of the schema
