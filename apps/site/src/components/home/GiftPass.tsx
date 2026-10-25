@@ -19,7 +19,7 @@ import Link from "next/link";
 import { type CSSProperties, useRef, useState } from "react";
 import { copy } from "../../content/copy.ts";
 import {
-  type Me, type PrepaidPass, useBuyPrepaidPass, useMarkets, useMe, useMeWhileWaiting, usePlans, usePrepaidPassesEverywhere,
+  type Me, type PrepaidPass, useBuyPrepaidPass, useMarketName, useMarkets, useMe, useMeWhileWaiting, usePlans, usePrepaidPassesEverywhere,
 } from "../../data/hooks.ts";
 import { newIdempotencyKey } from "../../data/ids.ts";
 import { isSiteMarket, type SiteMarket } from "../../data/markets.ts";
@@ -28,12 +28,12 @@ import { passScene } from "../art/geometry.ts";
 import { PassDrawing } from "../art/Sails.tsx";
 import { Refusal, StepHeading, Who } from "../campaign/Checkout.tsx";
 import { Entrance } from "../listener/Entrance.tsx";
-import { Failure, Loading } from "../ui/States.tsx";
+import { Failure, Loading, Named } from "../ui/States.tsx";
 
 export function GiftPass({ market, onMarket }: { readonly market: SiteMarket; readonly onMarket: (market: SiteMarket) => void }) {
   const everywhere = usePrepaidPassesEverywhere();
-  const markets = useMarkets();
-  const nameOf = (code: string) => markets.data?.find((each) => each.code === code)?.name ?? code;
+  const marketName = useMarketName();
+  const nameOf = (code: string) => marketName(code) ?? code;
   const here = everywhere.passes.find((pass) => pass.market === market);
   const elsewhere = everywhere.passes.find((pass) => pass.market !== market && isSiteMarket(pass.market));
   const shown = here ?? elsewhere;
@@ -48,19 +48,21 @@ export function GiftPass({ market, onMarket }: { readonly market: SiteMarket; re
         {here !== undefined ? (
           <Buy key={here.id} pass={here} marketName={nameOf(here.market)} />
         ) : (
-          <div className="gift-where">
-            <p>{copy.gift.soldIn(shown.title, nameOf(shown.market), formatSitePrice(shown.price, shown.market as SiteMarket))}</p>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                onMarket(shown.market as SiteMarket);
-                requestAnimationFrame(() => document.getElementById("gift")?.scrollIntoView({ block: "start" }));
-              }}
-            >
-              {copy.gift.showMarket(nameOf(shown.market))}
-            </button>
-          </div>
+          <Named block ready={marketName(shown.market) !== null}>
+            <div className="gift-where">
+              <p>{copy.gift.soldIn(shown.title, nameOf(shown.market), formatSitePrice(shown.price, shown.market as SiteMarket))}</p>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  onMarket(shown.market as SiteMarket);
+                  requestAnimationFrame(() => document.getElementById("gift")?.scrollIntoView({ block: "start" }));
+                }}
+              >
+                {copy.gift.showMarket(nameOf(shown.market))}
+              </button>
+            </div>
+          </Named>
         )}
       </div>
       <figure className="months-fig" aria-label={copy.gift.figure(shown.months)}>

@@ -14,7 +14,8 @@ import { useSearchParams } from "next/navigation";
 import { type CSSProperties, useEffect, useState } from "react";
 import { copy } from "../../content/copy.ts";
 import { type Label, type Release, runningTime, sessionOf, slug } from "../../content/editorial.ts";
-import { useLabels, useMarkets, useReleases } from "../../data/hooks.ts";
+import { useLabels, useMarketName, useReleases } from "../../data/hooks.ts";
+import { Named } from "../ui/States.tsx";
 import { clock, nextStart, positionAt, previousStart, timeline } from "../../lib/session.ts";
 import { Cover } from "../art/Cover.tsx";
 import { TECHNIQUE } from "../art/covers.ts";
@@ -34,7 +35,7 @@ export function SessionView() {
   if (label === undefined) {
     return (
       <div className="wrap grid max-w-[44rem] justify-items-start gap-4 pt-[clamp(1.75rem,3vw,3rem)] pb-16">
-        <h1 className="display m-0">{copy.session.missing.title}</h1>
+        <h1 className="title-2 m-0">{copy.session.missing.title}</h1>
         <p className="m-0 max-w-[60ch] text-ink-2">{copy.session.missing.body}</p>
         <Link className="btn" href={BACK}>
           <Icon name="arrow-left" size={16} />
@@ -48,7 +49,7 @@ export function SessionView() {
 
 function Session({ label }: { readonly label: Label }) {
   const releases = useReleases();
-  const markets = useMarkets();
+  const marketNameOf = useMarketName();
   const session = sessionOf(label, releases.data);
   const records = session.records;
   const line = timeline(records);
@@ -68,7 +69,7 @@ function Session({ label }: { readonly label: Label }) {
   const where = positionAt(records, line, at);
   const now = records[where.index];
   if (now === undefined) return null;
-  const marketName = markets.data?.find((each) => each.code === label.country)?.name ?? label.country;
+  const marketName = marketNameOf(label.country);
   const technique = TECHNIQUE[label.name] ?? "linocut";
   const started = playing || at > 0;
   const playWords = playing ? copy.session.pause : at > 0 && at < line.total ? copy.session.playOn : copy.session.play;
@@ -105,7 +106,9 @@ function Session({ label }: { readonly label: Label }) {
         </p>
         <h1 className="display listen-title m-0">{copy.session.title(label.name)}</h1>
         <p className="listen-facts">
-          {copy.session.facts(marketName, records.length, session.tracks, runningTime(session.minutes), technique)}
+          <Named ready={marketName !== null}>
+            {copy.session.facts(marketName ?? label.country, records.length, session.tracks, runningTime(session.minutes), technique)}
+          </Named>
         </p>
         <section className="player" id="player" aria-labelledby="player-title">
           <h2 className="sr-only" id="player-title">{copy.session.player}</h2>

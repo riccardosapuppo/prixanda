@@ -7,7 +7,7 @@ import { Icon } from "design/icon";
 import Link from "next/link";
 import { copy } from "../../content/copy.ts";
 import { type Label, runningTime, sessionOf, slug } from "../../content/editorial.ts";
-import { useLabels, useMarkets, useReleases } from "../../data/hooks.ts";
+import { useLabels, useMarketName, useReleases } from "../../data/hooks.ts";
 import type { SiteMarket } from "../../data/markets.ts";
 import { Cover, Sleeves } from "../art/Cover.tsx";
 import { TECHNIQUE } from "../art/covers.ts";
@@ -18,13 +18,14 @@ const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 export function Hero({ market, changed }: { readonly market: SiteMarket; readonly changed: boolean }) {
   const labels = useLabels();
   const releases = useReleases();
-  const markets = useMarkets();
+  const marketNameOf = useMarketName();
   const label: Label | undefined = labels.data.find((each) => each.country === market) ?? labels.data[0];
   if (!label) return null;
   const session = sessionOf(label, releases.data);
   const record = session.records[0];
   if (!record) return null;
-  const marketName = markets.data?.find((each) => each.code === market)?.name ?? market;
+  // Nothing beside the label while the markets are read: never the market's code.
+  const marketName = marketNameOf(market);
   const technique = TECHNIQUE[label.name] ?? "linocut";
   const enter = changed ? " is-entering" : "";
 
@@ -39,7 +40,7 @@ export function Hero({ market, changed }: { readonly market: SiteMarket; readonl
         <div key={`record-${market}`} className={`hero-record${enter}`}>
           <p className="hero-label">
             <a href={`#label-${slug(label.name)}`}>{label.name}</a>
-            <span>{marketName}</span>
+            {marketName !== null ? <span>{marketName}</span> : null}
           </p>
           <p className="hero-rec">
             <b>{record.artist}</b>

@@ -19,6 +19,18 @@ export function Loading({ label = copy.states.loading, children }: { readonly la
   );
 }
 
+/**
+ * Words that wait for a name the API gives, a market's or a plan's: until it
+ * comes they keep their place, unseen and unread, so no code stands in for
+ * the name and nothing moves when it arrives. `block` for a part of the page
+ * rather than words in a line.
+ */
+export function Named({ ready, block = false, children }: { readonly ready: boolean; readonly block?: boolean; readonly children: ReactNode }) {
+  if (ready) return <>{children}</>;
+  const Tag = block ? "div" : "span";
+  return <Tag className="invisible" aria-hidden="true">{children}</Tag>;
+}
+
 export function errorSentence(error: unknown): string {
   const code: ErrorCopyKey = error instanceof ApiError ? error.code : "INTERNAL";
   return copy.errors[code];

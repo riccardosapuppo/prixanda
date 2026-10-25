@@ -164,6 +164,11 @@ code typed in the wrong shape is said at once and never sent.
   operation against `services/gateway/schema/public.graphql` and generates
   `src/graphql/generated.ts`: each operation's text with its result and
   variables types. A page can read only what its operation asked for.
+- **A name, never its code.** A market's and a plan's names come from the
+  API with the markets and the plans. Until they come, the words that need
+  one keep their place unseen (`Named`, `src/components/ui/States.tsx`), and
+  a name standing alone is left out: no page writes GB for the United
+  Kingdom, or student for Student, not even for a moment.
 - **The price is the engine's.** No request carries a price. The site names
   the plan, the market and the offer, shows the quote that comes back, and
   confirms it by its id (§4.5). Money stays a string of minor units and is
@@ -274,7 +279,7 @@ npm run e2e -w site -- gift         # one of them alone: student, gift or album
 | `site-e2e` | the whole system and a headless Chromium, stage 5's journey, below | 11 tests, 9 audit events, axe on 12 pages, 30 pages fitted |
 | `site-e2e-7` | the same for stage 7: a gift pass bought and activated, a code refused while its payment is pending and activated once it settled, a reading that fails after a purchase taking nothing away, a request for consent in Germany answered, a notice in Italy, below | 11 tests, 10 audit events, axe on 10 pages, 15 pages fitted |
 | `site-e2e-fans` | the same for §14.2: the album release shown to its fan at the engine's price, and to none of the listeners outside its audience nor a visitor, below | 8 tests, 3 listeners outside, 8 audit events, axe on 6 pages, 10 pages fitted |
-| `demo` | the assembled demo served on 4651, headless Chromium with one browser and its tabs: the first start, a second tab, a campaign launched from another tab reaching the site, the data after a reload and after the worker started again, Start over in every tab, the panel about the sandbox at every width; no request leaving the address, axe | 6 tests for the site |
+| `demo` | the assembled demo served on 4651, headless Chromium with one browser and its tabs: the first start, a second tab, a campaign launched from another tab reaching the site, the data after a reload and after the worker started again, Start over in every tab, the panel about the sandbox at every width, a browser that cannot run the demo told so; no request leaving the address, axe | 7 tests for the site |
 
 `site-e2e` starts the engine on a clock the test moves, the gateway and the
 site's build, launches the Student Autumn Pass through the console's API
@@ -301,7 +306,12 @@ session, the account and an address that leads nowhere are loaded at 1440,
 or cut off a line of text. At 390 and 320 the browser is a phone's, with a
 touch screen: every control is at least 44 px for a finger, and the menu
 opens without moving the header's first line. The record playing in a
-session's running order stays in line with the others at every width. axe
+session's running order stays in line with the others at every width, the
+account and the page of an address that leads nowhere have titles of one
+size, and "Switch listener" stands at the end of the listener's row in the
+account as in the steps. With the markets held back, the home, a session and
+the campaign write no market's code: the words that need a name wait, unseen,
+and come once the markets are read. axe
 runs on every page and state once what was entering has come to rest, since
 a colour read halfway through a fade has a contrast it does not keep (no
 serious or critical violation), and no page may ask another host for

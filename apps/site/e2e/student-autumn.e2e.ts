@@ -14,7 +14,9 @@
 //      verified by the simulated provider, and confirms the demo subscription
 //      at 2,99 € a month for 3 months, then 5,79 €; the account shows it, and
 //      its first month's payment settles with a demo receipt. The steps, open
-//      on the confirmation, fit every width as they stand.
+//      on the confirmation, fit every width as they stand, and "Switch
+//      listener" stands at the end of the listener's row there as in the
+//      account.
 //   5. A student who paid before is told the pass is not for them.
 //   6. The audit log holds every step, each with the request id that caused
 //      it: the console's for the launch, the browser's own for the student.
@@ -33,7 +35,9 @@
 //      browser is a phone's, with a touch screen: every control is at least
 //      44 px for a finger, and opening the menu moves nothing above it. The
 //      record playing in the session's running order stays in line with the
-//      others at every width.
+//      others at every width. The account and the address that leads nowhere
+//      have titles of one size. While the markets are not read, no market is
+//      written as its code: what speaks of one waits, unseen.
 //
 // Every page is checked with axe (no serious or critical violation), no page
 // may ask anything of another host, and none may log an error. Run by
@@ -139,6 +143,12 @@ async function until(check: () => Promise<boolean>, what: string, ms = 20_000): 
     assert.ok(performance.now() < end, `${what}: not within ${ms} ms`);
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+}
+
+/** How far "Switch listener" stands from the end of its row, in px: 0 at the end. */
+async function switchGap(page: Page): Promise<number> {
+  return page.getByRole("button", { name: "Switch listener" }).evaluate((button) =>
+    Math.round((button.parentElement?.getBoundingClientRect().right ?? 0) - button.getBoundingClientRect().right));
 }
 
 /** The listener of a browser's session, as the gateway answers for its cookie. */
@@ -261,6 +271,7 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     await page.getByRole("button", { name: "Enter as this listener" }).click();
 
     await page.getByRole("heading", { name: "Student check" }).waitFor();
+    assert.equal(await switchGap(page), 0, "in the steps, Switch listener stands at the end of the listener's row");
     summary.listenerId = String(siteRequests.find((seen) => seen.operation === "SiteSignIn")?.variables["listenerId"] ?? "");
     await accessible(page, "the student check");
     await page.getByRole("button", { name: "Check with the provider" }).click();
@@ -281,6 +292,8 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     await page.getByRole("heading", { level: 1, name: "Account" }).waitFor();
     await page.locator("[data-payment-state='SUCCEEDED']").waitFor({ timeout: 30_000 });
     summary.paymentMs = Math.round(performance.now() - confirmed);
+    await page.getByText("Student, Italy").waitFor();
+    assert.equal(await switchGap(page), 0, "in the account, Switch listener stands where it does in the steps");
     const account = await text(page);
     assert.match(account, /Plan\s*Student, Italy/);
     assert.match(account, /Price\s*2,99 € a month/);
@@ -464,9 +477,36 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
       { path: "/account/", ready: "h1", axe: null },
       { path: NOWHERE, ready: "h1", axe: "an address that leads nowhere" },
     ];
+    // While the markets are not read, no market is written as its code: what speaks of one waits, unseen.
+    {
+      const { context, page } = await newVisitor();
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await page.route(PUBLIC_API, async (route) => {
+        if (operationOf(route.request()) === "SiteMarkets") await held;
+        await route.fallback().catch(() => undefined);
+      });
+      const waiting = [
+        { path: "/?market=IT", ready: ".hero-record" },
+        { path: "/session/?label=coldframe-records", ready: ".player" },
+        { path: `/campaign/?market=IT&offer=${summary.changeId}`, ready: "#campaign-title" },
+      ];
+      for (const each of waiting) {
+        await page.goto(`${SITE_URL}${each.path}`);
+        await page.locator(each.ready).first().waitFor();
+        assert.doesNotMatch(await text(page), /\b(?:IT|FR|DE|GB)\b/, `${each.path}: no market's code while the markets are read`);
+      }
+      release();
+      await page.getByText(/^Students in Italy · until /).waitFor();
+      await context.close();
+    }
+
     const misfit: string[] = [];
     const small: string[] = [];
     const moved: string[] = [];
+    const titles = new Map<string, string>();
     for (const width of WIDTHS) {
       const phone = width < 600;
       const { context, page } = await newVisitor(width, phone);
@@ -478,6 +518,9 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
         summary.layoutChecks += 1;
         if (phone) for (const target of await smallTargets(page)) small.push(`${width} px, ${each.path}: ${target}`);
         if (width === 1440 && each.axe !== null) await accessible(page, each.axe);
+        if (width === 1440 && (each.path === "/account/" || each.path === NOWHERE)) {
+          titles.set(each.path, await page.locator("h1").first().evaluate((title) => getComputedStyle(title).fontSize));
+        }
         if (each.path.startsWith("/session/")) {
           // The record playing stands out on its panel, its cover in line with the others'.
           const lefts = await page.locator(".run-item .cover").evaluateAll((covers) => covers.map((cover) => Math.round(cover.getBoundingClientRect().left)));
@@ -500,6 +543,7 @@ describe("the Student Autumn Pass from its launch to a student's demo subscripti
     }
     // Each kind of problem in a list of its own, every one of them said at once.
     assert.deepEqual({ misfit, small, moved }, { misfit: [], small: [], moved: [] });
+    assert.equal(new Set(titles.values()).size, 1, `the account and the page of an address that leads nowhere have titles of one size: ${JSON.stringify([...titles])}`);
   });
 
   test("11. no page asked anything of another host, and none logged an error", () => {
