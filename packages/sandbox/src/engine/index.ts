@@ -1,9 +1,8 @@
-// The engine in the browser (stage 8, BRIEF-TAPPA-8-DEMO.md, «I punti di
-// contatto»): the same Python engine as the server's, in Pyodide, on PGlite,
-// behind the same protobuf contract. The gateway's core calls it through a
-// Connect transport over call(), as it calls the server over gRPC on Node;
-// the worker that holds it (src/worker.ts) ticks its jobs and tells the tabs
-// what changed.
+// The engine in the browser (stage 8): the same Python engine as the
+// server's, in Pyodide, on PGlite, behind the same protobuf contract. The
+// gateway's core calls it through a Connect transport over call(), as it
+// calls the server over gRPC on Node; the worker that holds it
+// (src/worker.ts) ticks its jobs and tells the tabs what changed.
 //
 // startEngine loads, at the same time, Pyodide with the engine's package and
 // the database (from IndexedDB, or the build's snapshot on a first visit),

@@ -16,8 +16,8 @@
 // back as PostgreSQL's text with each column's type, an error with its
 // SQLSTATE and constraint. PGlite writes to IndexedDB only when told to:
 // a transaction that wrote is saved before its commit answers, so a tab that
-// closes right after an answer loses nothing (PGlite's relaxedDurability
-// lost the last writes in the prototype of stage 0). The savings go one after
+// closes right after an answer loses nothing (with PGlite's relaxedDurability,
+// the last writes of a tab that closes are lost). The savings go one after
 // the other (Session.save), so that none answers before its data is saved.
 // The first, of the data just opened, is not waited for: the engine answers
 // meanwhile, and the first write waits for it. IndexedDB saves it in one
