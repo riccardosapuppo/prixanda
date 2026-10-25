@@ -12,7 +12,10 @@
 // npm run build -w sandbox) writes packages/sandbox/dist/; the site's and the
 // console's write their out/ folders, copied here. Nothing is downloaded: the
 // parts bring Pyodide, its wheels, PGlite and the fonts from the repository's
-// own files, and the server serves only what the folder holds.
+// own files, and the server serves only what the folder holds. At its root,
+// THIRD-PARTY-NOTICES.txt holds the notices of the other people's code it
+// serves (tools/licenses.ts): the build fails without it, or when something
+// the demo serves has no entry in it.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -20,11 +23,14 @@ import type { Server } from "node:http";
 import { join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serveStatic } from "../apps/site/scripts/serve.ts";
+import { unnamedInDemo, writeDemoNotices } from "./licenses.ts";
 import { repoRoot } from "./lib/paths.ts";
 import { assertFree } from "./lib/ports.ts";
 import { run } from "./lib/run.ts";
 
 export const demoDir = join(repoRoot, "dist", "demo");
+/** The notices of the third-party code the demo serves, at its root; the About panel links to it. */
+export const NOTICES_FILE = "THIRD-PARTY-NOTICES.txt";
 export const DEMO_PORT = Number(process.env["DEMO_PORT"] ?? 4651);
 export const DEMO_URL = `http://127.0.0.1:${DEMO_PORT}`;
 
@@ -100,6 +106,11 @@ export async function buildDemo({ echo = true }: { readonly echo?: boolean } = {
     if (part === undefined) continue;
     await cp(part.out, join(demoDir, part.at), { recursive: true });
   }
+  const notices = await writeDemoNotices(join(demoDir, NOTICES_FILE));
+  if (!existsSync(join(demoDir, NOTICES_FILE))) throw new Error(`the demo's build wrote no ${NOTICES_FILE}`);
+  const unnamed = unnamedInDemo(demoDir, notices.notices);
+  if (unnamed.length > 0) throw new Error(`the demo serves what ${NOTICES_FILE} does not name: ${unnamed.join("; ")}`);
+  say(`${NOTICES_FILE}: ${notices.notices.length} entries, ${notices.withoutFile.length} of them with no licence file of their own`);
   await writeFile(join(demoDir, "demo-build.json"), `${JSON.stringify({ build, builtAt: new Date().toISOString(), ms }, null, 2)}\n`);
   say(`assembled in ${demoDir}`);
   return { build, ms };
