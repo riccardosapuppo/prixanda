@@ -7,11 +7,14 @@ price migration, §8). A subscription is written with the first row of its
 history, in the same transaction (write_subscription). On a day it costs
 the latest price of its history from that day or before. An offer prices
 the first charges, as many as its months; from the charge after them, the
-list price in force when that charge's day begins (billing.py), unless a
-later price of the history took over by then; and once a price migration
-asked the subscription, the price before the migration until its new price
-took over, never the new one before (§8). A subscription without an offer
-keeps its price until a price migration moves it (§4.3).
+price its quote named for then (§4.5: the list price in force when that
+charge's day begins, as the price list stood when the offer was taken),
+unless a later price of the history took over by then; and once a price
+migration asked the subscription, the price before the migration until its
+new price took over, never the new one before (§8). A change of the price
+list reaches it only through a migration that asks or tells it: one that
+left it for later (§8.9) does not. A subscription without an offer keeps
+its price until a price migration moves it (§4.3).
 """
 
 from __future__ import annotations
@@ -71,10 +74,13 @@ async def write_free_subscription(tx: Connection, market: reference.Market, *, s
                                     billing_day=billing.billing_day_for(started_on))
 
 
-# The price after an offer of a subscription that a price migration asked: the price before the migration, until the
-# new price takes over in its history, from the day it applies, if it ever does (never inside the offer's months).
-KEPT = ("select old_price_minor from price_change_request where subscription_id = {subscription} "
-        "order by id desc limit 1")
+# The price after an offer a subscription keeps, as an expression: the price before the last price migration that
+# asked it, until the new price takes over in its history, from the day it applies, if it ever does (never inside
+# the offer's months); or else the price its quote named for then (§4.5). Null for a subscription written without a
+# quote, which pays the list price in force then (full_price).
+KEPT = ("coalesce((select r.old_price_minor from price_change_request r where r.subscription_id = {subscription} "
+        "order by r.id desc limit 1), (select q.then_price_minor from subscription k join quote q on q.id = k.quote_id "
+        "where k.id = {subscription}))")
 
 
 async def price_of(tx: Connection, subscription_id: int, day: date) -> tuple[int, date]:
@@ -104,7 +110,7 @@ async def standing(tx: Connection, market: reference.Market, *, subscription_id:
     amount, price_from = await price_of(tx, subscription_id, day)
     after = None
     if offer_months > 0:
-        kept = await tx.fetchval(KEPT.format(subscription="$1"), subscription_id)
+        kept = await tx.fetchval(f"select {KEPT.format(subscription='$1')}", subscription_id)
         after = (Money(kept, market.currency) if kept is not None else
                  await full_price(tx, market, plan_id, billing.schedule(started_on, billing_day, offer_months, day).full_price_from))
     return standing_from(Money(amount, market.currency), price_from, started_on=started_on, billing_day=billing_day,

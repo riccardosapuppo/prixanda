@@ -146,7 +146,8 @@ subscribe.
 
 §4.5 **The price is always the engine's.** A browser never sends a price.
 The site asks the engine for a quote (plan, market, offer), shows it, and
-confirms the quote by its identifier; the engine charges what it quoted. A
+confirms the quote by its identifier; the engine charges what it quoted,
+after an offer's months too: the price the quote named for then. A
 quote expires; a quote for an offer that ended is refused. The engine
 decides a confirmation at the moment it holds what it decides on: the quote
 must not have expired by then, and the offer must still be active and cost
@@ -219,7 +220,9 @@ states:
 - the price per market, as a fixed amount or a percentage off the list price
   in force, rounded to the currency's minor unit;
 - the duration: how many billing months at the offer price, and what happens
-  after (the list price in force at that time);
+  after (the list price in force at that time, as the quote names it when the
+  offer is taken, §4.5; a later rise reaches the subscriber only through a
+  price migration that asks or tells them, §8);
 - the period during which it can be taken, in each market's local time;
 - the non-combinability group: offers in the same group never stack, and a
   subscriber holds at most one of them;
@@ -508,8 +511,11 @@ months hold both back to the day the offer ends. It leaves out as well a
 subscription whose first payment is still pending: a yes or a no would write
 its future, a later price or the day it leaves with the free plan after it,
 while the provider can still decline that payment and end it the next day
-(§4.5). Such a subscription keeps the price it has, and a migration after it
-can reach it once that price applies or that payment is settled. The launch
+(§4.5). Such a subscription keeps the price it has, and after an offer's
+months the price its quote named for then, not the new list price: the
+migration did not ask or tell it, so its price does not rise. A migration
+after it can reach it once that price applies or that payment is settled,
+with notice or consent as for any other subscription. The launch
 counts the subscriptions it leaves out, and the simulation leaves them out of
 the existing subscribers and says how many.
 
