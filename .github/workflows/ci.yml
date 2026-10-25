@@ -2,7 +2,9 @@
 # once a week without a push: a check that only runs when something is pushed
 # can go stale unseen. On Linux and on Windows, because the project is built
 # on Windows and `npm test` must work on both. Each job has a time limit: a job
-# that hangs is a failure, not a wait.
+# that hangs is a failure, not a wait. From main, and only while the
+# repository is public, the demo in the browser that the checks built and
+# tried is then published on GitHub Pages (job pages).
 name: CI
 
 on:
@@ -52,6 +54,15 @@ jobs:
       - run: npx playwright install chromium
         if: runner.os == 'Windows'
       - run: npm test
+      # The demo that npm test just built and tried (its suite demo, the last:
+      # dist/demo, with the site at its root, the console under /console/ and
+      # the sandbox under /sandbox/) is the one published: kept for the pages
+      # job, from the Linux run alone, under the same condition as that job.
+      - name: Keep the demo for GitHub Pages
+        if: runner.os == 'Linux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.event.repository.private == false && github.event.repository.visibility == 'public'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/demo
       - name: Keep the reports of a failed run
         if: failure()
         uses: actions/upload-artifact@v7.0.2
@@ -61,3 +72,29 @@ jobs:
             reports/
             .data/*/server.log
           if-no-files-found: ignore
+
+  pages:
+    name: Publish the demo on GitHub Pages
+    needs: check
+    # Only from main, pushed or run by hand, and only while the repository is
+    # public: nothing of a private repository is published. Both fields are
+    # asked, and each must say so: in these expressions a missing field equals
+    # false, and must not let the publication through. The demo wants the root
+    # of its domain, its worker being /sandbox/backend.js, so Pages serves it
+    # under the custom domain set in the repository's settings (README.md).
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.event.repository.private == false && github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Only this job may write to Pages, and ask for the token it needs.
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

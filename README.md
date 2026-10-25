@@ -160,6 +160,16 @@ visit to the site has its home ready in about 5 seconds and a second tab in
 under one; the measures, with the machine and the conditions, are in
 [apps/site/README.md](apps/site/README.md).
 
+On a push to main, and when the workflow is run by hand from main, the CI
+publishes on GitHub Pages the demo its checks have just built and tried (job
+`pages` of `.github/workflows/ci.yml`), and only while the repository is
+public: nothing is published from a private repository. The demo wants the
+root of its domain, since every app of it opens its worker at
+`/sandbox/backend.js`, so on GitHub Pages it needs a custom domain rather
+than the repository's address under github.io: the owner chooses the
+subdomain, and sets it in the repository's Pages settings, when the demo is
+published.
+
 ## Layout
 
 | Folder | What |
