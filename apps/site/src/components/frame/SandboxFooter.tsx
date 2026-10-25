@@ -56,6 +56,10 @@ export function SandboxFooter() {
               <dd>{part.text}</dd>
             </div>
           ))}
+          <div>
+            <dt>{about.notices.title}</dt>
+            <dd>{about.notices.before}<a href={about.notices.href}>{about.notices.link}</a></dd>
+          </div>
         </dl>
         {asking ? (
           <div className="sandbox-confirm" role="group" aria-label={about.startOver}>

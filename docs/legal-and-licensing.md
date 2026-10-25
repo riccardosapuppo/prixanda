@@ -60,6 +60,13 @@ packages (two Python wheels, and the CPython standard library inside
 Pyodide). On 25 October 2026, on Windows: 586 packages, none outside the
 policy (one fewer on Linux, where pytest does not need colorama).
 
+The demo carries the notices of the third-party code it serves:
+`THIRD-PARTY-NOTICES.txt`, at the root of `dist/demo` and linked from the
+sandbox's About panel, gives each package its version, licence and licence
+text. The demo's build writes it (`tools/licenses.ts`; `npm run licenses`
+writes a copy in `reports/`) and fails when something the demo serves has no
+entry in it.
+
 Permissive licences are allowed wherever a package ends up, with its notice
 kept: MIT, ISC, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, BlueOak-1.0.0,
 Python-2.0, PSF-2.0, Unlicense, CC0-1.0, Zlib, PostgreSQL and OFL-1.1.
