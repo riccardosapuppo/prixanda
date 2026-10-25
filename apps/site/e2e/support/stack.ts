@@ -4,8 +4,9 @@
 //   PostgreSQL 18    a throwaway cluster, the migrations applied by Flyway,
 //                    the small generated data (seed 7) until the day the
 //                    engine's clock starts (data.ts)
-//   the engine       the real server, on a clock the test moves
-//                    (services/commerce/tests/clocked_server.py)
+//   the engine       the real server, on a clock the test moves, with the
+//                    simulated payment provider, which the test can keep
+//                    from answering (services/commerce/tests/clocked_server.py)
 //   the gateway      the real one, both APIs, the site's origin allowed
 //   the site         its static build (apps/site/out), served as any host would
 //
@@ -54,6 +55,10 @@ export type Engine = {
   readonly log: LogLine[];
   /** Moves the engine's clock; resolves when the engine says it has. */
   at(instant: string): Promise<void>;
+  /** Keeps the payment provider from answering: the payments asked for from now on stay pending. */
+  holdPayments(): Promise<void>;
+  /** Lets the provider answer the payments it holds, and the ones after. */
+  answerPayments(): Promise<void>;
 };
 
 export type Stack = {
@@ -131,27 +136,29 @@ function startEngine(databaseUrl: string, token: string, startAt: string): { chi
   child.stdout.setEncoding("utf8");
   child.stderr.on("data", lines((line) => log.push(parse(line))));
   child.stdout.on("data", lines((line) => {
-    const instant = /^clock (\S+)$/.exec(line)?.[1];
-    if (instant) waiting.get(instant)?.();
+    const said = /^clock (\S+)$/.exec(line)?.[1] ?? (/^payments (held|answering)$/.test(line) ? line : undefined);
+    if (said) waiting.get(said)?.();
   }));
+  /** Sends a command to the launcher and waits for the line that acknowledges it. */
+  const command = (sent: string, acknowledged: string, what: string) => new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      waiting.delete(acknowledged);
+      reject(new Error(`the engine did not ${what}`));
+    }, 10_000);
+    waiting.set(acknowledged, () => {
+      clearTimeout(timer);
+      waiting.delete(acknowledged);
+      resolve();
+    });
+    child.stdin.write(`${sent}\n`);
+  });
   return {
     child,
     engine: {
       log,
-      at(instant) {
-        return new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            waiting.delete(instant);
-            reject(new Error(`the engine did not move its clock to ${instant}`));
-          }, 10_000);
-          waiting.set(instant, () => {
-            clearTimeout(timer);
-            waiting.delete(instant);
-            resolve();
-          });
-          child.stdin.write(`at ${instant}\n`);
-        });
-      },
+      at: (instant) => command(`at ${instant}`, instant, `move its clock to ${instant}`),
+      holdPayments: () => command("payments hold", "payments held", "hold its payment provider"),
+      answerPayments: () => command("payments answer", "payments answering", "let its payment provider answer"),
     },
   };
 }

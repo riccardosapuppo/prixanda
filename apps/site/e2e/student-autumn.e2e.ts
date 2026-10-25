@@ -89,7 +89,11 @@ async function newVisitor(width = 1280): Promise<{ context: BrowserContext; page
   page.on("request", (request) => {
     if (request.url() !== PUBLIC_API || request.method() !== "POST") return;
     const body = request.postDataJSON() as { operationName?: string; variables?: Record<string, unknown> } | null;
-    siteRequests.push({ operation: body?.operationName ?? "", requestId: request.headers()["x-request-id"] ?? "", variables: body?.variables ?? {} });
+    const headers = request.headers();
+    siteRequests.push({
+      operation: body?.operationName ?? "", requestId: headers["x-request-id"] ?? "", idempotencyKey: headers["idempotency-key"] ?? "",
+      variables: body?.variables ?? {},
+    });
   });
   return { context, page };
 }

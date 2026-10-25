@@ -22,7 +22,7 @@ import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { copy } from "../../content/copy.ts";
 import { type Me, useConfirmSubscription, useMarkets, useMe, useRequestQuote, useSignOut, useVerifyStudent } from "../../data/hooks.ts";
-import { newIdempotencyKey } from "../../data/ids.ts";
+import { ActionKeys, newIdempotencyKey } from "../../data/ids.ts";
 import { isSiteMarket, type SiteMarket } from "../../data/markets.ts";
 import type { SiteRequestQuoteMutation } from "../../graphql/generated.ts";
 import { lastDayBefore, siteTime } from "../../lib/dates.ts";
@@ -144,12 +144,11 @@ export function StepHeading({ children, icon, level }: { readonly children: Reac
 
 function StudentCheck({ level }: { readonly level: Level }) {
   const verify = useVerifyStudent();
-  const [key, setKey] = useState<string | null>(null);
+  // Sent again only to retry a check that ended in an error; the provider's answer spends it.
+  const keys = useRef(new ActionKeys<"check">());
   const answer = verify.data?.verifyStudent;
   const check = () => {
-    const fresh = key ?? newIdempotencyKey();
-    setKey(fresh);
-    verify.mutate(fresh);
+    verify.mutate(keys.current.key("check"), { onSuccess: () => keys.current.answered("check") });
   };
   return (
     <section className="grid gap-3" aria-live="polite">

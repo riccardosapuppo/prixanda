@@ -30,6 +30,7 @@ from commerce.adapters.asyncpg_database import AsyncpgDatabase
 from commerce.engine.engine import Engine
 from commerce.engine.jobs import Jobs
 from commerce.engine.launches import Probe
+from commerce.engine.providers import PaymentProvider
 from commerce.server.config import Config
 from commerce.server.grpc_server import Health, generic_handlers, health_server
 from commerce.engine.logs import JsonLog
@@ -110,13 +111,15 @@ async def start(engine: Engine, config: Config, log: JsonLog) -> Running | None:
     return Running(server, checks, port)
 
 
-async def serve(config: Config, *, clock=None, log: JsonLog | None = None, probe: Probe | None = None) -> int:
+async def serve(config: Config, *, clock=None, log: JsonLog | None = None, probe: Probe | None = None,
+                payments: PaymentProvider | None = None) -> int:
     """The engine's server, until it is told to stop. The probe is the fault-injection tests' own
-    (launches.py): the entry point of the server passes none, and no setting turns one on."""
+    (launches.py), and a payment provider other than the simulated one the clocked tests' own
+    (tests/clocked_server.py): the entry point of the server passes neither, and no setting turns one on."""
     clock = clock or SystemClock()
     log = log or JsonLog(clock.now)
     database = await AsyncpgDatabase.connect(config.database_url, max_size=config.pool_size)
-    engine = Engine(database, clock, probe=probe)
+    engine = Engine(database, clock, probe=probe, payments=payments)
     running = await start(engine, config, log)
     if running is None:
         await database.close()

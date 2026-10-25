@@ -10,7 +10,7 @@ import { Icon } from "design/icon";
 import { useId, useRef, useState } from "react";
 import { copy } from "../../content/copy.ts";
 import { type Me, useActivatePrepaidPass, usePlans } from "../../data/hooks.ts";
-import { newIdempotencyKey } from "../../data/ids.ts";
+import { ActionKeys } from "../../data/ids.ts";
 import { DEFAULT_MARKET, isSiteMarket } from "../../data/markets.ts";
 import type { SitePrepaidCodeFragment } from "../../graphql/generated.ts";
 import { normalCode } from "../../lib/codes.ts";
@@ -65,16 +65,17 @@ export function ActivateCode({ me }: { readonly me: Me }) {
   const activate = useActivatePrepaidPass();
   const [typed, setTyped] = useState("");
   const [shape, setShape] = useState(false);
-  // One key per code, made when it is first sent and sent again if that code is retried.
-  const keys = useRef(new Map<string, string>());
+  // One key per code, sent again only to retry an attempt that ended in an error; an answer, the
+  // subscription or a refusal, spends it, so a code refused while its payment was pending is sent
+  // afresh once it settled, and not answered with that refusal again.
+  const keys = useRef(new ActionKeys<string>());
   const field = useId();
   const answer = activate.data?.activatePrepaidPass;
   const send = (code: string) => {
-    const key = keys.current.get(code) ?? newIdempotencyKey();
-    keys.current.set(code, key);
-    activate.mutate({ code, idempotencyKey: key }, {
-      // An activated code leaves the field: it has done its work.
+    activate.mutate({ code, idempotencyKey: keys.current.key(code) }, {
       onSuccess: (data) => {
+        keys.current.answered(code);
+        // An activated code leaves the field: it has done its work.
         if (data.activatePrepaidPass.__typename === "Subscription") setTyped("");
       },
     });

@@ -10,7 +10,7 @@ import { PUBLIC_API } from "./stack.ts";
 /** The widths every page must fit: desktop, laptop, 1440 at 200 % zoom, phone, narrow phone. */
 export const WIDTHS = [1440, 1280, 720, 390, 320] as const;
 
-export type Seen = { operation: string; requestId: string; variables: Record<string, unknown> };
+export type Seen = { operation: string; requestId: string; idempotencyKey: string; variables: Record<string, unknown> };
 
 /** The page's main text, with the no-break spaces a price is written with read as spaces. */
 export const text = async (page: Page) => (await page.locator("main").innerText()).replace(/[  ]/g, " ");
@@ -100,7 +100,11 @@ export class Watch {
     page.on("request", (request) => {
       if (request.url() !== PUBLIC_API || request.method() !== "POST") return;
       const body = request.postDataJSON() as { operationName?: string; variables?: Record<string, unknown> } | null;
-      this.siteRequests.push({ operation: body?.operationName ?? "", requestId: request.headers()["x-request-id"] ?? "", variables: body?.variables ?? {} });
+      const headers = request.headers();
+      this.siteRequests.push({
+        operation: body?.operationName ?? "", requestId: headers["x-request-id"] ?? "", idempotencyKey: headers["idempotency-key"] ?? "",
+        variables: body?.variables ?? {},
+      });
     });
     return page;
   }

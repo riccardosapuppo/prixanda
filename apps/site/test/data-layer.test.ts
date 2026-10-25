@@ -1,9 +1,10 @@
 // The data layer, without a browser: what the transport sends and reads back,
-// and what the API adds to every request and makes of every answer.
+// what the API adds to every request and makes of every answer, and the keys
+// of what a visitor may send more than once.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ApiError, createSiteApi } from "../src/data/api.ts";
-import { ID_SHAPE, newIdempotencyKey, newRequestId } from "../src/data/ids.ts";
+import { ActionKeys, ID_SHAPE, newIdempotencyKey, newRequestId } from "../src/data/ids.ts";
 import { type GraphqlRequest, type GraphqlResponse, httpTransport, type Transport, TransportFailure } from "../src/data/transport.ts";
 import { SiteOffers, SiteRequestQuote } from "../src/graphql/generated.ts";
 
@@ -194,5 +195,48 @@ describe("the site's identifiers", () => {
   it("say where they come from", () => {
     assert.match(newRequestId(), /^site-[0-9a-f-]{36}$/);
     assert.match(newIdempotencyKey(), /^site-action-[0-9a-f-]{36}$/);
+  });
+});
+
+describe("the keys of what a visitor may send more than once", () => {
+  const numbered = () => {
+    let made = 0;
+    return () => `key-${(made += 1)}`;
+  };
+
+  it("sends a key again only to retry an attempt whose outcome is unknown, one key for each thing sent", () => {
+    const keys = new ActionKeys<string>(numbered());
+    assert.equal(keys.key("K7QM-3XTP-9WAD"), "key-1");
+    assert.equal(keys.key("K7QM-3XTP-9WAD"), "key-1", "a retry after an error sends the same key");
+    assert.equal(keys.key("ABCD-EFGH-JKMN"), "key-2", "another code, another key");
+  });
+
+  it("takes a new key after a definitive answer, success or refusal, and only for what was answered", () => {
+    const keys = new ActionKeys<"yes" | "no">(numbered());
+    keys.key("yes");
+    keys.key("no");
+    keys.answered("yes");
+    assert.equal(keys.key("yes"), "key-3");
+    assert.equal(keys.key("no"), "key-2");
+    assert.match(new ActionKeys<string>().key("any"), /^site-action-[0-9a-f-]{36}$/, "by default, the site's own keys");
+  });
+
+  it("against an engine that answers a key with its first answer, lets a code refused while its payment was pending through once it settled", () => {
+    // As the engine does: a key's answer is kept and given back to that key.
+    let settled = false;
+    const kept = new Map<string, string>();
+    const engine = (key: string) => {
+      if (!kept.has(key)) kept.set(key, settled ? "activated" : "refused: its payment is not settled yet");
+      return kept.get(key);
+    };
+    const keys = new ActionKeys<string>(numbered());
+    const send = (code: string) => {
+      const answer = engine(keys.key(code));
+      keys.answered(code);
+      return answer;
+    };
+    assert.equal(send("K7QM-3XTP-9WAD"), "refused: its payment is not settled yet");
+    settled = true;
+    assert.equal(send("K7QM-3XTP-9WAD"), "activated");
   });
 });

@@ -12,15 +12,20 @@
 //   4. Another listener activates the code: three months of Individual, never
 //      charged and never renewed, then Free; a third cannot use it again; the
 //      code is in no line the engine or the gateway logged.
-//   5. Two price migrations launched: Family in Germany, Individual in Italy.
+//   5. A second code, sent while the payment provider has not answered yet,
+//      is refused; once the payment settled, the same code, sent again from
+//      the same page without a reload, is activated: an answer, success or
+//      refusal, spends the key it was asked with, and the next attempt takes
+//      a new one, which the engine answers afresh.
+//   6. Two price migrations launched: Family in Germany, Individual in Italy.
 //      The engine's clock reaches the morning the subscribers are told.
-//   6. The Family subscriber in Germany is asked: two answers of the same
+//   7. The Family subscriber in Germany is asked: two answers of the same
 //      weight, silence counted as no, the law and the service's choice in two
 //      blocks; the panel fits five widths; the answer is no, and the page
 //      says what follows with the engine's date.
-//   7. The Individual subscriber in Italy is told in advance, and leaves
+//   8. The Individual subscriber in Italy is told in advance, and leaves
 //      before the new price, on the engine's date.
-//   8. The audit log holds every step of the listeners with the request id
+//   9. The audit log holds every step of the listeners with the request id
 //      their browser sent.
 //
 // Every page and state is checked with axe, no page may ask anything of
@@ -63,8 +68,19 @@ const summary = {
   codeInLogs: true,
 };
 let passId = "";
-// The code bought in test 3, typed by the other listeners in test 4. It is never printed.
+// The code bought in test 3, typed by the other listeners in test 4, and the one of test 5. They are never printed.
 let code = "";
+let second = "";
+
+/** The prepaid codes a listener bought, the latest first, as the gateway answers for their cookie. */
+async function codesOf(context: BrowserContext): Promise<Array<{ code: string; state: string }>> {
+  const response = await context.request.post(PUBLIC_API, {
+    headers: { "content-type": "application/json", origin: SITE_URL },
+    data: { query: "{ me { account { prepaidCodes { code state } } } }" },
+  });
+  const body = await response.json() as { data?: { me?: { account?: { prepaidCodes?: Array<{ code: string; state: string }> } } } };
+  return body.data?.me?.account?.prepaidCodes ?? [];
+}
 
 /** The listener of a visitor's session, as the gateway answers for its cookie. */
 async function account(context: BrowserContext): Promise<any> {
@@ -221,7 +237,57 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     assert.equal(logged, 0, "the code is in no line the engine or the gateway logged");
   });
 
-  test("5. two price migrations launched; the engine reaches the morning the subscribers are asked or told", async () => {
+  test("5. a code sent while its payment is pending is refused, and the same code goes through once it settled, without a reload", async () => {
+    assert.ok(stack);
+    // The provider keeps its answer: the code bought now stays pending.
+    await stack.engine.holdPayments();
+    let answering = false;
+    try {
+      const buyer = await watch.visitor();
+      await buyer.page.goto(`${SITE_URL}/?market=IT#gift`);
+      await buyer.page.getByRole("button", { name: "Get a demo gift code" }).click();
+      await buyer.page.getByRole("heading", { name: "Enter as a demo listener" }).waitFor();
+      await enterAs(buyer.page, /Student in Italy, not verified yet/);
+      await buyer.page.getByRole("button", { name: "Confirm the demo purchase" }).click();
+      await buyer.page.locator("[data-code-state='PENDING']").waitFor({ timeout: 20_000 });
+      const held = (await codesOf(buyer.context)).find((each) => each.state === "PENDING");
+      assert.ok(held, "the code bought is pending while the provider keeps its answer");
+      second = held.code;
+
+      // The code reaches someone else before its payment settled.
+      const { page } = await watch.visitor();
+      await page.goto(`${SITE_URL}/account/`);
+      await enterAs(page, /Student in Italy who paid before/);
+      const field = page.getByRole("textbox", { name: "Code" });
+      await field.waitFor();
+      await field.fill(second);
+      await page.getByRole("button", { name: "Activate" }).click();
+      await page.getByText("This code can't be activated").waitFor({ timeout: 20_000 });
+
+      // The provider answers; the payment settles and the code is ready.
+      await stack.engine.answerPayments();
+      answering = true;
+      const deadline = performance.now() + 20_000;
+      while ((await codesOf(buyer.context)).find((each) => each.code === second)?.state !== "READY") {
+        assert.ok(performance.now() < deadline, "the code was not ready within 20 s of the provider's answer");
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+
+      // The same code from the same page, sent again: a new attempt, with a new key, which the engine answers afresh.
+      await page.getByRole("button", { name: "Activate" }).click();
+      await page.getByText(/^Activated: Individual until /).waitFor({ timeout: 20_000 });
+      const sent = watch.siteRequests.filter((seen) => seen.operation === "SiteActivatePrepaidPass" && seen.variables["code"] === second);
+      assert.equal(sent.length, 2, "the code was sent twice");
+      assert.notEqual(sent[0]?.idempotencyKey, sent[1]?.idempotencyKey, "the refusal spent the first key");
+      await watch.accessible(page, "a code activated once its payment settled");
+      const logged = [...stack.engine.log, ...stack.gatewayLog].filter((line) => JSON.stringify(line).includes(second)).length;
+      assert.equal(logged, 0, "the second code is in no line the engine or the gateway logged");
+    } finally {
+      if (!answering) await stack.engine.answerPayments();
+    }
+  });
+
+  test("6. two price migrations launched; the engine reaches the morning the subscribers are asked or told", async () => {
     assert.ok(stack);
     await launchChange(CONSOLE_API, "migration", priceMigration("Family price in Germany", "family", "DE", "2099", NOTICES_LOCAL, "2026-12-01T00:00"), "family-de");
     await launchChange(CONSOLE_API, "migration", priceMigration("Individual price in Italy", "individual", "IT", "1099", NOTICES_LOCAL, "2026-12-01T00:00"), "individual-it");
@@ -240,7 +306,7 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     await context.close();
   });
 
-  test("6. in Germany the Family subscriber is asked: two equal answers, silence is no, law and choice apart; the answer no", async () => {
+  test("7. in Germany the Family subscriber is asked: two equal answers, silence is no, law and choice apart; the answer no", async () => {
     const { context, page } = await watch.visitor();
     await page.goto(`${SITE_URL}/account/`);
     await enterAs(page, /Family subscriber in Germany/);
@@ -293,7 +359,7 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     await watch.accessible(page, "the answer no");
   });
 
-  test("7. in Italy the Individual subscriber is told in advance, and leaves before the new price", async () => {
+  test("8. in Italy the Individual subscriber is told in advance, and leaves before the new price", async () => {
     const { context, page } = await watch.visitor();
     await page.goto(`${SITE_URL}/account/`);
     await enterAs(page, /Individual subscriber in Italy/);
@@ -316,34 +382,36 @@ describe("the gift pass and the price changes, on the site (§14.3, §14.4)", ()
     await watch.accessible(page, "the notice answered");
   });
 
-  test("8. the audit log holds every step of the listeners with the request id their browser sent", async () => {
+  test("9. the audit log holds every step of the listeners with the request id their browser sent", async () => {
     const auditor = await new ConsoleSession(CONSOLE_API, "auditor-1").signIn();
     const read = async (filter: Record<string, string>) => {
       const answer = await auditor.graphql("query ($filter: AuditFilter) { auditEvents(filter: $filter, first: 50) { nodes { action actor requestId } } }", { filter });
       return (answer.body?.data?.auditEvents?.nodes ?? []) as Array<{ action: string; actor: string; requestId: string }>;
     };
-    const one = async (filter: Record<string, string>, action: string) => {
-      const found = (await read(filter)).filter((event) => event.action === action);
-      assert.equal(found.length, 1, `one ${action} for ${JSON.stringify(filter)}`);
-      return found[0]!;
-    };
-    const sold = await one({ action: "prepaid.sold" }, "prepaid.sold");
-    assert.ok(watch.sent("SiteBuyPrepaidPass").includes(sold.requestId), "prepaid.sold carries the browser's request id");
-    assert.match(sold.requestId, /^site-[0-9a-f-]{36}$/);
-    const paid = (await read({ action: "payment.succeeded" })).find((event) => event.requestId === sold.requestId);
-    assert.ok(paid, "the payment of the code carries the purchase's request id");
-    const activated = await one({ action: "prepaid.activated" }, "prepaid.activated");
-    assert.ok(watch.sent("SiteActivatePrepaidPass").includes(activated.requestId), "prepaid.activated carries the browser's request id");
+    // The two codes: each sold, paid and activated, each step with the browser's request id.
+    const sold = await read({ action: "prepaid.sold" });
+    assert.equal(sold.length, 2, "two codes sold");
+    const payments = await read({ action: "payment.succeeded" });
+    for (const sale of sold) {
+      assert.ok(watch.sent("SiteBuyPrepaidPass").includes(sale.requestId), "prepaid.sold carries the browser's request id");
+      assert.match(sale.requestId, /^site-[0-9a-f-]{36}$/);
+      assert.ok(payments.some((event) => event.requestId === sale.requestId), "the payment of the code carries the purchase's request id");
+    }
+    const activated = await read({ action: "prepaid.activated" });
+    assert.equal(activated.length, 2, "two codes activated; the attempt refused while its payment was pending changed nothing");
+    for (const activation of activated) {
+      assert.ok(watch.sent("SiteActivatePrepaidPass").includes(activation.requestId), "prepaid.activated carries the browser's request id");
+    }
     const answers = (await read({ action: "price_change.answered" }));
     assert.equal(answers.length, 2, "the two answers");
     for (const answer of answers) assert.ok(watch.sent("SiteAnswerPriceChange").includes(answer.requestId), `${answer.actor}'s answer carries the browser's request id`);
-    summary.auditEvents = 1 + 1 + 1 + answers.length;
+    summary.auditEvents = sold.length + sold.length + activated.length + answers.length;
   });
 
-  test("9. no page asked anything of another host, and none logged an error", () => {
+  test("10. no page asked anything of another host, and none logged an error", () => {
     assert.equal(watch.externalRequests, 0);
     assert.deepEqual(watch.pageErrors, []);
-    assert.ok(watch.pagesChecked >= 9, `axe ran on ${watch.pagesChecked} pages`);
+    assert.ok(watch.pagesChecked >= 10, `axe ran on ${watch.pagesChecked} pages`);
     assert.equal(watch.layoutChecks, 10);
   });
 });
