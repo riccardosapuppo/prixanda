@@ -50,8 +50,8 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 18, contractFiles: 47, migrations: 17, pythonTests: 782, invariants: 18, generatedSubscribers: 5_000,
-  faultsInjected: 12, measuredQueries: 7,
+  typecheckedFiles: 22, contractFiles: 47, migrations: 17, pythonTests: 782, invariants: 18, generatedSubscribers: 5_000,
+  faultsInjected: 12, measuredQueries: 7, toolsTests: 4,
   // npm's lockfile lists every platform's packages; the Python environment
   // has one more on Windows (colorama, for pytest).
   licensedPackages: 570,
@@ -85,6 +85,15 @@ const SUITES: Suite[] = [
       if (ran.code !== 0) return failed(`${ours} files`, errors.slice(0, 8).join("\n") || ran.output.slice(0, 2000));
       if (ours < FLOOR.typecheckedFiles) return failed(`${ours} files`, `fewer than ${FLOOR.typecheckedFiles} files of tools/ were checked`);
       return passed(`${ours} files`);
+    },
+  },
+  {
+    name: "tools",
+    what: "the tools' own tests in Node: a process stopped whether it exited with a code or a signal, and a stop that never waits for ever",
+    needsDatabase: false,
+    async run() {
+      const files = (await readdir(join(repoRoot, "tools", "lib"))).filter((name) => name.endsWith(".test.ts")).map((name) => `tools/lib/${name}`);
+      return nodeTests("tools", files, FLOOR.toolsTests, {}, repoRoot);
     },
   },
   {

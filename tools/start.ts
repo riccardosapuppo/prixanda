@@ -25,7 +25,7 @@ import { flyway, flywayHome } from "./lib/flyway.ts";
 import { dataDir, PORTS, repoRoot, venvPython } from "./lib/paths.ts";
 import { assertFree } from "./lib/ports.ts";
 import { createDatabase, isRunning, startCluster, stopIfRunning } from "./lib/postgres.ts";
-import { run } from "./lib/run.ts";
+import { stopTree } from "./lib/processes.ts";
 
 const say = (line: string) => console.log(`[start] ${line}`);
 const SITE_PORT = Number(process.env["SITE_PORT"] ?? 4632);
@@ -76,17 +76,6 @@ async function waitFor(what: string, check: () => Promise<boolean>, timeoutMs: n
   throw new Error(`${what} did not come up within ${Math.round(timeoutMs / 1000)} s`);
 }
 
-/** Stops a process and the ones it started (Next.js starts workers of its own). */
-async function stopTree(child: ChildProcess | null): Promise<void> {
-  if (child === null || child.exitCode !== null || child.pid === undefined) return;
-  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  if (process.platform === "win32") await run("taskkill", ["/pid", String(child.pid), "/T", "/F"]);
-  else child.kill("SIGTERM");
-  const late = setTimeout(() => child.kill("SIGKILL"), 10_000);
-  await exited;
-  clearTimeout(late);
-}
-
 async function main(): Promise<number> {
   if (!existsSync(join(repoRoot, "node_modules", "next"))) {
     say("the packages are not installed: npm ci first");
@@ -126,7 +115,7 @@ async function main(): Promise<number> {
   let stack: Awaited<ReturnType<typeof startStack>> | null = null;
   let site: ChildProcess | null = null;
   const stop = async () => {
-    await stopTree(site);
+    if (!(await stopTree(site))) say(`the site's server (pid ${site?.pid}) did not exit; the rest stops all the same`);
     await stack?.stop();
     await stopDatabase();
   };
