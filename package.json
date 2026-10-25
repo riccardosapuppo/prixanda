@@ -14,6 +14,7 @@
     "apps/console"
   ],
   "scripts": {
+    "start": "node tools/start.ts",
     "build": "node tools/setup.ts && tsc -p tsconfig.json",
     "test": "node tools/check.ts",
     "setup": "node tools/setup.ts",
