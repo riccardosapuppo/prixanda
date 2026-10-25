@@ -9,6 +9,10 @@ three variables say where it is:
                            cluster's "postgres" database
   COMMERCE_TEST_TEMPLATE   the migrated template
   COMMERCE_TEST_APP_URL    the engine's role, with {database} for the name
+
+With COMMERCE_TEST_DATABASE=pglite, the service tests' world is built on the
+browser's database instead (tests/pglite_world.py), and the fixtures of
+PostgreSQL alone are not there: the check's sandbox-services runs them so.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ import pytest_asyncio
 from hypothesis import settings
 from hypothesis.configuration import set_hypothesis_home_dir
 
+PGLITE = os.environ.get("COMMERCE_TEST_DATABASE") == "pglite"
 ADMIN_URL = os.environ.get("COMMERCE_TEST_ADMIN_URL", "")
 TEMPLATE = os.environ.get("COMMERCE_TEST_TEMPLATE", "")
 APP_URL = os.environ.get("COMMERCE_TEST_APP_URL", "")
@@ -47,7 +52,7 @@ def pytest_unconfigure(config):
 
 
 def pytest_configure(config):
-    if not (ADMIN_URL and TEMPLATE and APP_URL):
+    if not PGLITE and not (ADMIN_URL and TEMPLATE and APP_URL):
         pytest.exit("these tests run through `npm run check`, which starts PostgreSQL and migrates their template",
                     returncode=4)
 
@@ -67,7 +72,23 @@ class Database:
         return on_database(ADMIN_URL, self.name) if who == "owner" else APP_URL.format(database=self.name)
 
 
+def pytest_collection_modifyitems(config, items):
+    """On PGlite, the tests that need PostgreSQL's many sessions are skipped, with their reason."""
+    if not PGLITE:
+        return
+    for item in items:
+        marker = item.get_closest_marker("postgresql_only")
+        if marker is not None:
+            item.add_marker(pytest.mark.skip(reason=f"PostgreSQL only: {marker.args[0]}"))
+
+
+def postgresql_only() -> None:
+    if PGLITE:
+        pytest.skip("PostgreSQL only: a database of its own, or a second connection, which PGlite's one session has not")
+
+
 async def _admin(statement: str) -> None:
+    postgresql_only()
     admin = await asyncpg.connect(ADMIN_URL)
     try:
         await admin.execute(statement)
@@ -122,10 +143,34 @@ async def copy(generated):
 
 
 @pytest_asyncio.fixture(scope="session")
-async def seeded_template():
+async def pglite_node():
+    """The Node process holding PGlite's instances, in PGlite's runs (tests/pglite_world.py); none otherwise."""
+    if not PGLITE:
+        yield None
+        return
+    from pglite_world import Node
+
+    node = Node()
+    await node.start()
+    yield node
+    await node.stop()
+
+
+@pytest_asyncio.fixture(scope="session")
+async def seeded_template(pglite_node):
     """The migrated template with the tests' hand-written world (tests/seed.py), made once."""
     from seed import seed
 
+    if PGLITE:
+        from commerce.browser.pglite import PGliteDatabase
+        from pglite_world import InstanceBridge, Owner
+
+        node = pglite_node
+        instance = (await node.ask("cluster"))["instance"]
+        await seed(Owner(PGliteDatabase(InstanceBridge(node, instance))))
+        await node.ask("template", instance=instance)
+        yield "pglite-template"
+        return
     name = f"seeded_{uuid.uuid4().hex[:12]}"
     await _admin(f"create database {name} template {TEMPLATE}")
     owner = await asyncpg.connect(on_database(ADMIN_URL, name))
@@ -138,7 +183,7 @@ async def seeded_template():
 
 
 @pytest_asyncio.fixture
-async def world(seeded_template):
+async def world(seeded_template, pglite_node):
     """A database of its own with the seeded world, and the engine on it as the engine's role."""
     from commerce.adapters.asyncpg_database import AsyncpgDatabase
     from commerce.engine.call import FixedClock
@@ -146,6 +191,21 @@ async def world(seeded_template):
     from engine_support import World
     from helpers import T0
 
+    if PGLITE:
+        from commerce.browser.pglite import PGliteDatabase
+        from pglite_world import InstanceBridge, Owner
+
+        node = pglite_node
+        instance = (await node.ask("open"))["instance"]
+        # One database for the owner and the engine, as PGlite is one session: a transaction of the owner left open
+        # while the engine works is refused at once, instead of waiting for ever.
+        database = PGliteDatabase(InstanceBridge(node, instance))
+        clock = FixedClock(T0)
+        try:
+            yield World(f"pglite-{instance}", Owner(database), Engine(database, clock), clock)
+        finally:
+            await node.ask("close", instance=instance)
+        return
     name = f"test_{uuid.uuid4().hex[:16]}"
     await _admin(f"create database {name} template {seeded_template}")
     owner = await asyncpg.connect(on_database(ADMIN_URL, name))

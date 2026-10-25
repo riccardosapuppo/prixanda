@@ -22,6 +22,7 @@
     "check": "node tools/check.ts",
     "measure": "node tools/measure.ts",
     "licenses": "node tools/licenses.ts",
+    "measure:sandbox": "node tools/measure-sandbox.ts",
     "typecheck": "tsc -p tsconfig.json",
     "proto": "node tools/proto.ts",
     "graphql": "node tools/graphql.ts",

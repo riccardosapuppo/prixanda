@@ -1,13 +1,23 @@
 {
-  // The sandbox's side shared by the tabs and the worker: the protocol, with
-  // a browser's types and none of Node's. The tests run on Node 24, which runs
-  // the TypeScript as it is: erasableSyntaxOnly refuses what it could not strip.
+  // The gateway's side of the sandbox as the browser runs it: the protocol,
+  // the client the apps use, the worker, its script and the gateway's part of
+  // it, with a browser's types and none of Node's, so that a node: import, a
+  // Buffer or a process there does not compile. Node 24 runs the same
+  // TypeScript as it is in the tests: erasableSyntaxOnly refuses what it
+  // could not strip. tsconfig.test.json checks the tests and the build's
+  // script, with Node's types; the engine's side (src/engine/) has
+  // configurations of its own.
+  //
+  // "sandbox-engine" is the engine's module the worker's script starts: the
+  // engine's own src/engine/index.ts where it is in the tree, and its
+  // interface only (src/gateway/engine-stand-in.ts) where it is not.
   "compilerOptions": {
     "target": "es2024",
     "lib": ["es2024", "dom"],
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "types": [],
+    "paths": { "sandbox-engine": ["./src/engine/index.ts", "./src/gateway/engine-stand-in.ts"] },
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
@@ -19,5 +29,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src/protocol.ts"]
+  "include": ["src/protocol.ts", "src/client.ts", "src/worker.ts", "src/backend.ts", "src/gateway/**/*.ts"]
 }

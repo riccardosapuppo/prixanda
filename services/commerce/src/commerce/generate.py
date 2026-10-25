@@ -20,6 +20,11 @@ It loads, into a database that Flyway has just migrated:
 Nothing reads the clock: the period is --start to --until, fixed by default.
 The same seed, size and period give the same rows, and --fingerprint prints a
 hash of them, which the tests compare across two databases.
+
+The rows are written through a Writer: asyncpg here, and PGlite when the
+browser's demo builds its snapshot (browser/snapshot.py), so that the demo
+holds the same small data as the server, with the same fingerprint. asyncpg
+is imported only by the functions that connect.
 """
 
 from __future__ import annotations
@@ -31,10 +36,14 @@ import json
 import random
 import sys
 import time
+from collections.abc import Iterable, Mapping
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING, Any, Protocol
 
-import asyncpg
+if TYPE_CHECKING:
+    import asyncpg
 
 # The period of the data: fixed, never "today".
 START = date(2025, 1, 1)
@@ -291,7 +300,41 @@ FINGERPRINTED = ["person", "person_role", "plan_entitlement", "list_price", "lab
                  "subscriber", "subscription", "subscription_price", "student_verification", "listening_day", "demo_listener"]
 
 
-async def write_subscriptions(conn: asyncpg.Connection, subscriptions: list[tuple]) -> None:
+class Writer(Protocol):
+    """Where the rows go: a database freshly migrated, as its owner."""
+
+    async def execute(self, sql: str, *args: Any) -> None: ...
+
+    async def fetchval(self, sql: str, *args: Any) -> Any: ...
+
+    async def fetch(self, sql: str, *args: Any) -> list[Mapping[str, Any]]: ...
+
+    async def copy(self, table: str, columns: list[str], records: Iterable[tuple]) -> None: ...
+
+    def transaction(self) -> AbstractAsyncContextManager[Any]: ...
+
+
+class AsyncpgWriter:
+    def __init__(self, conn: asyncpg.Connection) -> None:
+        self.conn = conn
+
+    async def execute(self, sql: str, *args: Any) -> None:
+        await self.conn.execute(sql, *args)
+
+    async def fetchval(self, sql: str, *args: Any) -> Any:
+        return await self.conn.fetchval(sql, *args)
+
+    async def fetch(self, sql: str, *args: Any) -> list[Mapping[str, Any]]:
+        return await self.conn.fetch(sql, *args)
+
+    async def copy(self, table: str, columns: list[str], records: Iterable[tuple]) -> None:
+        await self.conn.copy_records_to_table(table, records=records, columns=columns)
+
+    def transaction(self) -> AbstractAsyncContextManager[Any]:
+        return self.conn.transaction()
+
+
+async def write_subscriptions(conn: Writer, subscriptions: list[tuple]) -> None:
     """Each subscription with the price it starts at, where the schema keeps it: since migration V14 the first row of
     its history; before it a column of the subscription, which a trigger copied into the history from V12 on. So the
     compatibility check (compat.py) can write the data of the version before the history too."""
@@ -301,16 +344,15 @@ async def write_subscriptions(conn: asyncpg.Connection, subscriptions: list[tupl
     columns = ["id", "subscriber_id", "market", "currency", "plan_id", "paid", "price_minor", "started_on", "ended_on",
                "billing_day"]
     if column:
-        await conn.copy_records_to_table("subscription", records=subscriptions, columns=columns)
+        await conn.copy("subscription", columns, subscriptions)
         return
     price, started = columns.index("price_minor"), columns.index("started_on")
-    await conn.copy_records_to_table("subscription", records=[s[:price] + s[price + 1:] for s in subscriptions],
-                                     columns=columns[:price] + columns[price + 1:])
-    await conn.copy_records_to_table("subscription_price", records=[(s[0], s[started], s[price]) for s in subscriptions],
-                                     columns=["subscription_id", "from_on", "price_minor"])
+    await conn.copy("subscription", columns[:price] + columns[price + 1:], [s[:price] + s[price + 1:] for s in subscriptions])
+    await conn.copy("subscription_price", ["subscription_id", "from_on", "price_minor"],
+                    [(s[0], s[started], s[price]) for s in subscriptions])
 
 
-async def fingerprint(conn: asyncpg.Connection) -> str:
+async def fingerprint(conn: Writer | asyncpg.Connection) -> str:
     parts = []
     for table in FINGERPRINTED:
         # Identity columns are left out: they number rows, they are not data.
@@ -323,6 +365,18 @@ async def fingerprint(conn: asyncpg.Connection) -> str:
 async def generate(url: str, size_name: str, seed: int, start: date, until: date, *, listening_days: int | None = None) -> dict:
     """listening_days, when given, replaces the size's weeks of listening: the measurements (measure.py) can ask
     for a longer history than the data of the demo holds."""
+    import asyncpg
+
+    conn = await asyncpg.connect(url)
+    try:
+        return await load(AsyncpgWriter(conn), size_name, seed, start, until, listening_days=listening_days)
+    finally:
+        await conn.close()
+
+
+async def load(conn: Writer, size_name: str, seed: int, start: date, until: date, *,
+               listening_days: int | None = None) -> dict:
+    """The generated rows, written through a Writer into a database freshly migrated."""
     size = SIZES[size_name] if listening_days is None else replace(SIZES[size_name], listening_days=listening_days)
     rng = random.Random(seed)
     timings: dict[str, int] = {}
@@ -333,79 +387,72 @@ async def generate(url: str, size_name: str, seed: int, start: date, until: date
         timings[name] = round((time.perf_counter() - begun) * 1000)
         begun = time.perf_counter()
 
-    conn = await asyncpg.connect(url)
-    try:
-        if await conn.fetchval("select count(*) from subscriber"):
-            raise SystemExit("this database already holds generated data: generate into a freshly migrated one")
-        async with conn.transaction():
-            for person, (label, roles) in PEOPLE.items():
-                await conn.execute("insert into person (id, label) values ($1, $2)", person, label)
-                for role in roles:
-                    await conn.execute("insert into person_role (person_id, role) values ($1, $2)", person, role)
-            beginning = datetime.combine(start, datetime.min.time())
-            for market in MARKETS:
-                for plan, (skips, audio, offline) in ENTITLEMENTS.items():
-                    await conn.execute(
-                        "insert into plan_entitlement (plan_id, market, skips_per_hour, audio, offline, valid) "
-                        "values ($1, $2, $3, $4, $5, tsrange($6, null))", plan, market, skips, audio, offline, beginning)
-                for plan, amount in PRICES[market].items():
-                    await conn.execute(
-                        "insert into list_price (plan_id, market, currency, amount_minor, valid) "
-                        "values ($1, $2, $3, $4, tsrange($5, null))", plan, market, CURRENCY[market], amount, beginning)
-            await conn.copy_records_to_table("label", records=LABELS, columns=["id", "name", "country"])
-            taken = {name for _, name, *_ in NAMED_ARTISTS}
-            artists = [(a, name, label, country) for a, name, label, country, _ in NAMED_ARTISTS]
-            releases = [(a, a, title, date(2026, 11, 6) if a == 4 else day_between(rng, start, until)) for a, _, _, _, title in NAMED_ARTISTS]
-            for n in range(size.filler_artists):
-                artist_id = len(NAMED_ARTISTS) + n + 1
-                artists.append((artist_id, filler_name(rng, taken), rng.randint(1, len(LABELS)), rng.choice(list(MARKETS))))
-                releases.append((artist_id, artist_id, filler_name(rng, taken), day_between(rng, start, until)))
-            await conn.copy_records_to_table("artist", records=artists, columns=["id", "name", "label_id", "country"])
-            await conn.copy_records_to_table("release", records=releases, columns=["id", "artist_id", "title", "released_on"])
-            lap("reference")
+    if await conn.fetchval("select count(*) from subscriber"):
+        raise SystemExit("this database already holds generated data: generate into a freshly migrated one")
+    async with conn.transaction():
+        for person, (label, roles) in PEOPLE.items():
+            await conn.execute("insert into person (id, label) values ($1, $2)", person, label)
+            for role in roles:
+                await conn.execute("insert into person_role (person_id, role) values ($1, $2)", person, role)
+        beginning = datetime.combine(start, datetime.min.time())
+        for market in MARKETS:
+            for plan, (skips, audio, offline) in ENTITLEMENTS.items():
+                await conn.execute(
+                    "insert into plan_entitlement (plan_id, market, skips_per_hour, audio, offline, valid) "
+                    "values ($1, $2, $3, $4, $5, tsrange($6, null))", plan, market, skips, audio, offline, beginning)
+            for plan, amount in PRICES[market].items():
+                await conn.execute(
+                    "insert into list_price (plan_id, market, currency, amount_minor, valid) "
+                    "values ($1, $2, $3, $4, tsrange($5, null))", plan, market, CURRENCY[market], amount, beginning)
+        await conn.copy("label", ["id", "name", "country"], LABELS)
+        taken = {name for _, name, *_ in NAMED_ARTISTS}
+        artists = [(a, name, label, country) for a, name, label, country, _ in NAMED_ARTISTS]
+        releases = [(a, a, title, date(2026, 11, 6) if a == 4 else day_between(rng, start, until)) for a, _, _, _, title in NAMED_ARTISTS]
+        for n in range(size.filler_artists):
+            artist_id = len(NAMED_ARTISTS) + n + 1
+            artists.append((artist_id, filler_name(rng, taken), rng.randint(1, len(LABELS)), rng.choice(list(MARKETS))))
+            releases.append((artist_id, artist_id, filler_name(rng, taken), day_between(rng, start, until)))
+        await conn.copy("artist", ["id", "name", "label_id", "country"], artists)
+        await conn.copy("release", ["id", "artist_id", "title", "released_on"], releases)
+        lap("reference")
 
-            subscribers, subscriptions, verifications = plan_people(rng, size, start, until)
-            verifications += verify_free_students(seed, subscribers, subscriptions, until)
-            demo = demo_listeners(len(subscribers) + 1, len(subscriptions) + 1, start, until)
-            subscribers, subscriptions, verifications = subscribers + demo[0], subscriptions + demo[1], verifications + demo[2]
-            lap("plan_people")
-            await conn.copy_records_to_table("subscriber", records=subscribers, columns=["id", "market", "joined_on"])
-            await write_subscriptions(conn, subscriptions)
-            await conn.copy_records_to_table("student_verification", records=verifications,
-                                             columns=["subscriber_id", "verified_on", "valid_until", "provider"])
-            await conn.copy_records_to_table("demo_listener", records=demo[3],
-                                             columns=["subscriber_id", "position", "title", "label", "student"])
-            lap("write_people")
+        subscribers, subscriptions, verifications = plan_people(rng, size, start, until)
+        verifications += verify_free_students(seed, subscribers, subscriptions, until)
+        demo = demo_listeners(len(subscribers) + 1, len(subscriptions) + 1, start, until)
+        subscribers, subscriptions, verifications = subscribers + demo[0], subscriptions + demo[1], verifications + demo[2]
+        lap("plan_people")
+        await conn.copy("subscriber", ["id", "market", "joined_on"], subscribers)
+        await write_subscriptions(conn, subscriptions)
+        await conn.copy("student_verification", ["subscriber_id", "verified_on", "valid_until", "provider"], verifications)
+        await conn.copy("demo_listener", ["subscriber_id", "position", "title", "label", "student"], demo[3])
+        lap("write_people")
 
-            listened = [0]
-            await conn.copy_records_to_table(
-                "listening_day", records=listening(rng, size, subscribers, subscriptions, [a[0] for a in artists], until, listened),
-                columns=["subscriber_id", "artist_id", "day", "seconds"])
-            lap("listening")
+        listened = [0]
+        await conn.copy("listening_day", ["subscriber_id", "artist_id", "day", "seconds"],
+                        listening(rng, size, subscribers, subscriptions, [a[0] for a in artists], until, listened))
+        lap("listening")
 
-            counts = {
-                "subscribers": len(subscribers), "subscriptions": len(subscriptions), "student_verifications": len(verifications),
-                "demo_listeners": len(demo[3]), "artists": len(artists), "listening_days": listened[0],
-            }
-            await conn.execute(
-                "insert into audit_event (at, actor, actor_role, action, subject, request_id, reason, body, prev_hash, hash) "
-                "values ($1, 'data-generator', 'system', 'data.generated', 'database', $2, null, $3::jsonb, $4, $4)",
-                datetime.combine(until, datetime.min.time(), tzinfo=UTC), f"generate-{size_name}-{seed}",
-                json.dumps({"size": size_name, "seed": seed, "start": start.isoformat(), "until": until.isoformat(), **counts}),
-                bytes(32))
-        await conn.execute("analyze")
-        lap("commit_and_analyze")
-        by_market_plan = await conn.fetch(
-            "select market, plan_id, count(*)::int as n from subscription where ended_on is null group by 1, 2 order by 1, 2")
-        return {
-            "size": size_name, "seed": seed, "start": start.isoformat(), "until": until.isoformat(),
-            "listening_days": size.listening_days, "counts": counts,
-            "current_subscriptions": {f"{r['market']}/{r['plan_id']}": r["n"] for r in by_market_plan},
-            "database_bytes": await conn.fetchval("select pg_database_size(current_database())"),
-            "timings_ms": timings,
+        counts = {
+            "subscribers": len(subscribers), "subscriptions": len(subscriptions), "student_verifications": len(verifications),
+            "demo_listeners": len(demo[3]), "artists": len(artists), "listening_days": listened[0],
         }
-    finally:
-        await conn.close()
+        await conn.execute(
+            "insert into audit_event (at, actor, actor_role, action, subject, request_id, reason, body, prev_hash, hash) "
+            "values ($1, 'data-generator', 'system', 'data.generated', 'database', $2, null, $3::jsonb, $4, $4)",
+            datetime.combine(until, datetime.min.time(), tzinfo=UTC), f"generate-{size_name}-{seed}",
+            json.dumps({"size": size_name, "seed": seed, "start": start.isoformat(), "until": until.isoformat(), **counts}),
+            bytes(32))
+    await conn.execute("analyze")
+    lap("commit_and_analyze")
+    by_market_plan = await conn.fetch(
+        "select market, plan_id, count(*)::int as n from subscription where ended_on is null group by 1, 2 order by 1, 2")
+    return {
+        "size": size_name, "seed": seed, "start": start.isoformat(), "until": until.isoformat(),
+        "listening_days": size.listening_days, "counts": counts,
+        "current_subscriptions": {f"{r['market']}/{r['plan_id']}": r["n"] for r in by_market_plan},
+        "database_bytes": await conn.fetchval("select pg_database_size(current_database())"),
+        "timings_ms": timings,
+    }
 
 
 async def main() -> int:
@@ -419,6 +466,8 @@ async def main() -> int:
     parser.add_argument("--fingerprint", action="store_true", help="only print the fingerprint of the generated rows")
     args = parser.parse_args()
     if args.fingerprint:
+        import asyncpg
+
         conn = await asyncpg.connect(args.url)
         try:
             print(await fingerprint(conn))

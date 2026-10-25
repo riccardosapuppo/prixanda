@@ -23,17 +23,16 @@ end, errors included.
 from __future__ import annotations
 
 import asyncio
-import hmac
 import time
 from collections.abc import Callable
 
 import grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 
-from commerce.engine.call import TOKEN_SHAPE, Call
+from commerce.engine.call import TOKEN_SHAPE, Call, Unauthenticated, bearer
 from commerce.engine.engine import METHODS, Engine, Method
 from commerce.engine.errors import EngineError
-from commerce.server.logs import JsonLog
+from commerce.engine.logs import JsonLog
 from commerce.v1 import common_pb2
 
 CODES = {
@@ -42,17 +41,6 @@ CODES = {
     "ABORTED": grpc.StatusCode.ABORTED, "UNAVAILABLE": grpc.StatusCode.UNAVAILABLE, "INTERNAL": grpc.StatusCode.INTERNAL,
 }
 SERVICES = sorted({f"commerce.v1.{m.service}" for m in METHODS.values()})
-
-
-class Unauthenticated(Exception):
-    pass
-
-
-def bearer(value: str | None, expected: str) -> None:
-    if not value or not value.startswith("Bearer "):
-        raise Unauthenticated("the engine answers the gateway only: send authorization: Bearer <internal token>")
-    if not hmac.compare_digest(value[len("Bearer "):].encode(), expected.encode()):
-        raise Unauthenticated("the internal token is not the one this engine was given")
 
 
 def _handler(engine: Engine, method: Method, token: str, log: JsonLog) -> Callable:
