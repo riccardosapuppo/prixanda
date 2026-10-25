@@ -50,11 +50,11 @@ const notRun = (detail: string): Omit<Result, "suite" | "seconds"> => ({ outcome
 
 // The floors: what each suite must at least have checked.
 const FLOOR = {
-  typecheckedFiles: 22, contractFiles: 47, migrations: 17, pythonTests: 782, invariants: 18, generatedSubscribers: 5_000,
+  typecheckedFiles: 22, contractFiles: 47, migrations: 17, pythonTests: 812, invariants: 18, generatedSubscribers: 5_000,
   faultsInjected: 12, measuredQueries: 7, toolsTests: 4,
   // npm's lockfile lists every platform's packages; the Python environment
   // has one more on Windows (colorama, for pytest).
-  licensedPackages: 570,
+  licensedPackages: 580,
 };
 // The change in two times (migrations V12 and V14): the version of the schema
 // before it, and the expansion, where the compatibility check stops on its way.
@@ -66,7 +66,7 @@ const COMPAT = { before: "11", expansion: "12" };
 // Hypothesis generates cases for (properties), the faults injected in a
 // launch with the engine's real process (faults), and the engine's package for
 // the browser: its imports, its adapter, its simulated fault (browser).
-const AREA_FLOOR: Record<string, number> = { database: 112, domain: 235, golden: 44, services: 297, e2e: 31, properties: 10, faults: 14, browser: 58 };
+const AREA_FLOOR: Record<string, number> = { database: 114, domain: 235, golden: 44, services: 306, e2e: 31, properties: 10, faults: 14, browser: 58 };
 // What tests/faults writes: every fault injected in a launch, and what it left.
 type FaultReport = { faults_injected: number; partial_activations: number; recovered: number };
 
@@ -1167,7 +1167,7 @@ function junit(xml: string): { tests: number; failures: number; errors: number; 
 // The sandbox's engine (stage 8): what its suites must at least have checked.
 const sandboxDir = join(repoRoot, "packages", "sandbox");
 const SANDBOX_FLOOR = {
-  browserFiles: 7, nodeFiles: 19, files: 23, modules: 53, nodeTests: 9, browserTests: 7, servicesOnPglite: 274,
+  browserFiles: 7, nodeFiles: 19, files: 23, modules: 53, nodeTests: 9, browserTests: 7, servicesOnPglite: 300,
   servicesLeftToPostgresql: 6,
   schema: { relations: 255, columns: 488, constraints: 911, indexes: 163, triggers: 86, functions: 26, history: 17 } as Record<string, number>,
 };
@@ -1180,7 +1180,7 @@ function sandboxAssets(): ReturnType<typeof buildEngineAssets> {
 // The gateway's floors: what its suites must at least have checked.
 const gatewayDir = join(repoRoot, "services", "gateway");
 const GATEWAY_FLOOR = {
-  files: 55, coreFiles: 22, generated: 3, schemaTests: 26, tests: 253, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
+  files: 56, coreFiles: 22, generated: 3, schemaTests: 26, tests: 258, dataloaderOffers: 25, integrationTests: 13, integrationAuditEvents: 7,
 };
 // The sandbox's gateway side (stage 8): what its suites must at least have
 // checked, and what the worker's bundle may hold: the gateway's part of it,
