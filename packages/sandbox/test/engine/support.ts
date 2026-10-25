@@ -11,7 +11,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { loadPyodide } from "pyodide";
 import { pyodideDir } from "../../src/engine/build/wheels.ts";
-import { createEngine, type Manifest, type SandboxEngine } from "../../src/engine/index.ts";
+import { createEngine, type EngineDeps, type Manifest, type SandboxEngine } from "../../src/engine/index.ts";
 import type { Migration } from "../../src/engine/migrations.ts";
 
 export function assetsDir(): string {
@@ -26,7 +26,11 @@ export type Failures = { snapshot: number; remove: number };
 
 export type NodeEngine = { engine: SandboxEngine; token: string; logs: string[]; manifest: Manifest; failures: Failures };
 
-export async function nodeEngine(assets = assetsDir()): Promise<NodeEngine> {
+/** What a test gives the engine instead of the usual: PGlite's module, Python, where the data lives on disk (a
+ * folder, as IndexedDB keeps it in the browser), and how to know it is there. */
+export type NodeOverrides = Partial<Pick<EngineDeps, "modules" | "python" | "dataDir" | "exists">>;
+
+export async function nodeEngine(assets = assetsDir(), overrides: NodeOverrides = {}): Promise<NodeEngine> {
   const manifest = JSON.parse(await readFile(join(assets, "engine", "manifest.json"), "utf8")) as Manifest;
   const token = randomBytes(32).toString("base64url");
   const logs: string[] = [];
@@ -56,6 +60,7 @@ export async function nodeEngine(assets = assetsDir()): Promise<NodeEngine> {
     migrations: async () => JSON.parse(await readFile(join(assets, "engine", manifest.migrations), "utf8")) as Migration[],
     token,
     onLog: (line) => logs.push(line),
+    ...overrides,
   });
   return { engine, token, logs, manifest, failures };
 }

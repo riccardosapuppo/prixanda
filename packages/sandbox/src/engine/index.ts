@@ -251,22 +251,36 @@ export async function createEngine(deps: EngineDeps): Promise<SandboxEngine> {
   };
 
   let db = await open(false);
-  const pyodide: PyodideAPI = await pythonLoading;
-  mark("Python ready");
-  say("Starting the engine");
-  const module = pyodide.pyimport("commerce.browser.sandbox") as unknown as { Sandbox: (...args: unknown[]) => PySandbox };
-  const Sandbox = module.Sandbox;
   const save = (session: Session) => (instantMs: number) => session.asOwner(async (tx) => {
     await tx.query("update demo.clock set now_at = to_timestamp($1::bigint / 1000.0), moved_at = now()", [instantMs]);
   });
   const startClock = (opened: Opened) => new DemoClock(Math.max(opened.clockMs, opened.latestEventMs), save(opened.session));
-  let clock = startClock(db);
+  let Sandbox!: (...args: unknown[]) => PySandbox;
+  let clock!: DemoClock;
   const sandboxOn = (opened: Opened) => Sandbox(opened.session, () => clock.nowMs(), deps.token, log);
-  let sandbox = sandboxOn(db);
-  mark("engine ready");
-  const versions = JSON.parse(pyodide.runPython(
-    "import json, sys, google.protobuf; json.dumps({'python': sys.version.split()[0], 'protobuf': google.protobuf.__version__})",
-  ) as string) as { python: string; protobuf: string };
+  let sandbox!: PySandbox;
+  let versions!: { python: string; protobuf: string };
+  // From here the data is open: whatever fails before the engine is ready (Python that did not load, a module, the
+  // clock) closes it, so that no instance stays open on it when the worker starts again at the next hello, holding its
+  // memory and keeping a start over from deleting the data. The failure is the one thrown, never the close's.
+  try {
+    const pyodide: PyodideAPI = await pythonLoading;
+    mark("Python ready");
+    say("Starting the engine");
+    const module = pyodide.pyimport("commerce.browser.sandbox") as unknown as { Sandbox: (...args: unknown[]) => PySandbox };
+    Sandbox = module.Sandbox;
+    clock = startClock(db);
+    sandbox = sandboxOn(db);
+    mark("engine ready");
+    versions = JSON.parse(pyodide.runPython(
+      "import json, sys, google.protobuf; json.dumps({'python': sys.version.split()[0], 'protobuf': google.protobuf.__version__})",
+    ) as string) as { python: string; protobuf: string };
+  } catch (error) {
+    settle(sandbox);
+    await db.saved.catch(() => {});
+    await db.session.pg.close().catch(() => {});
+    throw error;
+  }
   const postgres = db.postgres;
   const gate = new Gate();
   // One pass of the jobs at a time: a tick asked during another runs after it, on what that one left.
