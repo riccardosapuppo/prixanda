@@ -155,6 +155,10 @@ function Foot({ sandbox }: { readonly sandbox: Sandbox }) {
               <dd className="m-0 text-sm">{part.text}</dd>
             </div>
           ))}
+          <div className="grid gap-0.5">
+            <dt className="font-bold">{about.notices.title}</dt>
+            <dd className="m-0 text-sm">{about.notices.before}<a href={about.notices.href}>{about.notices.link}</a></dd>
+          </div>
         </dl>
         <Button size="small" icon="arrow-counter-clockwise" className="justify-self-start" onClick={startOver.ask}>{about.startOver}</Button>
       </section>

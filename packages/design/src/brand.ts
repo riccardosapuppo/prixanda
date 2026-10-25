@@ -52,6 +52,13 @@ export const SANDBOX = {
       title: "The real thing",
       text: "The same engine code, the same database migrations and the same GraphQL schemas as the full system.",
     },
+    /** The notices of the third-party code the demo serves, at the demo's root (tools/demo.ts): before + link. */
+    notices: {
+      title: "Open-source licences",
+      before: "The packages this demo serves, each with its licence: ",
+      link: "THIRD-PARTY-NOTICES.txt",
+      href: "/THIRD-PARTY-NOTICES.txt",
+    },
     startOver: "Start over",
     confirm: "Every change made in this browser is lost, in every tab, and the demo starts again from its first data.",
     confirmAction: "Yes, start over",
