@@ -198,7 +198,7 @@ async def simulate_migration(tx: Connection, call: Call, request: simulation_pb2
                                                   policy=rules, now=now)
         if waiting:
             existing -= waiting
-            counted += f", leaving out {waiting} waiting for an earlier migration's price (§8.9)"
+            counted += f", leaving out {waiting} waiting for an earlier migration's price or a first payment (§8.9)"
     acceptance = typed.get("acceptance", book.price_increase_acceptance_bp)
     result = migration.simulate_migration(market.terms(book), old.amount, change.amount.amount, existing, acceptance, rules)
     window_ends = rules.window_ends(change.notices)
