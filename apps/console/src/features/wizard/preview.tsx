@@ -89,7 +89,7 @@ export function SitePreview({ form, markets, plans }: {
           {marketCodes.length > 1 ? (
             <div className="inline-flex rounded-control border border-edge bg-stone-0" role="group" aria-label="Market">
               {marketCodes.map((code) => (
-                <button key={code} type="button" aria-pressed={code === marketCode} onClick={() => setChosen(code)} className={`min-h-9 pointer-coarse:min-h-11 px-3 text-sm font-semibold [&+&]:border-l [&+&]:border-edge ${code === marketCode ? "bg-ink text-stone-0" : "hover:bg-stone-2"}`}>
+                <button key={code} type="button" aria-pressed={code === marketCode} onClick={() => setChosen(code)} className={`min-h-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11 px-3 text-sm font-semibold [&+&]:border-l [&+&]:border-edge ${code === marketCode ? "bg-ink text-stone-0" : "hover:bg-stone-2"}`}>
                   {code}
                 </button>
               ))}
@@ -97,7 +97,7 @@ export function SitePreview({ form, markets, plans }: {
           ) : null}
           <div className="inline-flex rounded-control border border-edge bg-stone-0" role="group" aria-label="Show the page">
             {(["before", "after"] as const).map((value) => (
-              <button key={value} type="button" aria-pressed={view === value} onClick={() => setView(value)} className={`min-h-9 pointer-coarse:min-h-11 px-3 text-sm font-semibold [&+&]:border-l [&+&]:border-edge ${view === value ? "bg-ink text-stone-0" : "hover:bg-stone-2"}`}>
+              <button key={value} type="button" aria-pressed={view === value} onClick={() => setView(value)} className={`min-h-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11 px-3 text-sm font-semibold [&+&]:border-l [&+&]:border-edge ${view === value ? "bg-ink text-stone-0" : "hover:bg-stone-2"}`}>
                 {value === "before" ? "Before" : "After"}
               </button>
             ))}

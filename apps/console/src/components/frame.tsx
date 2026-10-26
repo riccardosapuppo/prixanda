@@ -142,7 +142,7 @@ function Rail({ section }: { readonly section: Section }) {
             ) : null}
           </p>
           <div className={`${open ? "flex" : "hidden"} flex-wrap items-center gap-2 lg:flex`}>
-            <button type="button" className="rail-link min-h-9 w-auto px-0 text-xs underline underline-offset-4 pointer-coarse:min-h-11" onClick={() => void session.signOut()}>
+            <button type="button" className="rail-link min-h-9 w-auto px-0 text-xs underline underline-offset-4 pointer-coarse:min-h-11 pointer-coarse:min-w-11" onClick={() => void session.signOut()}>
               <Icon name="sign-out" size={16} />
               Leave the demo
             </button>

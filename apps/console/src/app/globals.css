@@ -223,6 +223,8 @@
   /* ---------- a finger, not a pointer: on a touch screen every control is at least 44 px tall ---------- */
   @media (pointer: coarse) {
     .btn, .btn--small, .rail-link, .rail-select, .input { min-height: 2.75rem; }
+    /* and as wide: a short label must not leave a button narrower than a finger, whatever the system's font */
+    .btn, .btn--small { min-width: 2.75rem; }
     /* a choice on one line: the card takes the tap, its words in its middle */
     .choice-card { min-height: 2.75rem; align-content: center; }
     /* the breadcrumbs: what a finger can hit grows, the line stays where it is */

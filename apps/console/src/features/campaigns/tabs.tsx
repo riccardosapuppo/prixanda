@@ -38,7 +38,7 @@ export function ChangeTabs({ kind, changeId, current }: { readonly kind: ChangeK
     <nav aria-label={`This ${kindOf(kind).word.toLowerCase()}`} className="flex flex-wrap gap-1 border-b border-cord">
       {tabs.map((tab) => {
         const here = tab.id === current;
-        const className = `inline-flex min-h-10 pointer-coarse:min-h-11 items-center gap-1.5 px-3.5 font-semibold no-underline ${here ? "text-ink shadow-[inset_0_-3px_0_var(--color-ink)]" : "text-ink-2 hover:bg-stone-2 hover:text-ink"}`;
+        const className = `inline-flex min-h-10 pointer-coarse:min-h-11 pointer-coarse:min-w-11 items-center gap-1.5 px-3.5 font-semibold no-underline ${here ? "text-ink shadow-[inset_0_-3px_0_var(--color-ink)]" : "text-ink-2 hover:bg-stone-2 hover:text-ink"}`;
         if (changeId === null && !here) {
           return (
             <span key={tab.id} className={`${className} cursor-not-allowed opacity-80`} title="Save the draft first">
