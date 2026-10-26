@@ -141,7 +141,7 @@ export declare type PriceChangePolicy = Message<"commerce.v1.PriceChangePolicy">
   alternatives: string[];
 
   /**
-   * "Rione's choice, configurable per market. Not a legal requirement."
+   * "Sonequo's choice, configurable per market. Not a legal requirement."
    *
    * @generated from field: string label = 9;
    */

@@ -62,7 +62,7 @@ message PriceChangePolicy {
   string commercial_choice = 7;
   // The other choices the market could make.
   repeated string alternatives = 8;
-  // "Rione's choice, configurable per market. Not a legal requirement."
+  // "Sonequo's choice, configurable per market. Not a legal requirement."
   string label = 9;
 }
 

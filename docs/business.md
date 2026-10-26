@@ -1,9 +1,9 @@
-# The Rione business book
+# The Sonequo business book
 
-Plancia is a subscription and pricing operations platform: it decides what
+Prixanda is a subscription and pricing operations platform: it decides what
 a subscription business sells, to whom, at what price, from when, and with
 whose sign-off, and publishes those decisions safely. This book describes the
-business the platform is explored through. Rione is a subscription music
+business the platform is explored through. Sonequo is a subscription music
 service for independent music, and it is fictional: the company, its people,
 artists, releases, subscribers and numbers are invented, and every figure
 the product shows comes from a deterministic data generator. The rules the
@@ -11,18 +11,16 @@ book states are the ones the platform really applies: they are what the code
 and the tests are measured against.
 
 Three things are kept apart throughout: what a law requires, with its source,
-territory and date; what Rione, a fictional company, decides as a commercial
+territory and date; what Sonequo, a fictional company, decides as a commercial
 policy; and what the browser sandbox simplifies. A rule of the first kind is
 never presented as general legal compliance.
 
 Every feature of the product points to a paragraph of this book (written as
 § and a number). A feature that answers no paragraph is not built.
 
-*Rione and Plancia are provisional names: the definitive ones are chosen and verified before publication.*
+## 1. What Sonequo is
 
-## 1. What Rione is
-
-§1.1 **The service.** Rione streams music from independent labels and
+§1.1 **The service.** Sonequo streams music from independent labels and
 self-released artists in four markets: Italy, France, Germany and the United
 Kingdom. Next to the music it publishes editorial work: release notes, short
 stories about the people behind a record, and curated listening sessions.
@@ -30,12 +28,12 @@ The product in this repository does not play audio: it covers how the
 service is sold and governed.
 
 §1.2 **The promise to artists.** For every paying subscription, every month,
-Rione pays into the artists' pool at least a guaranteed minimum (§5.3),
+Sonequo pays into the artists' pool at least a guaranteed minimum (§5.3),
 whatever discount the subscriber is on. This promise is the reason every
 price has a floor, and the reason a promotion below that floor needs
 finance's signature (§7.3).
 
-§1.3 **Who uses Plancia.** Six roles (§12) run Rione's commercial side.
+§1.3 **Who uses Prixanda.** Six roles (§12) run Sonequo's commercial side.
 They need to launch offers quickly without breaking three things: revenue,
 the trust of subscribers (no surprise charges, no unclear price rises), and
 the promise to artists.
@@ -73,7 +71,7 @@ in the United Kingdom, Consumer Contracts Regulations 2013, Schedule 2). For
 electronically supplied services sold to consumers, VAT is due in the
 customer's country (VAT Directive 2006/112/EC, art. 58(1)(c) and Annex II,
 which lists the supply of music; United Kingdom: VAT Act 1994, Schedule 4A,
-para. 15). Rione assumes the customer-country rule always applies; the
+para. 15). Sonequo assumes the customer-country rule always applies; the
 exception of art. 59c of the Directive (a supplier established in a single
 EU Member State with cross-border sales up to EUR 10,000 a year) is not
 modelled.
@@ -93,7 +91,7 @@ Kingdom presents its Budget on 28 October 2026.
 currency's minor unit (cents, pence), stored with its currency. Divisions
 round half up to the minor unit, and the rule is written in one place. The
 engine is also tested on a currency without decimals (Japanese yen), which
-Rione does not sell in, so that nothing assumes two decimals.
+Sonequo does not sell in, so that nothing assumes two decimals.
 
 §3.5 **Net of VAT.** For a price `P` including VAT and a rate `v` in basis
 points (2200 is 22%), the net amount is
@@ -108,7 +106,7 @@ amounts are converted at a declared rate stored with each report. The
 reference rate used in this book and in the generated data is the ECB euro
 foreign exchange reference rate of 23 October 2026: 1 EUR = 0.83728 GBP
 (1 GBP is about 1.194344 EUR). The ECB publishes these rates for information
-purposes only; using it is a reporting choice of Rione, not a legal
+purposes only; using it is a reporting choice of Sonequo, not a legal
 requirement. Example: £9.49 is reported as €11.33.
 
 §3.7 **Local time.** Anything scheduled for a market (an offer starting, a
@@ -168,16 +166,16 @@ provider is simulated and accepts every charge (§15).
 §5.1 **Net revenue.** Revenue is counted net of VAT (§3.5), per paying
 subscription and per month.
 
-§5.2 **The artists' pool.** Rione pays rights holders a share `s` of net
+§5.2 **The artists' pool.** Sonequo pays rights holders a share `s` of net
 subscription revenue. In this book and in the generated data `s` is 60%
-(an assumption, editable in Plancia's settings):
+(an assumption, editable in Prixanda's settings):
 
     pool(N) = round_half_up(N × s)
 
 §5.3 **The guaranteed minimum.** For every paying subscription, every month,
 the artists' pool receives at least `G`: €3.00 in the euro markets and £2.60
 in the United Kingdom. When the share of a subscription's net revenue is
-below `G`, Rione tops it up from its own margin:
+below `G`, Sonequo tops it up from its own margin:
 
     top_up(N) = max(0, G − pool(N))
     owed_to_artists(N) = pool(N) + top_up(N) = max(pool(N), G)
@@ -197,9 +195,9 @@ the formulas above, so rounding is included:
 | United Kingdom | £5.19 |
 
 §5.5 **A standing exception.** The Italian Student price (€5.79) is below
-the Italian floor. Its net amount is €4.75, its pool €2.85, so Rione adds
+the Italian floor. Its net amount is €4.75, its pool €2.85, so Sonequo adds
 €0.15 per Student subscription per month. This was a deliberate acquisition
-choice, approved by finance as a standing exception; Plancia shows its
+choice, approved by finance as a standing exception; Prixanda shows its
 running cost on the price list.
 
 §5.6 **Payment costs.** Collecting money costs a share `f` of gross receipts
@@ -267,7 +265,7 @@ live is still protected one by one: a subscriber holds at most one offer of
 a group, and confirming a quote for a second one is refused with
 NOT_COMBINABLE (§10.3).
 
-§6.5 **The difference, in business words.** Before anyone approves, Plancia
+§6.5 **The difference, in business words.** Before anyone approves, Prixanda
 states the change as a sentence, in this shape: "Italy, Student: from €5.79
 to €2.99 for 3 months, new subscribers only; N eligible; conflicts: none."
 N, the number of eligible people, is counted in the data when the sentence
@@ -306,7 +304,7 @@ With `T = round(E × u)` takers, `R = round(T × r)` stayers and
 It also reports two costs that finance asks about by name:
 
     discount_cost = C × d × (N(P_l) − N(P_o))     revenue given up on people who would have paid
-    top_up_cost   = T × d × top_up(N(P_o))        what the artists' minimum costs Rione
+    top_up_cost   = T × d × top_up(N(P_o))        what the artists' minimum costs Sonequo
 
 The simulation states its assumptions next to its results. It does not
 learn anything from data and makes no forecast beyond these formulas.
@@ -376,7 +374,7 @@ Otherwise the commercial lead or finance may approve.
 and one person cannot give two of the signatures a version needs. These
 rules are enforced by the engine and again by the database, so a bug in one
 layer does not open the door. Identities come from the server's session,
-never from a field in a request. Plancia is designed around SOX-style
+never from a field in a request. Prixanda is designed around SOX-style
 separation of duties and auditable approval controls; it is not certified
 against any standard.
 
@@ -404,10 +402,10 @@ change (§12); what to do, step by step, is in the runbook
 
 ## 8. Price changes for existing subscribers
 
-§8.1 **Two separate questions.** For each market Plancia keeps a policy
+§8.1 **Two separate questions.** For each market Prixanda keeps a policy
 with two parts that are never mixed: what the law requires before an
 existing subscriber pays more (the legal basis, with its source), and what
-Rione decides to do when a subscriber does not accept (a commercial choice,
+Sonequo decides to do when a subscriber does not accept (a commercial choice,
 configurable).
 
 §8.2 **Germany.** In two judgments of 15 November 2023, the Kammergericht
@@ -425,12 +423,12 @@ the Bundesgerichtshof also held a subscription's price-change terms invalid
 because they did not make clear what rights the customer had when the price
 rose.
 
-Rione therefore asks existing subscribers in Germany for their active
+Sonequo therefore asks existing subscribers in Germany for their active
 consent before a price increase applies, and the request states plainly
 what happens if they do not consent. Silence is never taken as consent.
 What happens next is a commercial decision, configured per market, not a
 legal consequence: the court noted that, without consent, the provider is
-free to end the contract. Rione's current choice is to move the account to
+free to end the contract. Sonequo's current choice is to move the account to
 the Free plan when the period already paid at the consent deadline runs out,
 keeping playlists and library; ending the paid subscription at the end of the
 billing period, or keeping the old price until a stated date, are the other
@@ -444,7 +442,7 @@ reason stated in the contract, and a term letting the trader raise the price
 without the consumer being able to withdraw when the final price is
 excessively high compared with the agreed one. The Code's exception allowing
 changes to indefinite-duration contracts with notice and a right to withdraw
-(art. 33(3)) covers financial services only. Rione therefore states in its
+(art. 33(3)) covers financial services only. Sonequo therefore states in its
 terms the reasons that can justify a price change, gives advance notice, and
 lets the customer withdraw before the new price applies. The Code sets no
 notice period for this sector: the notice length, the list of reasons and
@@ -455,7 +453,7 @@ unilaterally the price of the service is prohibited in consumer contracts
 (Consumer Code, art. R. 212-1, 3°). For contracts of indefinite duration,
 the Code allows a term letting the trader change the price if the consumer
 is informed within a reasonable time, so as to be able to terminate the
-contract (art. R. 212-4). Rione therefore applies price increases to French
+contract (art. R. 212-4). Sonequo therefore applies price increases to French
 rolling subscriptions only after advance notice, with the option to
 terminate before the new price applies. The length of the notice is company
 policy.
@@ -468,17 +466,17 @@ is indicative and non-exhaustive (section 63). The CMA's guidance on unfair
 contract terms (CMA37, 22 July 2026) says a price-variation term is more
 likely to be fair when, among other conditions, the consumer gets
 sufficient and effective advance notice and is genuinely free to exit.
-Rione therefore applies UK price increases only after advance notice, with
+Sonequo therefore applies UK price increases only after advance notice, with
 the option to cancel before the new price applies. This is not presented as
 a legal safe harbour; the notice length is company policy.
 
-§8.6 **Policy only, no source imposes it.** Plancia presents these as
-Rione's settings, never as law: what happens to German subscribers who do
+§8.6 **Policy only, no source imposes it.** Prixanda presents these as
+Sonequo's settings, never as law: what happens to German subscribers who do
 not consent; the length of the notice in Italy, France and the United
 Kingdom (30 days in the generated data); the list of justified reasons in
 Italy; reductions when costs fall, caps and frequency of increases; moving
 non-accepting subscribers to the Free plan outside Germany; the notice when
-Rione itself ends a rolling subscription.
+Sonequo itself ends a rolling subscription.
 
 §8.7 **What the simulation of a migration shows.** Who pays what and from
 when (new subscribers from the start date, existing ones from their own
@@ -535,7 +533,7 @@ it was sold.
 sold but not yet earned, by market. A pass's net amount is recognized in
 equal monthly parts from activation, the last part taking the remainder: an
 Italian pass, net €24.58, is recognized as €8.19, €8.19 and €8.20. Unused
-codes stay unearned until they expire. This is the only accounting Plancia
+codes stay unearned until they expire. This is the only accounting Prixanda
 does (§15).
 
 §9.3 **Selling and activating a code.** The commercial lead writes a pass
@@ -590,7 +588,7 @@ anchor, not immutable.
 
 §11.4 Everyone on the team reads the log, so any decision can be traced from
 any seat; the auditor exports it, and the auditor and the on-call engineer
-verify the chain. Nobody can change it through Plancia.
+verify the chain. Nobody can change it through Prixanda.
 
 ## 12. The team
 
@@ -660,7 +658,7 @@ verification expires after 12 months; incompatible discounts do not stack
 (§10).
 
 §14.6 **Safe launch (reliability).** A fault is caused during an
-activation. Plancia never leaves half a configuration live, recovers on
+activation. Prixanda never leaves half a configuration live, recovers on
 its own and shows what happened, step by step. In the full system the
 faults are real (the engine stopped, the database connection cut at every
 step); in the browser demo the fault is simulated and says so. The checks
@@ -669,9 +667,9 @@ the publish step of a list price's, and count the partial activations they
 leave behind: there must be none.
 
 §14.7 **A second company, in tests only.** A fictional software company
-with seat-based plans goes through the same flows. It shows that Plancia
+with seat-based plans goes through the same flows. It shows that Prixanda
 is not wired to music and could serve other subscription businesses. Taking
-real payments would stay with a payment provider; Plancia governs
+real payments would stay with a payment provider; Prixanda governs
 decisions, approvals and publication. In the tests it is Quillbase, an
 invented maker of shared notebooks for teams: Starter, its plan without
 payment, and Team (5 seats) and Business (25 seats). What only the music
@@ -681,7 +679,7 @@ the name of the plan without payment (whichever plan is not paid, one at
 most), plans of up to 1,000 seats, and entitlements that only music plans
 have.
 
-## 15. What Rione does not do
+## 15. What Sonequo does not do
 
 Real payments (the provider is simulated behind an interface, and a real one
 would plug in there); real authentication (people enter with a role, but

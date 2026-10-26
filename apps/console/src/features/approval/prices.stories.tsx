@@ -57,7 +57,7 @@ export const FinanceSignsTheGermanRise: Story = {
     await expect(page.getByRole("link", { name: "Progress" })).toHaveAttribute("href", "/price-migrations/progress/?id=21");
     const law = within(await page.findByRole("region", { name: "What the law asks" }));
     await expect(law.getByText(/silence counts as no/)).toBeInTheDocument();
-    await expect(page.getByRole("region", { name: "What Rione chose" })).toHaveTextContent("The music service's choice, configurable per market; not a legal requirement.");
+    await expect(page.getByRole("region", { name: "What Sonequo chose" })).toHaveTextContent("The music service's choice, configurable per market; not a legal requirement.");
     await expect(await page.findByText(/net of VAT €15\.96 becomes €17\.64/)).toBeInTheDocument();
     await expect(page.getByRole("heading", { name: "Why the price rises, in the author's words" })).toBeInTheDocument();
     await userEvent.click(page.getByRole("button", { name: "Approve v1 as Finance" }));

@@ -1,6 +1,6 @@
 # The console
 
-Where Rione's commercial team creates, simulates, approves and follows
+Where Sonequo's commercial team creates, simulates, approves and follows
 changes: Next.js 16.4.3 built to static files, React 19, TanStack Query. Every
 number on a page comes from the gateway's internal GraphQL API; nothing runs
 on a server at request time.
@@ -47,7 +47,7 @@ on a server at request time.
   the dates (when the existing subscribers are asked or told, when new
   subscribers pay it), then the check and the submission. Beside the form,
   the market's rules in two blocks that are never mixed: what the law asks,
-  with its sources, and what Rione chose, labelled as a choice and not law
+  with its sources, and what Sonequo chose, labelled as a choice and not law
   (§8.1). The check shows the engine's findings (price, dates, overlap), each
   with the step that fixes it. The simulation (§8.7) says who pays what and
   from when, one subscription before and after, the revenue at risk at an

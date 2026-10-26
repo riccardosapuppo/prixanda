@@ -104,7 +104,7 @@ function start(engine: FakeBrowserEngine, options: {
 } = {}) {
   let starts = 0;
   const logged: Array<{ level: string; line: string }> = [];
-  const database = options.database ?? "idb://plancia-sandbox";
+  const database = options.database ?? "idb://offers-sandbox";
   const startEngine: StartEngine = async ({ token, onProgress, base, database: given }) => {
     starts += 1;
     assert.equal(token, engine.fake.token, "the worker's token is the one the engine checks");

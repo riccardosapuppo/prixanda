@@ -28,7 +28,7 @@ const FROM_WORKER: FromWorker[] = [
 describe("the sandbox's protocol", () => {
   test("one worker for the origin: the address and the name every app opens", () => {
     assert.equal(WORKER_URL, "/sandbox/backend.js");
-    assert.equal(WORKER_NAME, "plancia-sandbox");
+    assert.equal(WORKER_NAME, "offers-sandbox");
   });
 
   test("names what the engine's tick() changes, the demo's commands and the steps of a launch, as the project's conventions fix them", () => {

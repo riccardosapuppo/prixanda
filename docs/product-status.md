@@ -1,10 +1,10 @@
 # Product status
 
-Written on 25 October 2026. Plancia and Rione are provisional names.
+Written on 25 October 2026, revised on 26 October 2026.
 
 ## What the product is
 
-Plancia is a subscription and pricing operations platform. It keeps what a
+Prixanda is a subscription and pricing operations platform. It keeps what a
 subscription business sells: the plans and what each one includes, the price
 of each plan in each market, the promotional offers and their audiences,
 prepaid passes, and price changes for people who already subscribe. Prices,
@@ -14,7 +14,7 @@ someone other than its author, scheduled, and launched into the public
 catalog by a job that publishes all of it in one transaction or nothing, and
 resumes where it stopped. Every decision is written to an audit log.
 
-Rione, an independent-music streaming service in Italy, France, Germany and
+Sonequo, an independent-music streaming service in Italy, France, Germany and
 the United Kingdom, is the fictional business the platform is explored
 through. Its public site is part of the repository, so a decision taken in
 the console can be followed to the moment a listener sees it.
@@ -28,7 +28,7 @@ live without the signature it needed; two offers for the same audience
 collide; a discount sells below a floor the business promised someone; a
 launch fails halfway and the site shows a price that is not in force; an
 increase reaches existing subscribers in a market where it needed their
-consent. Plancia turns each of those into a rule that the engine enforces,
+consent. Prixanda turns each of those into a rule that the engine enforces,
 and the database enforces again where it can, with a simulator that shows the
 cost before anyone signs.
 
@@ -151,8 +151,9 @@ More detail is in [production-readiness.md](production-readiness.md) and
   is not a verification of legal compliance in any market. A launch would
   need its own review of tax, consumer protection, contract and privacy
   obligations.
-- Names: Plancia and Rione are provisional and have not been cleared by a
-  trademark professional.
+- Names: Prixanda and Sonequo were checked against trade-mark registers,
+  software, packages and domains by the author, not cleared by a trade-mark
+  professional.
 - Scale: one company at a time, with a second only in the tests; the
   measurements are on synthetic data on a single development machine, not
   benchmarks of a deployment.

@@ -406,7 +406,7 @@ export type PriceChangeChoice = {
   readonly words: Scalars['String']['output'];
   /** The other choices the market could make. */
   readonly alternatives: ReadonlyArray<Scalars['String']['output']>;
-  /** That it is a choice: Rione's choice, configurable per market. Not a legal requirement. */
+  /** That it is a choice: Sonequo's choice, configurable per market. Not a legal requirement. */
   readonly label: Scalars['String']['output'];
 };
 

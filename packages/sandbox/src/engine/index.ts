@@ -85,7 +85,7 @@ export type EngineInfo = {
 export type StartOptions = {
   /** Where the sandbox's files are served: "/sandbox/". */
   readonly base: string;
-  /** The database's name in IndexedDB: "idb://plancia-sandbox". */
+  /** The database's name in IndexedDB: "idb://offers-sandbox". */
   readonly database: string;
   /** The internal token: the worker makes it at random, and its transport sends it in every call. */
   readonly token: string;

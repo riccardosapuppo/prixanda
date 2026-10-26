@@ -73,7 +73,7 @@ export const TheGermanRulesBesideTheExample: Story = {
     await expect(await page.findByText(/€2\.00 a month more than €18\.99 \(10\.53% more\)/)).toBeInTheDocument();
     // The law and the choice: two blocks, each with its own heading, never mixed (§8.1).
     const law = page.getByRole("region", { name: "What the law asks" });
-    const choice = page.getByRole("region", { name: "What Rione chose" });
+    const choice = page.getByRole("region", { name: "What Sonequo chose" });
     await expect(within(law).getByText("Consent: each existing subscriber has to say yes, and silence counts as no.")).toBeInTheDocument();
     await expect(within(law).getByText("Kammergericht (Berlin), two judgments of 15 November 2023, press release 27/2023")).toBeInTheDocument();
     await expect(within(law).queryByText(/configurable per market/)).toBeNull();

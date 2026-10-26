@@ -22,7 +22,7 @@ const ANSWERS: Record<string, () => Uint8Array> = {
 
 export const startEngine: StartEngine = async ({ base, database, token, onProgress }) => {
   // What the engine's own startEngine is given in the demo: its files beside the worker, its data in IndexedDB.
-  if (base !== "/sandbox/" || database !== "idb://plancia-sandbox") throw new Error(`the worker gave the engine ${base} and ${database}`);
+  if (base !== "/sandbox/" || database !== "idb://offers-sandbox") throw new Error(`the worker gave the engine ${base} and ${database}`);
   onProgress?.("Opening the canned engine");
   let now = new Date("2026-10-24T08:00:00Z");
   let armed: LaunchStep | null = null;

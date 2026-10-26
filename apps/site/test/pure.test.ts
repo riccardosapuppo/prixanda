@@ -114,7 +114,7 @@ describe("the months of an offer, drawn", () => {
 
 describe("the canopy of where money goes", () => {
   // The Student Autumn Pass in Italy (business book §6.7): of 2,99 €, the pool
-  // is 1,47 €; Rione tops it up by 1,53 € to the 3,00 € minimum.
+  // is 1,47 €; Sonequo tops it up by 1,53 € to the 3,00 € minimum.
   const owed = 300n;
   const pool = 147n;
   const drawn = canopy([{ from: 0n, to: owed, dye: "madder" }, { from: pool, to: owed, dye: "saffron" }], owed, { minimum: 300n, height: 104 });

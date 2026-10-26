@@ -1,9 +1,9 @@
-# Plancia
+# Prixanda
 
 A subscription and pricing operations platform. A Python engine behind gRPC
 keeps the rules, a GraphQL gateway serves a console for the commercial team
 and a public site, and PostgreSQL holds the data and the rules that must
-survive a bug. *Plancia is a provisional name.*
+survive a bug.
 
 ![The console's timeline of a launch: five steps, the publish step cut once by a simulated fault and done on its second attempt, the catalog live on the site](docs/images/console-timeline-1440.png)
 
@@ -15,7 +15,7 @@ survive a bug. *Plancia is a provisional name.*
 [Legal and licensing](docs/legal-and-licensing.md) ·
 [Runbook](docs/runbook.md)
 
-Plancia keeps what a subscription business sells: the plans and what each
+Prixanda keeps what a subscription business sells: the plans and what each
 one includes, the price of every plan in every market, the promotions and who
 they are for, prepaid passes, and price changes for the people who already
 pay. Prices, promotions, passes and price changes are changes with versions.
@@ -26,13 +26,13 @@ or nothing, and resumes where it stopped. Every decision goes into an audit
 log that can be checked afterwards, and the rules that matter most are
 enforced twice, by the engine and again by the database.
 
-The platform is explored through Rione, an independent-music streaming
-service in Italy, France, Germany and the United Kingdom (a provisional name
-too). Every price at Rione follows from one promise: each paying
+The platform is explored through Sonequo, an independent-music streaming
+service in Italy, France, Germany and the United Kingdom. Every price at
+Sonequo follows from one promise: each paying
 subscription pays the artists at least €3.00 (£2.60) a month, whatever
-discount the subscriber is on. A promotion below that floor costs Rione the
+discount the subscriber is on. A promotion below that floor costs Sonequo the
 difference out of its own margin, so finance has to sign it, and the
-simulator shows the cost before anyone does. Rione, its artists and its
+simulator shows the cost before anyone does. Sonequo, its artists and its
 subscribers are invented and the data is synthetic; the arithmetic, the
 approval rules, the launches and the audit log are real. The business book
 behind every feature is [docs/business.md](docs/business.md).
@@ -40,9 +40,9 @@ behind every feature is [docs/business.md](docs/business.md).
 > Independent personal project. Fictional business and synthetic customer
 > data. No real payments are processed.
 
-## A week of Rione's commercial team, in six scenarios
+## A week of Sonequo's commercial team, in six scenarios
 
-Each scenario is something Rione's team does in an ordinary week, for a
+Each scenario is something Sonequo's team does in an ordinary week, for a
 business reason. Each runs in the tests against the real engine and
 PostgreSQL, end to end in a headless browser, in the console, on the site or
 both, and its steps are then found in the audit log.
@@ -73,7 +73,7 @@ New subscribers pay the new price from a date. Existing subscribers in
 Germany are asked for their consent first, because German courts have struck
 down terms that let a streaming service raise its price at its own
 discretion. Silence never counts as a yes, and what happens without one is
-Rione's own policy, set per market. In Italy, France and the United Kingdom
+Sonequo's own policy, set per market. In Italy, France and the United Kingdom
 subscribers are told in advance and can leave before the new price applies.
 The simulation shows who pays what and from when, the revenue at risk under a
 declared acceptance rate, and who would move to the Free plan.
@@ -101,7 +101,7 @@ A second fictional company, a maker of shared notebooks with seat-based
 plans, runs through the same flows in the tests, to show that nothing in the
 platform depends on music.
 
-![Rione's home: records from small labels, with a cover drawn from the record's seed](docs/images/site-home-1440.png)
+![Sonequo's home: records from small labels, with a cover drawn from the record's seed](docs/images/site-home-1440.png)
 
 ## The two modes
 

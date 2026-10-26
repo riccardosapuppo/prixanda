@@ -61,7 +61,7 @@ describe("the team's table", () => {
 
   it("says §11.4 on the audit log, word for word, with the roles its rights give", async () => {
     const book = await readFile(BOOK, "utf8");
-    assert.equal(logRule("Plancia"), paragraph(book, "§11.4"));
+    assert.equal(logRule("Prixanda"), paragraph(book, "§11.4"));
   });
 
   it("says what every role reads as §12.2 does", async () => {

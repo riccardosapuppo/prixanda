@@ -25,7 +25,7 @@ export const POLICIES: PriceChangePoliciesQuery = {
       priceChangePolicy: {
         law: {
           requirement: "NOTICE",
-          basis: "A term letting the trader change the contract without a justified reason stated in it, or raise the price without the consumer being able to withdraw, is presumed unfair unless the trader proves otherwise. Rione states the reasons in its terms, gives advance notice, and lets the customer withdraw before the new price applies.",
+          basis: "A term letting the trader change the contract without a justified reason stated in it, or raise the price without the consumer being able to withdraw, is presumed unfair unless the trader proves otherwise. Sonequo states the reasons in its terms, gives advance notice, and lets the customer withdraw before the new price applies.",
           sources: ["Consumer Code (Legislative Decree 206/2005), art. 33(2)(m) and (o)"],
         },
         choice: { windowDays: 30, afterWindow: "NEW_PRICE", words: "Thirty days of notice, with the reason for the change; the subscriber may leave before the new price applies, with no exit fee.", alternatives: [], label: "The music service's choice, configurable per market; not a legal requirement." },
@@ -36,7 +36,7 @@ export const POLICIES: PriceChangePoliciesQuery = {
       priceChangePolicy: {
         law: {
           requirement: "NOTICE",
-          basis: "A term reserving to the trader the right to change the price unilaterally is prohibited; in a contract of indefinite duration the price may change if the consumer is told within a reasonable time, so as to be able to terminate. Rione applies increases after advance notice, with the option to terminate before the new price applies.",
+          basis: "A term reserving to the trader the right to change the price unilaterally is prohibited; in a contract of indefinite duration the price may change if the consumer is told within a reasonable time, so as to be able to terminate. Sonequo applies increases after advance notice, with the option to terminate before the new price applies.",
           sources: ["Consumer Code, art. R. 212-1, 3°", "Consumer Code, art. R. 212-4"],
         },
         choice: { windowDays: 30, afterWindow: "NEW_PRICE", words: "Thirty days of notice; the subscriber may terminate before the new price applies.", alternatives: [], label: "The music service's choice, configurable per market; not a legal requirement." },
@@ -47,7 +47,7 @@ export const POLICIES: PriceChangePoliciesQuery = {
       priceChangePolicy: {
         law: {
           requirement: "CONSENT",
-          basis: "Terms letting a streaming service raise the price of a running subscription at its own discretion unreasonably disadvantage consumers (German Civil Code, § 307(1), first sentence): the service can ask for consent instead. Rione asks existing subscribers for their active consent before an increase applies, and silence is not consent.",
+          basis: "Terms letting a streaming service raise the price of a running subscription at its own discretion unreasonably disadvantage consumers (German Civil Code, § 307(1), first sentence): the service can ask for consent instead. Sonequo asks existing subscribers for their active consent before an increase applies, and silence is not consent.",
           sources: [
             "Kammergericht (Berlin), two judgments of 15 November 2023, press release 27/2023",
             "Bundesgerichtshof, decisions of 30 January 2025 and 27 February 2025: the judgments are final",
@@ -68,7 +68,7 @@ export const POLICIES: PriceChangePoliciesQuery = {
       priceChangePolicy: {
         law: {
           requirement: "NOTICE",
-          basis: "Terms letting the trader alter the contract without a valid reason, or raise the price without a right to cancel, may be regarded as unfair; advance notice and a genuine freedom to exit make a price-variation term more likely to be fair. This is not a legal safe harbour. Rione applies increases after advance notice, with the option to cancel before the new price applies.",
+          basis: "Terms letting the trader alter the contract without a valid reason, or raise the price without a right to cancel, may be regarded as unfair; advance notice and a genuine freedom to exit make a price-variation term more likely to be fair. This is not a legal safe harbour. Sonequo applies increases after advance notice, with the option to cancel before the new price applies.",
           sources: ["Consumer Rights Act 2015, Schedule 2, paras 11 and 15, and section 63", "CMA37, unfair contract terms guidance, 22 July 2026"],
         },
         choice: { windowDays: 30, afterWindow: "NEW_PRICE", words: "Thirty days of notice; the subscriber may cancel before the new price applies.", alternatives: [], label: "The music service's choice, configurable per market; not a legal requirement." },
