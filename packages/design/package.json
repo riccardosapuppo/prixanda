@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "description": "What the console and the site share of the identity: tokens as CSS variables and as a Tailwind theme, the fonts with their licenses, the icons, the writing of money and the provisional names.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "exports": {
     ".": "./src/index.ts",
     "./icon": "./src/icon.tsx",

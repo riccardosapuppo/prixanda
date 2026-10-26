@@ -391,5 +391,9 @@ What a commercial launch would still need is in
 
 ## License
 
-MIT, see [LICENSE](LICENSE). An independent personal project by Riccardo
-Sapuppo, with no client, employer or streaming service behind it.
+The code and the documentation are under the Apache License, Version 2.0: see
+[LICENSE](LICENSE) and [NOTICE](NOTICE). The names, their wordmarks and the
+images in `docs/images` are not part of that licence: see
+[TRADEMARKS.md](TRADEMARKS.md). The fonts and the icons keep their own
+licences. An independent personal project by Riccardo Sapuppo, with no
+client, employer or streaming service behind it.

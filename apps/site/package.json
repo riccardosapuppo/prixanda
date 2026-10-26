@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "description": "The public site of the fictional music service: plans and prices by market, the campaigns on sale, the demo listener's student check, demo subscription and account. A static Next.js build that asks the gateway's public schema for every figure.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=24"
   },

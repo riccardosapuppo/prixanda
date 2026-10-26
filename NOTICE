@@ -1,0 +1,17 @@
+subscription-offers-platform
+Copyright 2026 Riccardo Sapuppo
+
+Licensed under the Apache License, Version 2.0 (LICENSE).
+
+The licence covers the code and the documentation of this repository. It does
+not cover the names of the platform and of the fictional streaming service,
+their wordmarks, or the images in docs/images: see TRADEMARKS.md.
+
+This repository also holds third-party material under its own licence:
+- the icons in packages/design/src/icons.ts, copied from Phosphor Icons, under
+  the MIT licence (packages/design/src/LICENSE-phosphor.txt);
+- the fonts in packages/design/fonts, Archivo and Atkinson Hyperlegible Next,
+  under the SIL Open Font License 1.1 (their licence files are beside them).
+
+The browser demo carries the notices of the third-party code it serves, in
+THIRD-PARTY-NOTICES.txt at its root.
