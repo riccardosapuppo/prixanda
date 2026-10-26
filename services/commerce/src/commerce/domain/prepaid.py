@@ -9,6 +9,11 @@ following month, as a subscription is charged (billing.py). A code paid for
 and not activated stays unearned until it expires; an expired code's value
 is no longer unearned, and the platform does no accounting beyond that
 (§15). A failed or pending payment sold nothing yet.
+
+What a code paid for is on a day follows from its dates, as the activation
+and the expiry go by them: activated from the day it was activated, expired
+once its last day has passed without that (state_on). So a day before an
+activation or an expiry reads the code as it stood then.
 """
 
 from __future__ import annotations
@@ -57,9 +62,18 @@ def earned(net: int, months: int, activated_on: date | None, day: date) -> int:
     return sum(part for k, part in enumerate(parts) if billing.billing_date(start, billing_day, k) <= day)
 
 
+def state_on(day: date, *, valid_until: date, activated_on: date | None) -> str:
+    """What a code paid for is on a day of its market: activated from the day it was activated, expired from the day
+    after its last day if it was not activated by then, and ready before either. A code is activated by its last day
+    or never, so one activated after the day was ready on it."""
+    if activated_on is not None and activated_on <= day:
+        return "activated"
+    return "expired" if valid_until < day else "ready"
+
+
 @dataclass(frozen=True)
 class Sold:
-    """A code paid for, as finance counts it."""
+    """A code paid for, as finance counts it on a day: its state that day (state_on)."""
 
     net: int
     months: int

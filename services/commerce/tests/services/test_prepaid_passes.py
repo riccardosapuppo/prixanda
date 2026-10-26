@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from commerce.domain.localtime import format_instant
 from commerce.engine import prepaid
 from commerce.engine.errors import InvalidArgument, NotFound
 from commerce.engine.providers import FAILED, ChargeResult, ProviderEvent
@@ -333,6 +334,42 @@ async def test_finance_sees_the_value_sold_and_not_yet_earned(world):
     assert home.monthly_top_ups == before.monthly_top_ups
     lead = await world.call("GetOverview", overview_pb2.GetOverviewRequest(), LEAD)
     assert (list(lead.prepaid), lead.HasField("prepaid_unearned_eur")) == ([], False)
+    # The instant of now, named: the same answer as the engine's clock gives.
+    named = await world.call("GetOverview", overview_pb2.GetOverviewRequest(at=format_instant(world.clock.now())), FINANCE)
+    assert named == home
+
+
+async def test_finance_s_value_at_an_instant_is_the_one_of_that_instant(world):
+    """The value at an instant counts the codes paid for by then, each as it stood on its market's day there: a code
+    that expired later was still waiting, one activated later was not activated yet, and one bought later, or bought
+    earlier and paid for later, was not sold."""
+    change = await on_sale(world)
+    await bought(world, 101, change.id)  # paid for on 1 November; it is never activated
+    given = await bought(world, 101, change.id)
+    world.clock.at = at(2026, 11, 2, 10, 0)
+    await buy(world, 101, change.id)  # bought on 2 November, its payment settled on the 3rd
+    world.clock.at = at(2026, 11, 3, 9, 0)
+    await world.engine.deliver_outbox()
+    await bought(world, 101, change.id)  # bought and paid for on 3 November
+    await activate(world, 102, given.code)  # activated on 3 November
+    world.clock.at = at(2027, 10, 31, 23, 0)  # 1 November 2027 in Rome: the first code's last day is over
+    assert [(e.market, e.valid_until) for e in await world.engine.expire_prepaid_codes()] == [("IT", "2027-10-31")]
+
+    async def italy(instant: str = "") -> tuple[int, int, int, int]:
+        home = await world.call("GetOverview", overview_pb2.GetOverviewRequest(at=instant), FINANCE)
+        [value] = home.prepaid
+        assert home.prepaid_unearned_eur == value.unearned  # the only market with codes, in euros
+        return value.sold, value.activated, value.expired, value.unearned.amount_minor
+
+    # Noon on 2 November: two codes paid for, both waiting, €24.58 net each.
+    assert await italy("2026-11-02T12:00:00Z") == (2, 0, 0, 2458 + 2458)
+    # Half past midnight on 3 November in Rome, still the 2nd in UTC: the figures go by the market's day, and on it the
+    # gift was activated and earned its first part.
+    assert await italy("2026-11-02T23:30:00Z") == (2, 1, 0, 2458 + 2458 - 819)
+    # Now: four paid for; the first expired, the gift's months are over, two wait.
+    assert await italy() == (4, 1, 1, 2458 + 2458)
+    named = await world.call("GetOverview", overview_pb2.GetOverviewRequest(at=format_instant(world.clock.now())), FINANCE)
+    assert named == await world.call("GetOverview", overview_pb2.GetOverviewRequest(), FINANCE)
 
 
 async def test_a_price_migration_leaves_passes_alone(world):

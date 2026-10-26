@@ -20,7 +20,11 @@ service PeopleService {
 }
 
 message GetOverviewRequest {
-  // An instant, ISO 8601 with Z. Empty: the engine's clock.
+  // An instant, ISO 8601 with Z. Empty: the engine's clock. The subscribers,
+  // the revenue and the prepaid passes are those of each market's day at the
+  // instant, and the incidents those of the instant; what waits for approval
+  // and the state of the coming launches are read as the changes stand now
+  // (GetOverviewResponse).
   string at = 1;
 }
 
@@ -70,12 +74,13 @@ message MarketRevenue {
 }
 
 // The prepaid passes of a market, and their value sold and not yet earned on
-// the day (§9.2): each pass's net amount is earned in equal monthly parts from
-// its activation, the last taking the remainder; a code not activated stays
-// unearned until it expires.
+// the market's day at the instant (§9.2): each pass's net amount is earned in
+// equal monthly parts from its activation, the last taking the remainder; a
+// code not activated stays unearned until it expires.
 message PrepaidValue {
   string market = 1;
-  // Codes paid for, of which activated, and expired unused.
+  // Codes paid for by the instant (their payment succeeded), of which
+  // activated by that day, and expired unused by then.
   int64 sold = 2;
   int64 activated = 3;
   int64 expired = 4;
@@ -85,7 +90,12 @@ message PrepaidValue {
 }
 
 message GetOverviewResponse {
+  // The changes in approval now, whatever the instant: the queue of
+  // signatures. A change's earlier states are in the audit log.
   repeated ChangeSummary waiting_for_approval = 1;
+  // The starts in the seven days from the instant of the changes validated,
+  // in approval, approved or scheduled now, by their current version; at_risk
+  // and risk by their state now.
   repeated Launch launches_next_7_days = 2;
   // The incidents open at the instant, and those opened or closed on its day
   // (UTC), newest first.

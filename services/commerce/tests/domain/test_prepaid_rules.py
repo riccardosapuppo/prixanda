@@ -14,7 +14,7 @@ from commerce.domain.economics import Book
 from commerce.domain.localtime import parse_local
 from commerce.domain.money import Money
 from commerce.domain.offers import Known, OfferPage, OfferPeriod, OfferPrice, PrepaidPass, from_json, shape_problems, to_json
-from commerce.domain.prepaid import CODE, Sold, earned, normal_code, pass_ends, valid_until, value
+from commerce.domain.prepaid import CODE, Sold, earned, normal_code, pass_ends, state_on, valid_until, value
 from commerce.domain.validation import BLOCKING, NEEDS_SIGNATURE, Context, MarketFacts, PlanFacts, validate
 
 NOW = datetime(2026, 10, 24, 8, 42, tzinfo=UTC)
@@ -44,6 +44,15 @@ def test_finance_counts_what_was_paid_for_and_what_is_not_yet_earned():
                                                      unearned=2458 + 820)
     with pytest.raises(ValueError):
         value([Sold(2458, 3, "pending")], date(2026, 12, 2))
+
+
+def test_a_code_paid_for_is_on_a_day_what_its_dates_make_it():
+    until = date(2027, 10, 31)
+    days = [date(2026, 11, 2), date(2026, 11, 3), until, date(2027, 11, 1)]
+    assert [state_on(day, valid_until=until, activated_on=None) for day in days] == ["ready", "ready", "ready", "expired"]
+    activated = date(2026, 11, 3)
+    assert [state_on(day, valid_until=until, activated_on=activated) for day in days] == [
+        "ready", "activated", "activated", "activated"]  # never expired: it was activated by its last day
 
 
 @pytest.mark.parametrize(("typed", "kept"), [("k7qm 3xtp 9wad", "K7QM-3XTP-9WAD"), ("K7QM-3XTP-9WAD", "K7QM-3XTP-9WAD"),

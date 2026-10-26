@@ -134,16 +134,21 @@ async def code_row(tx: Connection, code: str, *, lock: bool = False):
 
 # -- finance's figures ------------------------------------------------------------
 
-async def value_by_market(tx: Connection, days: dict[str, date]) -> dict[str, rules.Value]:
-    """Each market's codes paid for, activated and expired, and their value not yet earned on the market's day."""
+async def value_by_market(tx: Connection, at: datetime, days: dict[str, date]) -> dict[str, rules.Value]:
+    """Each market's codes paid for by an instant, those of them activated and expired on the market's day there,
+    and their value not yet earned that day. A code is paid for once its payment succeeded (§9.3), at the instant the
+    payment settled; its activation and its expiry are read from its dates (rules.state_on), not from its state now,
+    so an instant before them finds the code as it stood then."""
     rows = await tx.fetch(
-        "select market, net_minor, months, state, activated_on::text as activated_on from prepaid_code "
-        "where state in ('ready', 'activated', 'expired') order by market, id")
+        "select c.market, c.net_minor, c.months, c.valid_until::text as valid_until, c.activated_on::text as activated_on "
+        "from prepaid_code c join payment p on p.prepaid_code = c.code "
+        "where p.state = 'succeeded' and p.settled_at <= $1::text::timestamptz order by c.market, c.id", format_instant(at))
     sold: dict[str, list[rules.Sold]] = {}
     for row in rows:
         code = row["market"].strip()
         activated = date.fromisoformat(row["activated_on"]) if row["activated_on"] else None
-        sold.setdefault(code, []).append(rules.Sold(row["net_minor"], row["months"], row["state"], activated))
+        state = rules.state_on(days[code], valid_until=date.fromisoformat(row["valid_until"]), activated_on=activated)
+        sold.setdefault(code, []).append(rules.Sold(row["net_minor"], row["months"], state, activated))
     return {code: rules.value(codes, days[code]) for code, codes in sold.items()}
 
 
