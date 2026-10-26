@@ -6,7 +6,7 @@
 //
 // It writes the engine's files first (src/engine/build/assets.ts: Pyodide and
 // its wheels, PGlite, the commerce package, the migrations, the snapshot,
-// under pyodide/, pglite/ and engine/), then the worker, bundled into one
+// under runtime-<hash>/ and engine/), then the worker, bundled into one
 // module, backend.js, with its source map and the licences of what it holds.
 // SANDBOX_BUILD is the build's fingerprint, the one the apps are built with:
 // the worker says it in ready, and a tab of another build reloads.

@@ -62,7 +62,7 @@ test("every module of the package imports in Pyodide, which has neither grpc nor
   const assets = assetsDir();
   const zip = await readFile(join(assets, "engine", on.manifest.engine));
   const pyodide = await loadPython({
-    loadPyodide, indexURL: pyodideDir(), packageBaseUrl: `${join(assets, "pyodide").replaceAll("\\", "/")}/`,
+    loadPyodide, indexURL: pyodideDir(), packageBaseUrl: `${join(assets, on.manifest.runtime, "pyodide").replaceAll("\\", "/")}/`,
     engine: async () => zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer,
   });
   const imported = JSON.parse(pyodide.runPython(`
@@ -313,9 +313,9 @@ test("a start that fails once the database is open closes it, and the next start
   const assets = assetsDir();
   const python = {
     loadPyodide: (async () => {
-      throw new Error("/sandbox/pyodide/pyodide.asm.wasm answered 503");
+      throw new Error(`/sandbox/${on.manifest.runtime}/pyodide/pyodide.asm.wasm answered 503`);
     }) as unknown as typeof loadPyodide,
-    indexURL: pyodideDir(), packageBaseUrl: `${join(assets, "pyodide").replaceAll("\\", "/")}/`,
+    indexURL: pyodideDir(), packageBaseUrl: `${join(assets, on.manifest.runtime, "pyodide").replaceAll("\\", "/")}/`,
     engine: async () => new ArrayBuffer(0),
   };
   try {

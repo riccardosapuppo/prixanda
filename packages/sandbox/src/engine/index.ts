@@ -106,17 +106,18 @@ async function fetched(url: string): Promise<Response> {
 export async function startEngine(options: StartOptions): Promise<SandboxEngine> {
   const base = new URL(options.base.endsWith("/") ? options.base : `${options.base}/`, self.location.href).href;
   const manifest = (await (await fetched(`${base}engine/manifest.json`)).json()) as Manifest;
+  const runtime = `${base}${manifest.runtime}/`;
   const [pglite, contrib, pyodide] = await Promise.all([
-    import(`${base}pglite/index.js`) as Promise<{ PGlite: typeof PGlite }>,
-    import(`${base}pglite/contrib/btree_gist.js`) as Promise<{ btree_gist: Extension }>,
-    import(`${base}pyodide/pyodide.mjs`) as Promise<{ loadPyodide: typeof LoadPyodide }>,
+    import(`${runtime}pglite/index.js`) as Promise<{ PGlite: typeof PGlite }>,
+    import(`${runtime}pglite/contrib/btree_gist.js`) as Promise<{ btree_gist: Extension }>,
+    import(`${runtime}pyodide/pyodide.mjs`) as Promise<{ loadPyodide: typeof LoadPyodide }>,
   ]);
   return createEngine({
     modules: { PGlite: pglite.PGlite, btree_gist: contrib.btree_gist },
     python: {
       loadPyodide: pyodide.loadPyodide,
-      indexURL: `${base}pyodide/`,
-      packageBaseUrl: `${base}pyodide/`,
+      indexURL: `${runtime}pyodide/`,
+      packageBaseUrl: `${runtime}pyodide/`,
       engine: async () => (await fetched(`${base}engine/${manifest.engine}`)).arrayBuffer(),
     },
     dataDir: options.database,

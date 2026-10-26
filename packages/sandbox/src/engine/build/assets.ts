@@ -1,16 +1,23 @@
 // The engine's files of the demo, under one folder that the assembled build
 // serves at /sandbox/ (scripts/build.ts):
 //
-//   pyodide/  the files of Pyodide the engine needs (the module, its
-//             WebAssembly, the standard library, the lock file) and the two
-//             wheels, checked against the lock's hashes (wheels.ts)
-//   pglite/   the modules of PGlite the browser imports, its WebAssembly and
-//             its files, and btree_gist; not initdb's WebAssembly, since a
-//             first visit loads the snapshot and no cluster is created in the
-//             browser
-//   engine/   the commerce package as a zip, the migrations as JSON, the
-//             snapshot, and manifest.json, which names them (their names carry
-//             their hash, so a browser keeps them as long as they do not change)
+//   runtime-<hash>/
+//     pyodide/  the files of Pyodide the engine needs (the module, its
+//               WebAssembly, the standard library, the lock file) and the two
+//               wheels, checked against the lock's hashes (wheels.ts)
+//     pglite/   the modules of PGlite the browser imports, its WebAssembly and
+//               its files, and btree_gist; not initdb's WebAssembly, since a
+//               first visit loads the snapshot and no cluster is created in
+//               the browser
+//   engine/     the commerce package as a zip, the migrations as JSON, the
+//               snapshot, and manifest.json, which names them and the runtime
+//               folder
+//
+// Every name but manifest.json's carries a hash of what it holds, so the host
+// can let a browser keep those files for good: a visit after the first asks
+// the server only for the worker's script and the manifest, instead of
+// checking some twenty files one after the other, which from a distant host
+// cost seconds at every page load.
 //
 // The browser's package holds what runs in the page and nothing else: the
 // domain, the engine's services, the contract's messages and
@@ -99,23 +106,28 @@ export type Built = {
 
 const short = (data: Buffer) => sha256(data).slice(0, 12);
 
-/** Writes the engine's files into outDir, in pyodide/, pglite/ and engine/ (emptied first, and nothing else of outDir
+/** Writes the engine's files into outDir, in runtime-<hash>/ and engine/ (emptied first, and nothing else of outDir
  * touched): what the browser fetches from /sandbox/. */
 export async function buildEngineAssets(outDir: string, options: { wheelsDir?: string } = {}): Promise<Built> {
   const pyodide = pyodideDir();
   const pglite = dirname(createRequire(import.meta.url).resolve("@electric-sql/pglite"));
   const wheels = await checkedWheels(options.wheelsDir ?? wheelsHome(repoRoot).dir, lockedWheels(pyodide));
   // Its own folders only: the demo's build writes its worker beside them (scripts/build.ts).
-  for (const folder of ["pyodide", "pglite", "engine"]) await rm(join(outDir, folder), { recursive: true, force: true });
+  const own = (name: string) => ["pyodide", "pglite", "engine"].includes(name) || /^runtime-[0-9a-f]{12}$/.test(name);
+  const there = await readdir(outDir).catch(() => [] as string[]);
+  for (const folder of there.filter(own)) await rm(join(outDir, folder), { recursive: true, force: true });
   const files: Record<string, number> = {};
   const put = async (path: string, data: Buffer | string) => {
     await mkdir(dirname(join(outDir, path)), { recursive: true });
     await writeFile(join(outDir, path), data);
     files[path] = typeof data === "string" ? Buffer.byteLength(data) : data.length;
   };
-  for (const name of PYODIDE_FILES) await put(`pyodide/${name}`, await readFile(join(pyodide, name)));
-  for (const wheel of wheels) await put(`pyodide/${wheel.file}`, wheel.data);
-  for (const path of [...(await pgliteModules(pglite)), ...PGLITE_ASSETS]) await put(`pglite/${path}`, await readFile(join(pglite, path)));
+  const runtimeFiles: { path: string; data: Buffer }[] = [];
+  for (const name of PYODIDE_FILES) runtimeFiles.push({ path: `pyodide/${name}`, data: await readFile(join(pyodide, name)) });
+  for (const wheel of wheels) runtimeFiles.push({ path: `pyodide/${wheel.file}`, data: wheel.data });
+  for (const path of [...(await pgliteModules(pglite)), ...PGLITE_ASSETS]) runtimeFiles.push({ path: `pglite/${path}`, data: await readFile(join(pglite, path)) });
+  const runtime = `runtime-${sha256(Buffer.from(JSON.stringify(runtimeFiles.map((file) => [file.path, sha256(file.data)])))).slice(0, 12)}`;
+  for (const file of runtimeFiles) await put(`${runtime}/${file.path}`, file.data);
 
   const engine = await engineZip();
   const migrations = await readMigrations();
@@ -136,7 +148,7 @@ export async function buildEngineAssets(outDir: string, options: { wheelsDir?: s
   await put(`engine/${names.migrations}`, migrationsJson);
   await put(`engine/${names.snapshot}`, snapshot.data);
   const build = sha256(Buffer.from(JSON.stringify([names, wheels.map((w) => w.sha256), Object.keys(files).sort()]))).slice(0, 12);
-  const manifest: Manifest = { ...names, fingerprint: snapshot.fingerprint, story: snapshot.story, build };
+  const manifest: Manifest = { runtime, ...names, fingerprint: snapshot.fingerprint, story: snapshot.story, build };
   await put("engine/manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
   return { outDir, manifest, snapshot, files, engineFiles: engine.files };
 }

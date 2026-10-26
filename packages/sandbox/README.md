@@ -117,11 +117,15 @@ npm run build -w sandbox
 ```
 
 writes `packages/sandbox/dist/` (`scripts/build.ts`): the engine's files
-first (`src/engine/build/assets.ts`), in `pyodide/` (only the files Pyodide
-needs, and the two wheels), `pglite/` (its modules, its WebAssembly, its
-files and btree_gist) and `engine/` (the package's zip, the migrations, the
-snapshot, and `manifest.json`, which names them by their hash and gives the
-start of the story); then the worker, bundled by esbuild into `backend.js`,
+first (`src/engine/build/assets.ts`), in `runtime-<hash>/`, named by the
+hash of what it holds, with `pyodide/` (only the files Pyodide needs, and the
+two wheels) and `pglite/` (its modules, its WebAssembly, its files and
+btree_gist), and in `engine/` (the package's zip, the migrations, the
+snapshot, and `manifest.json`, which names them and the runtime folder by
+their hash and gives the start of the story). Every name but the manifest's
+carries a hash, so the host lets a browser keep those files for good: a visit
+after the first asks only for the worker and the manifest. Then the worker,
+bundled by esbuild into `backend.js`,
 with its source map and the licences of what it holds. Nothing is
 downloaded: the wheels come from `npm run setup`, which checks a copy that
 `PYODIDE_PACKAGES` or `.tools/pyodide-packages.json` points to, and otherwise

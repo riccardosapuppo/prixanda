@@ -41,7 +41,7 @@ export async function nodeEngine(assets = assetsDir(), overrides: NodeOverrides 
     python: {
       loadPyodide,
       indexURL: pyodideDir(),
-      packageBaseUrl: `${join(assets, "pyodide").replaceAll("\\", "/")}/`,
+      packageBaseUrl: `${join(assets, manifest.runtime, "pyodide").replaceAll("\\", "/")}/`,
       engine: async () => zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer,
     },
     snapshot: async () => {

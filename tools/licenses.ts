@@ -516,12 +516,16 @@ export function unnamedInDemo(demo: string, notices: readonly Notice[]): string[
     if (!named.has(name)) missing.push(`${name} (bundled into sandbox/backend.js)`);
   }
   const has = (path: string) => existsSync(join(demo, path));
-  if (has("sandbox/pyodide/pyodide.asm.wasm") && !named.has("pyodide")) missing.push("pyodide (sandbox/pyodide)");
-  if (has("sandbox/pyodide/python_stdlib.zip") && !named.has("CPython standard library (in Pyodide)")) missing.push("CPython's standard library (sandbox/pyodide)");
-  if (has("sandbox/pglite") && !named.has("@electric-sql/pglite")) missing.push("@electric-sql/pglite (sandbox/pglite)");
-  if (has("sandbox/pyodide")) {
-    for (const file of readdirSync(join(demo, "sandbox", "pyodide")).filter((name) => name.endsWith(".whl"))) {
-      if (!notices.some((notice) => notice.source?.startsWith(file))) missing.push(`${file} (sandbox/pyodide)`);
+  // Pyodide and PGlite sit in sandbox/runtime-<hash>/, named by the hash of their files (the sandbox's build/assets.ts).
+  const runtimes = has("sandbox") ? readdirSync(join(demo, "sandbox")).filter((name) => /^runtime-[0-9a-f]{12}$/.test(name)) : [];
+  if (has("sandbox") && runtimes.length !== 1) missing.push(`sandbox/runtime-<hash> (${runtimes.length} found, one expected)`);
+  const runtime = `sandbox/${runtimes[0] ?? "runtime"}`;
+  if (has(`${runtime}/pyodide/pyodide.asm.wasm`) && !named.has("pyodide")) missing.push(`pyodide (${runtime}/pyodide)`);
+  if (has(`${runtime}/pyodide/python_stdlib.zip`) && !named.has("CPython standard library (in Pyodide)")) missing.push(`CPython's standard library (${runtime}/pyodide)`);
+  if (has(`${runtime}/pglite`) && !named.has("@electric-sql/pglite")) missing.push(`@electric-sql/pglite (${runtime}/pglite)`);
+  if (has(`${runtime}/pyodide`)) {
+    for (const file of readdirSync(join(demo, runtime, "pyodide")).filter((name) => name.endsWith(".whl"))) {
+      if (!notices.some((notice) => notice.source?.startsWith(file))) missing.push(`${file} (${runtime}/pyodide)`);
     }
   }
   const fonts = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
