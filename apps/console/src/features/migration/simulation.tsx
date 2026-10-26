@@ -22,6 +22,7 @@ import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatLocalWithUtc } from "../../lib/time.ts";
 import { MarketsUnavailable } from "../../components/change-parts.tsx";
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { ChangeTabs } from "../campaigns/tabs.tsx";
 import { AssumptionField, Fixed, ShareScale, sourceWords } from "../simulation/simulation.tsx";
 import { acceptanceOf, ConditionsList, type MigrationSimulation, signed } from "./in-short.tsx";
@@ -134,7 +135,7 @@ function Results({ simulation, market, plan, markets, busy }: { readonly simulat
 
       <section className="grid gap-4 border-t-2 border-ink pt-3" aria-labelledby="per-subscription">
         <h2 id="per-subscription" className="text-xl font-bold">One subscription, per month</h2>
-        <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="per-subscription">
+        <TableScroll labelledBy="per-subscription">
           <table className="data min-w-[30rem]">
             <thead>
               <tr><th scope="col">Per subscription</th><th scope="col">Before</th><th scope="col">After</th><th scope="col">Difference</th></tr>
@@ -158,7 +159,7 @@ function Results({ simulation, market, plan, markets, busy }: { readonly simulat
               <tr><th scope="row">Contribution</th><td>{formatMoney(simulation.before.contribution)}</td><td>{formatMoney(simulation.after.contribution)}</td><td>{signed(difference(simulation.after.contribution, simulation.before.contribution))}</td></tr>
             </tfoot>
           </table>
-        </div>
+        </TableScroll>
         <p className="flex items-baseline gap-2 text-xs text-ink-2">
           <Icon name="info" size={14} className="translate-y-0.5" />
           The artists' share is never less than the minimum (§5.3); the contribution is what stays after the artists and the payment costs (§5.7).

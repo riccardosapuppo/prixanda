@@ -8,6 +8,7 @@ import { Icon } from "design/icon";
 import Link from "next/link";
 import { useId, useState } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { Button, Chip, Empty, ErrorPanel, Loading, StateChip } from "../../components/ui.tsx";
 import { ChangesDocument, LaunchesDocument, LaunchRunsDocument, type LaunchState, MarketsDocument } from "../../graphql/generated.ts";
 import { approvalHref } from "../../lib/kinds.ts";
@@ -49,7 +50,7 @@ export function LaunchChip({ launch }: { readonly launch: Pick<LaunchSummary, "s
 
 function RunsTable({ rows, markets, labelledBy }: { readonly rows: readonly LaunchSummary[]; readonly markets: Markets; readonly labelledBy: string }) {
   return (
-    <div className="table-scroll" tabIndex={0} role="region" aria-labelledby={labelledBy}>
+    <TableScroll labelledBy={labelledBy}>
       <table className="data min-w-[56rem]">
         <thead>
           <tr>
@@ -84,7 +85,7 @@ function RunsTable({ rows, markets, labelledBy }: { readonly rows: readonly Laun
           })}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
 }
 

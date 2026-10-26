@@ -20,6 +20,7 @@ import { Icon } from "design/icon";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { ButtonLink, Chip, Empty, ErrorPanel, Loading, Locked, StateChip } from "../../components/ui.tsx";
 import { HomeDocument, type HomeQuery } from "../../graphql/generated.ts";
 import { approvalHref } from "../../lib/kinds.ts";
@@ -276,7 +277,7 @@ function SubscribersZone({ overview, markets, now }: { readonly overview: Overvi
   return (
     <section className="zone" aria-labelledby="home-subscribers">
       <ZoneHead id="home-subscribers" count={formatCount(total)} title="Paying subscribers by plan and market" action={<ButtonLink href="/price-list/" size="small">Plans and prices</ButtonLink>} />
-      <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="home-subscribers">
+      <TableScroll labelledBy="home-subscribers">
         <table className="data min-w-[34rem]">
           <thead>
             <tr>
@@ -305,7 +306,7 @@ function SubscribersZone({ overview, markets, now }: { readonly overview: Overvi
             </tr>
           </tfoot>
         </table>
-      </div>
+      </TableScroll>
       <p className="flex items-baseline gap-1.5 text-xs text-ink-2">
         <Icon name="flask" size={14} className="translate-y-0.5" />
         Simulated data: counts from the data generator, as of {nowLabel(now, CONSOLE_ZONE)}.
@@ -324,7 +325,7 @@ function RevenueZone({ overview, markets }: { readonly overview: Overview; reado
         title="Revenue this month, without VAT"
         action={<ButtonLink href="/price-list/#below-floor" size="small">Prices below the floor</ButtonLink>}
       />
-      <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="home-revenue">
+      <TableScroll labelledBy="home-revenue">
         <table className="data min-w-[20rem]">
           <thead>
             <tr>
@@ -350,7 +351,7 @@ function RevenueZone({ overview, markets }: { readonly overview: Overview; reado
             </tr>
           </tfoot>
         </table>
-      </div>
+      </TableScroll>
       <p className="flex items-baseline gap-1.5 text-xs text-ink-2">
         <Icon name="info" size={14} className="translate-y-0.5" />
         UK converted at {overview.exchangeRateNote}
@@ -414,7 +415,7 @@ function UnearnedZone({ overview, markets }: { readonly overview: Overview; read
       {sold === 0 ? (
         <Empty icon="gift">No code sold yet. Once a pass is on sale and a listener buys a code, its net value appears here by market, earned month by month from its activation.</Empty>
       ) : (
-        <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="home-unearned">
+        <TableScroll labelledBy="home-unearned">
           <table className="data min-w-[34rem]">
             <thead>
               <tr>
@@ -449,7 +450,7 @@ function UnearnedZone({ overview, markets }: { readonly overview: Overview; read
               </tr>
             </tfoot>
           </table>
-        </div>
+        </TableScroll>
       )}
       <p className="flex items-baseline gap-1.5 text-xs text-ink-2">
         <Icon name="info" size={14} className="translate-y-0.5" />

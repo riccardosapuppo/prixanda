@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { Button, Callout, ErrorPanel, Loading, Locked, StateChip } from "../../components/ui.tsx";
 import { type AssumptionName, ChangeDocument, type ChangeQuery, MarketsDocument, SimulateOfferDocument, type SimulateOfferQuery } from "../../graphql/generated.ts";
 import { marketName } from "../../lib/markets.ts";
@@ -157,7 +158,7 @@ function Results({ simulation, change, market, busy }: { readonly simulation: Si
 
       <section className="grid gap-4 border-t-2 border-ink pt-3" aria-labelledby="money">
         <h2 id="money" className="text-xl font-bold">With the offer and without, over {months} months</h2>
-        <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="money">
+        <TableScroll labelledBy="money">
           <table className="data min-w-[30rem]">
             <thead>
               <tr><th scope="col">Net of VAT</th><th scope="col">With the offer</th><th scope="col">Without</th><th scope="col">Difference</th></tr>
@@ -171,7 +172,7 @@ function Results({ simulation, change, market, busy }: { readonly simulation: Si
               <tr><th scope="row">Contribution</th><td /><td /><td>{formatMoney(contribution)}</td></tr>
             </tfoot>
           </table>
-        </div>
+        </TableScroll>
         <p className="flex items-baseline gap-2 text-xs text-ink-2">
           <Icon name="info" size={14} className="translate-y-0.5" />
           With the offer: the {formatCount(simulation.takers)} takers over {months} months. Without: the {formatCount(simulation.cannibalized)} of them who would have paid the list price anyway. The contribution is compared, not the two columns: they are different people.
