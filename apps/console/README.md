@@ -104,7 +104,7 @@ What differs is said on the screen:
 - **The demo's clock.** The console reasons with the demo's time, the
   story's, which runs at the machine's pace and jumps when the demo skips to
   a launch; the header shows it.
-- **Try this**, in the rail: the recruiter's path in seven steps, each
+- **Try this**, in the rail: the guided path in seven steps, each
   ticked when it happens, from the engine's facts (the campaign's state, its
   signature, its launch through a fault) and from what only this browser
   knows (the site opened, the approval page seen by its author).
@@ -116,7 +116,7 @@ What differs is said on the screen:
   with Start over behind a confirmation; every tab reloads on the demo's
   first data.
 
-The recruiter's path runs as a test on the assembled demo
+The guided path runs as a test on the assembled demo
 (`e2e/demo.e2e.ts`, in the check's suite `demo`): two tabs, the console and
 the site, from the first start to Start over, timed, with axe on every
 screen and no request leaving the origin.
@@ -138,7 +138,7 @@ From the repository's root:
 | `node apps/console/e2e/run.ts` | the end-to-end tests on the whole system: a throwaway database, the engine (from its fault-injection launcher, with the publish step of the first launch cut once), the gateway, the static build, Playwright |
 | `npm run check -- --only design,console-types,console-codegen,console-unit,storybook,console-build,console-e2e` | the same, as suites with their floors |
 | `SANDBOX=1 SANDBOX_BUILD=<build> npm run build -w console` | the console for the demo, under `/console` (`npm run demo:build` builds it with the site and the sandbox) |
-| `node apps/console/e2e/demo.e2e.ts` with `DEMO_URL` | the recruiter's path on the assembled demo (`npm run demo:serve`) |
+| `node apps/console/e2e/demo.e2e.ts` with `DEMO_URL` | the guided path on the assembled demo (`npm run demo:serve`) |
 | `npm run photos -w console` | the photos of `docs/images/console-*`, taken again from the demo |
 
 Ports come from the environment and are asked to the system before use:

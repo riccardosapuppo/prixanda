@@ -1,6 +1,6 @@
 // The console in the assembled demo (stage 8; docs/business.md §13.3, §14.1,
 // §14.6): dist/demo/ served on DEMO_URL (npm run demo:serve, or the check's
-// suite demo), headless Chromium, one browser and two tabs, as a recruiter
+// suite demo), headless Chromium, one browser and two tabs, as a visitor
 // has them: the console at /console/ and the site at /, sharing the origin's
 // one worker. The path is the one "Try this" gives, and each of its steps
 // ticks itself on the way.
@@ -41,7 +41,7 @@ let build = "";
 const seen = { externalRequests: 0, pageErrors: [] as string[], pagesChecked: 0, seriousViolations: 0, otherViolations: 0 };
 const times = { coldReadyMs: Number.NaN, secondTabMs: Number.NaN, launchMs: Number.NaN, reloadMs: Number.NaN, startOverMs: Number.NaN };
 
-/** A tab of the recruiter's browser, whose errors are kept. */
+/** A tab of the visitor's browser, whose errors are kept. */
 async function tab(): Promise<Page> {
   assert.ok(context);
   const page = await context.newPage();
@@ -129,7 +129,7 @@ async function doneUpTo(page: Page, last: number): Promise<void> {
   assert.fail(`"Try this" has steps ${done.join(", ") || "none"} done, not 1 to ${last}`);
 }
 
-/** Switches person from the rail's menu, as the recruiter would. */
+/** Switches person from the rail's menu, as a visitor would. */
 async function switchTo(page: Page, label: string): Promise<void> {
   const menu = page.getByLabel("Signed in as");
   await menu.selectOption({ label });
@@ -145,7 +145,7 @@ async function click(target: Locator): Promise<void> {
   await target.click();
 }
 
-describe("the console in the demo's sandbox: the recruiter's path, two tabs, one worker", () => {
+describe("the console in the demo's sandbox: the guided path, two tabs, one worker", () => {
   before(async () => {
     const served = await fetch(`${DEMO_URL}/demo-build.json`).catch(() => null);
     if (served === null || !served.ok) throw new Error(`no demo on ${DEMO_URL}: npm run demo:build, then npm run demo:serve`);
@@ -182,7 +182,7 @@ describe("the console in the demo's sandbox: the recruiter's path, two tabs, one
     await page.getByRole("heading", { name: "Choose who you are in the demo" }).waitFor({ timeout: BOOT_LIMIT_MS });
     await started(page, BOOT_LIMIT_MS);
     times.coldReadyMs = Math.round(performance.now() - begun);
-    assert.match(await page.locator("meta[name='robots']").getAttribute("content") ?? "", /noindex/);
+    assert.equal(await page.locator("meta[name='robots']").getAttribute("content"), "noindex, follow");
     assert.match(await page.locator("footer").last().innerText(), /Your data stays in this browser\./);
     await accessible(page, "the entry in the sandbox");
     await click(page.getByRole("button", { name: "Enter as Marketing", exact: true }));

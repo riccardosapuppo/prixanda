@@ -105,7 +105,7 @@ describe("the site in the demo's sandbox: one browser, its tabs, one worker", ()
     // The campaigns are asked for apart from the plans, and may come later: their sentence is waited for, not read once.
     await page.getByText("No campaign is running in this market today.").waitFor({ timeout: 60_000 });
     times.campaignsMs = Math.round(performance.now() - started);
-    assert.match(await page.locator("meta[name='robots']").getAttribute("content") ?? "", /noindex/);
+    assert.equal(await page.locator("meta[name='robots']").getAttribute("content"), "noindex, follow");
     await page.locator("footer").getByText("Your data stays in this browser.").waitFor({ timeout: 30_000 });
     await watch.accessible(page, "the home in the sandbox");
   });

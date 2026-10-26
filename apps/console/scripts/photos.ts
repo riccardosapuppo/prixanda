@@ -1,7 +1,7 @@
 // npm run photos -w console: the console's photos for the README, taken again
 // whenever its screens change. Few and real: Marketing's home with "Try this"
 // at 1440 and at 390 pixels, the guided creation with the page beside it, and
-// a launch's timeline after a simulated fault, the way the recruiter's path
+// a launch's timeline after a simulated fault, the way the guided path
 // gets there. They are taken from the assembled demo (npm run demo:build,
 // then npm run demo:serve), where the console runs on its own data in the
 // browser; --base names another address that serves it, such as the full
@@ -98,7 +98,7 @@ try {
   await page.getByRole("button", { name: "Fill in the Student Autumn Pass" }).click();
   await photo(page, "console-campaign-1440");
 
-  // The first step of "Try this", as the recruiter takes it: the site opens in a tab of its own.
+  // The first step of "Try this", as a visitor takes it: the site opens in a tab of its own.
   const [site] = await Promise.all([context.waitForEvent("page"), page.getByRole("region", { name: "Try this" }).getByRole("link", { name: "Open the site" }).click()]);
   await site.close();
   await launchThroughAFault(page);

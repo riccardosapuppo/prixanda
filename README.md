@@ -7,6 +7,8 @@ survive a bug.
 
 ![The console's timeline of a launch: five steps, the publish step cut once by a simulated fault and done on its second attempt, the catalog live on the site](docs/images/console-timeline-1440.png)
 
+**[Try the demo](https://prixanda.riccardosapuppo.com/)**: the site and the
+console in your browser, with no account and nothing installed ·
 [The business book](docs/business.md) ·
 [The contract](proto/README.md) ·
 [Product status](docs/product-status.md) ·
@@ -245,8 +247,9 @@ opens on http://127.0.0.1:4651, with the site at `/` and the console at
 `/console/`. `dist/demo` is a static site for the root of a domain: the site
 at `/`, the console at `/console/` and the engine at `/sandbox/`. Any static
 host can serve it if it sends `.wasm` files as `application/wasm`; it needs
-no server and no special headers, and every page of the build is marked
-`noindex`.
+no server and no special headers. Every page of the build is marked
+`noindex, follow`: the demo is for whoever has the link, and search engines
+leave it out.
 
 ## Checking it
 

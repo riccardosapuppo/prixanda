@@ -1,4 +1,4 @@
-// The demo's "Try this" (src/lib/guide.ts): the recruiter's path, its steps
+// The demo's "Try this" (src/lib/guide.ts): the guided path, its steps
 // ticked by what the engine says and what this browser recorded, kept in a
 // storage that may refuse (a private window), and started again with a new
 // campaign.

@@ -1113,7 +1113,7 @@ const SUITES: Suite[] = [
 /**
  * The journeys of the suite demo, one after the other, on the demo served on
  * DEMO_URL. Each writes a JUnit report and a summary of what it measured.
- * The console's journey, the recruiter's with two tabs (the site and the
+ * The console's journey, the guided path with two tabs (the site and the
  * console), goes in this list next to the site's.
  */
 type DemoJourney = {
@@ -1138,7 +1138,7 @@ const DEMO_JOURNEYS: readonly DemoJourney[] = [
       + ` axe on ${String(summary["pagesChecked"])} pages, ${String(summary["seriousViolations"])} serious; ${String(summary["externalRequests"])} requests elsewhere`,
   },
   {
-    // The recruiter's path through the console, with the site in a second tab: "Try this", step by step.
+    // The guided path through the console, with the site in a second tab: "Try this", step by step.
     name: "console",
     cwd: join(repoRoot, "apps", "console"),
     args: (report) => ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`, "--test-reporter=spec", "--test-reporter-destination=stdout", join("e2e", "demo.e2e.ts")],

@@ -10,7 +10,8 @@ import "./site.css";
 export const metadata: Metadata = {
   title: { default: copy.service, template: `%s · ${copy.service}` },
   description: `${copy.service}, a fictional independent music service in a personal software project: plans and prices by market, campaigns, a demo subscription. Simulated data; no real payments.`,
-  robots: { index: false, follow: false },
+  // Linked from the portfolio, never indexed: search engines read the page, follow its links, and list none of it.
+  robots: { index: false, follow: true },
 };
 
 export const viewport: Viewport = {

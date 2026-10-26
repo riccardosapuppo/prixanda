@@ -1,4 +1,4 @@
-// The demo's "Try this" (stage 8): the recruiter's path in two minutes, as
+// The demo's "Try this" (stage 8): the guided path in two minutes, as
 // steps that tick themselves when they happen. Open the site and see its
 // offers; create a campaign as Marketing; try to approve it yourself, and
 // find you cannot; approve it as Finance; schedule its launch; cause a fault

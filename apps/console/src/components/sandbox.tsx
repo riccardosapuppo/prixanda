@@ -187,7 +187,7 @@ function Panel({ sandbox, shown }: { readonly sandbox: Sandbox; readonly shown: 
   );
 }
 
-/** The steps of the recruiter's path, ticking themselves as they happen. */
+/** The steps of the guided path, ticking themselves as they happen. */
 function TryThis() {
   const record = useGuideRecord();
   const change = useGatewayQuery(ChangeDocument, { id: record.changeId ?? "" }, { enabled: record.changeId !== null });

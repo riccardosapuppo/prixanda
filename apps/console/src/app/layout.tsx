@@ -11,7 +11,8 @@ import { Providers } from "./providers.tsx";
 export const metadata: Metadata = {
   title: { default: BRAND.platform, template: `%s · ${BRAND.platform}` },
   description: `${BRAND.platform}, the console where the commercial team of ${BRAND.service} creates, simulates, approves and follows offers. Independent personal project with a fictional business and synthetic data.`,
-  robots: { index: false, follow: false },
+  // Linked from the portfolio, never indexed: search engines read the page, follow its links, and list none of it.
+  robots: { index: false, follow: true },
 };
 
 export const viewport: Viewport = { themeColor: "#1e2a55" };
