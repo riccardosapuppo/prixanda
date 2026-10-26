@@ -47,7 +47,13 @@ export type Query = {
   readonly people: ReadonlyArray<Person>;
   /** Who is signed in, or null. Needs no session. */
   readonly session?: Maybe<Session>;
-  /** The console's home: what waits, what launches, what broke, who pays, what comes in. */
+  /**
+   * The console's home: what waits, what launches, what broke, who pays, what comes
+   * in. At an instant, now when absent: the subscribers, the revenue and the
+   * prepaid passes are those of each market's day at the instant, and the
+   * incidents those of the instant; what waits for approval and the state of the
+   * coming launches are read as the changes stand now.
+   */
   readonly overview: Overview;
   readonly markets: ReadonlyArray<Market>;
   /** The plans of a market at an instant (now when absent), with their prices and where the money goes. */
@@ -889,7 +895,9 @@ export type ChangeResult = Change | Refusal;
 
 export type Overview = {
   readonly __typename?: 'Overview';
+  /** The changes in approval now, whatever the instant: the queue of signatures. A change's earlier states are in the audit log. */
   readonly waitingForApproval: ReadonlyArray<ChangeSummary>;
+  /** The starts in the seven days from the instant of the changes validated, in approval, approved or scheduled now, by their current version; atRisk and risk by their state now. */
   readonly launchesNext7Days: ReadonlyArray<Launch>;
   /** The incidents open at this instant, and those opened or closed on its day (UTC), newest first. */
   readonly incidentsToday: ReadonlyArray<Incident>;
@@ -903,22 +911,22 @@ export type Overview = {
   readonly monthlyTopUps?: Maybe<Scalars['Money']['output']>;
   /** 1 EUR = 0.83728 GBP (ECB reference rate, 23 October 2026). */
   readonly exchangeRateNote: Scalars['String']['output'];
-  /** The prepaid passes of each market, and their value sold and not yet earned on the day (§9.2). Finance only (§12.2). */
+  /** The prepaid passes of each market, and their value sold and not yet earned on the market's day at the instant (§9.2). Finance only (§12.2). */
   readonly prepaid?: Maybe<ReadonlyArray<PrepaidValue>>;
   /** That value in all, in euros at the declared rate. Finance only. */
   readonly prepaidUnearnedEur?: Maybe<Scalars['Money']['output']>;
 };
 
 /**
- * The prepaid passes of a market and their value not yet earned (§9.2): a
- * pass's net amount is earned in equal monthly parts from its activation, the
+ * The prepaid passes of a market and their value not yet earned on the
+ * market's day at the instant (§9.2): a pass's net amount is earned in equal monthly parts from its activation, the
  * last taking the remainder; a code not activated stays unearned until it
  * expires.
  */
 export type PrepaidValue = {
   readonly __typename?: 'PrepaidValue';
   readonly market: Scalars['MarketCode']['output'];
-  /** Codes paid for, of which activated, and expired unused. */
+  /** Codes paid for by the instant (their payment succeeded), of which activated by that day, and expired unused by then. */
   readonly sold: Scalars['Int']['output'];
   readonly activated: Scalars['Int']['output'];
   readonly expired: Scalars['Int']['output'];
