@@ -15,7 +15,7 @@ export const DISCLAIMER = "Independent personal project. Fictional business and 
 export const SIMULATED_LABEL = "Simulated data";
 
 /** Where the source of everything the demo runs is kept. */
-export const SOURCE_URL = "https://github.com/riccardosapuppo/subscription-offers-platform";
+export const SOURCE_URL = "https://github.com/riccardosapuppo/prixanda";
 
 /**
  * The demo in the browser (stage 8), in the same words in both apps: the
