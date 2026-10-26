@@ -8,9 +8,9 @@ images described below.
 
 ## The names
 
-The names of the platform and of the fictional streaming service used in the
-demo, and the way the interface sets them as wordmarks, belong to the author,
-Riccardo Sapuppo. They are not registered.
+Prixanda, the name of the platform, and Sonequo, the name of the fictional
+streaming service used in the demo, and the way the interface sets them as
+wordmarks, belong to the author, Riccardo Sapuppo. They are not registered.
 
 You may use them as plain words to refer to this project, for example in an
 article, a review or a fork's README that says where it comes from. You may not

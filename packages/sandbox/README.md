@@ -15,7 +15,7 @@ Pyodide, its wheels, PGlite and the fonts are files of the build.
 
 A SharedWorker is the same instance only for the same script and the same
 name, so the worker is built on its own and served at one address,
-`/sandbox/backend.js`, under one name, `plancia-sandbox` (`src/protocol.ts`);
+`/sandbox/backend.js`, under one name, `offers-sandbox` (`src/protocol.ts`);
 both apps open it through `src/client.ts`. Chromium lets no SharedWorker
 start workers of its own: PGlite, Pyodide and the gateway's core share its
 one thread. Where a browser has no SharedWorker (Chrome on Android), each tab

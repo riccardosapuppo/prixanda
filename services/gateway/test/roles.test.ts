@@ -37,7 +37,7 @@ const SECTION_12 = [
 
 /** §11.4 and §12.2, as docs/business.md writes them since the same commit, each paragraph on one line. */
 const SECTION_11_4 = "§11.4 Everyone on the team reads the log, so any decision can be traced from any seat; the auditor exports it, "
-  + "and the auditor and the on-call engineer verify the chain. Nobody can change it through Plancia.";
+  + "and the auditor and the on-call engineer verify the chain. Nobody can change it through Prixanda.";
 const SECTION_12_2 = "§12.2 Every role reads the changes, the home and the audit log. Revenue is read by finance and the commercial lead, "
   + "unearned pass value by finance (§9.2); the console tells the other roles who can read them, and the engine leaves those figures "
   + "out of its answers to them.";

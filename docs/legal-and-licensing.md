@@ -7,21 +7,25 @@ section.
 
 ## Names and trademarks
 
-Plancia (the platform) and Rione (the fictional streaming service) are
-provisional names. They were chosen in place of the working names Box Office
-and Encore, both already in use near this field, and they will be confirmed or
-replaced before the repository is published.
+Prixanda (the platform) and Sonequo (the fictional streaming service) were
+chosen by the author on 26 October 2026. Several rounds of checks came before
+them: the working names Box Office and Encore, and the names proposed after
+them, were set aside one by one for a product, a mark, a software project or a
+band already using the same name or one close to it.
 
-What was checked for the provisional names, on 24 October 2026: national
-registers and trade-mark search engines reachable without an account, the
-software and music services with similar names, visual and phonetic
-similarity, the relevant classes (9 and 42 for software, 41 for music
-services), and domain names, which say nothing about trade-mark rights. Rione
-showed only composite marks in class 41 and unrelated apps: a low risk.
-Plancia is close to PLANIA, an EU trade mark filed in 2024 in classes 9 and
-42, so its risk is rated medium. A negative search does not
-guarantee that a name is free to use; a name meant for commercial use needs a
-clearance search by a trade-mark professional.
+What was checked for the two names, on 26 October 2026: the trade-mark search
+engines reachable without an account (WIPO's Global Brand Database, EUIPO's
+eSearch plus and, in part, TMview), with exact, similar and phonetic searches,
+in the classes that matter (9, 35 and 42 for the platform; 9, 38 and 41 for
+the service); users, organisations and repositories on GitHub, packages on
+PyPI and npm, companies and products on the web, the app stores in part and,
+for the service, the music catalogues; and the domains, whose .com and .io
+were free, which says nothing about trade-mark rights. Neither name showed an
+identical mark, product, package or project. The national registers of the
+United Kingdom, Germany, France, Italy and the United States were not read
+directly. A negative search does not guarantee that a name is free to use: a
+name meant for commercial use needs a clearance search by a trade-mark
+professional. The names are not registered ([TRADEMARKS.md](../TRADEMARKS.md)).
 
 The interface takes nothing from existing platforms: no marks, logos or
 proprietary icons, no recognisable colour scheme or layout of a known
@@ -43,7 +47,7 @@ come from Phosphor under the MIT licence.
 | Icons | `packages/design/src/icons.ts`, copied from `@phosphor-icons/core` 2.1.1 | Phosphor Icons | MIT | keep the copyright notice (`packages/design/src/LICENSE-phosphor.txt`) |
 | Record covers | drawn at run time by `apps/site/src/components/art/covers.ts` from each record's seed | the project | Apache-2.0, as the code that draws them | none |
 | Courtyard texture | `apps/site/src/app/courtyard.svg`, a generated pattern | the project | Apache-2.0, with the site's code | none |
-| Wordmarks of Plancia and Rione | the names set in Archivo by the interface's code | the author | not licensed: reserved ([TRADEMARKS.md](../TRADEMARKS.md)) | none; not registered |
+| Wordmarks of Prixanda and Sonequo | the names set in Archivo by the interface's code | the author | not licensed: reserved ([TRADEMARKS.md](../TRADEMARKS.md)) | none; not registered |
 | Screenshots in the README | `docs/images`, taken from the project's own builds, with synthetic data | the author | not licensed: all rights reserved ([TRADEMARKS.md](../TRADEMARKS.md)) | none |
 
 No stock photography, no images found on the web, no screenshots of other

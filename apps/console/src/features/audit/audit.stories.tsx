@@ -83,7 +83,7 @@ export const MarketingReadsAndFindsTheLocks: Story = {
   play: async ({ canvasElement }) => {
     const page = within(canvasElement);
     await expect(await page.findByText("Keep it to people who have never paid.")).toBeInTheDocument();
-    await expect(page.getByText("Everyone on the team reads the log, so any decision can be traced from any seat; the auditor exports it, and the auditor and the on-call engineer verify the chain. Nobody can change it through Plancia.")).toBeInTheDocument();
+    await expect(page.getByText("Everyone on the team reads the log, so any decision can be traced from any seat; the auditor exports it, and the auditor and the on-call engineer verify the chain. Nobody can change it through Prixanda.")).toBeInTheDocument();
     await expect(page.getByText("The auditor and the on-call engineer verify the chain. As Marketing you read every event below.")).toBeInTheDocument();
     await expect(page.getByText("The auditor exports the log, with the head of the chain kept outside the database. As Marketing you read it, like everyone on the team.")).toBeInTheDocument();
     await expect(page.queryByRole("button", { name: "Verify the chain" })).toBeNull();

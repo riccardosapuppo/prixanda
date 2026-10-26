@@ -1,6 +1,6 @@
 # Site
 
-The public site of the fictional music service (Rione, a provisional name):
+The public site of the fictional music service, Sonequo:
 records from small labels and their listening sessions, the promise to the
 artists, the plans and their prices in each market, the campaigns on sale,
 the prepaid pass to give, and the journey of a demo listener who checks as a

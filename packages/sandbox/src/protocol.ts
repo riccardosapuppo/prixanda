@@ -37,7 +37,7 @@
 
 /** Where the worker's script is served, and the name every app opens it under. */
 export const WORKER_URL = "/sandbox/backend.js";
-export const WORKER_NAME = "plancia-sandbox";
+export const WORKER_NAME = "offers-sandbox";
 
 export const APPS = ["site", "console"] as const;
 export type App = (typeof APPS)[number];

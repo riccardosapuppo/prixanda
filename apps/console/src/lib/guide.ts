@@ -10,7 +10,7 @@
 // campaign created here, the approval page seen by its author, the site
 // opened) is kept in this browser's storage, for every tab of the console,
 // and forgotten when the demo starts over.
-export const GUIDE_KEY = "plancia-demo-guide";
+export const GUIDE_KEY = "offers-demo-guide";
 
 export type GuideRecord = {
   /** The campaign created in this browser that the steps follow: the latest one. */

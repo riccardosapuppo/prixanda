@@ -220,7 +220,7 @@ type PriceChangeChoice {
   words: String!
   "The other choices the market could make."
   alternatives: [String!]!
-  "That it is a choice: Rione's choice, configurable per market. Not a legal requirement."
+  "That it is a choice: Sonequo's choice, configurable per market. Not a legal requirement."
   label: String!
 }
 

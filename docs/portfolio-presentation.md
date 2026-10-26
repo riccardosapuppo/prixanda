@@ -6,7 +6,7 @@ repository's description, the author's portfolio and CV.
 ## What it is
 
 An independent personal software project by Riccardo Sapuppo: a subscription
-and pricing operations platform, provisionally named Plancia. Nobody
+and pricing operations platform named Prixanda. Nobody
 commissioned it, it has no customers, and no company is behind it. It is not
 client work and is not connected to any streaming service.
 
@@ -14,7 +14,7 @@ The platform governs prices per market, promotions, prepaid passes and price
 changes for existing subscribers, over the plans of its catalog, with
 simulation, approvals bound to exact versions, safe launches and an audit
 log. It is explored through
-Rione, a fictional independent-music streaming service, with synthetic data.
+Sonequo, a fictional independent-music streaming service, with synthetic data.
 The interactive sandbox runs the same engine in a browser so that anyone can
 try it without installing anything.
 

@@ -195,7 +195,7 @@ test("the audit log holds every step, with the request ids born in the console; 
     await expect(table.getByText(action, { exact: true })).toBeVisible();
   }
   await expect(table.getByText(/console:[0-9a-f-]{36}/).first()).toBeVisible();
-  await expect(page.getByText("Everyone on the team reads the log, so any decision can be traced from any seat; the auditor exports it, and the auditor and the on-call engineer verify the chain. Nobody can change it through Plancia.")).toBeVisible();
+  await expect(page.getByText("Everyone on the team reads the log, so any decision can be traced from any seat; the auditor exports it, and the auditor and the on-call engineer verify the chain. Nobody can change it through Prixanda.")).toBeVisible();
   // Marketing reads the log, and finds neither the verification nor the export: a lock says who does them.
   await expect(page.getByText("The auditor and the on-call engineer verify the chain. As Marketing you read every event below.")).toBeVisible();
   await expect(page.getByText("The auditor exports the log, with the head of the chain kept outside the database. As Marketing you read it, like everyone on the team.")).toBeVisible();

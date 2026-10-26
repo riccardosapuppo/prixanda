@@ -50,7 +50,7 @@ test("the commercial lead writes the Family rise in Germany, Finance signs it, i
   await page.getByLabel("New price in Germany, VAT included").fill("20.99");
   await expect(page.getByText(/€2\.00 a month more than €18\.99/)).toBeVisible();
   await expect(page.getByRole("region", { name: "What the law asks" })).toContainText("Consent: each existing subscriber has to say yes, and silence counts as no.");
-  await expect(page.getByRole("region", { name: "What Rione chose" })).toContainText("not a legal requirement");
+  await expect(page.getByRole("region", { name: "What Sonequo chose" })).toContainText("not a legal requirement");
   await axe(page, "a new price migration, its first step");
   await page.getByRole("button", { name: "Continue" }).click();
 

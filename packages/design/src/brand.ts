@@ -1,8 +1,8 @@
-// The names the people see, in one place. Both are provisional, as the
-// business book says at its start: the definitive ones are chosen and checked
-// before publication. Everything else (folders, files, classes, keys) stays
-// neutral, so a new name changes these two strings and nothing more.
-export const BRAND = { platform: "Plancia", service: "Rione" } as const;
+// The names the people see, in one place: Prixanda, the platform, and
+// Sonequo, the fictional music service it is explored through. Everything
+// else (folders, files, classes, keys) stays neutral, so a new name changes
+// these two strings and nothing more.
+export const BRAND = { platform: "Prixanda", service: "Sonequo" } as const;
 
 /**
  * Said wherever a visitor could take the demonstration for the real thing:
