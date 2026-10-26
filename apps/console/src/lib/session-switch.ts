@@ -34,11 +34,31 @@ export async function enter(gateway: GatewayClient, client: QueryClient, personI
   await installSession(client, data.signIn);
 }
 
-/** Leaves: whatever the gateway answered, the console forgets the session. */
+/**
+ * Leaves. Only an exit the gateway answered makes the console forget the
+ * session. One that failed before it (the network, a time-out) may have left
+ * the session's cookie in the browser, and an entry without that session's
+ * CSRF token would be refused: the session is read again with the cookie, and
+ * what the gateway answers is installed, its token with it. A reading still
+ * on its way left before the exit, and may answer for the person who left
+ * (the exit can end the session and lose only its answer): it is cancelled
+ * first, so the session is read as it is after the exit. If that reading
+ * fails too, the session the console had stays, and the session's reading
+ * holds the error, which the frame says with its retry.
+ */
 export async function leave(gateway: GatewayClient, client: QueryClient): Promise<void> {
   try {
     await gateway.run(SignOutDocument, {});
-  } finally {
-    await installSession(client, null);
+  } catch {
+    let read: CurrentSessionQuery;
+    try {
+      await client.cancelQueries({ queryKey: SESSION_KEY, exact: true });
+      read = await client.fetchQuery({ queryKey: SESSION_KEY, queryFn: ({ signal }) => gateway.run(CurrentSessionDocument, {}, { signal }), staleTime: 0 });
+    } catch {
+      return;
+    }
+    await installSession(client, read.session);
+    return;
   }
+  await installSession(client, null);
 }
