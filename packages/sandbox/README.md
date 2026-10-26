@@ -34,7 +34,8 @@ skip to the next launch; and the start over.
 
 - **Python.** Pyodide 0.29.5, which is Python 3.13.2, with the two wheels the
   engine imports, protobuf 6.31.1 and tzdata, checked against the hashes of
-  Pyodide's own lock file. The engine is the `commerce` package as a zip
+  Pyodide's own lock file. The server's engine runs protobuf 6.33.5; the
+  contract's generated code is for 6.31.1, and both accept it. The engine is the `commerce` package as a zip
   built from `services/commerce/src`: the domain, the services, the
   contract's messages and `commerce.browser`; not the server's process, not
   the tools, nothing that imports grpc or asyncpg.

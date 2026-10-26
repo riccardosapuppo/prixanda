@@ -94,10 +94,13 @@ elsewhere reveals that.
 ### Dependencies
 
 Versions are pinned, a rule of no package younger than two weeks is applied
-by hand at each upgrade, and `npm test` checks the licence of every package.
-Next.js 16.4.0 has three advisories published on 22 October 2026 that the
-static exports do not reach; the upgrade to 16.4.1 or later is due before
-publication.
+by hand at each upgrade, except for a security fix, and `npm test` checks the
+licence of every package. On 26 October 2026 the project moved to Next.js
+16.4.3, Storybook 10.6.2, body-parser 2.4.0 and, for the engine, protobuf
+6.33.5, and npm's audit and GitHub's advisory database then found no advisory
+in the npm packages or in the engine's Python environment. The browser
+sandbox still serves the protobuf 6.31.1 that Pyodide ships: its advisory
+concerns JSON parsing, which the engine does not use.
 
 ## Deployment
 
