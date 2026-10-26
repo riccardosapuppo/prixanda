@@ -118,7 +118,7 @@ WebAssembly (PGlite) and built from the same migration files; the GraphQL
 schemas and resolvers are the gateway's own; and every tab of the address
 talks to one shared worker that holds them all. The check proves the parity:
 the schema PGlite ends up with equals the one Flyway builds on PostgreSQL 18,
-the data has the server generator's fingerprint, and 300 of the 306 service
+the data has the server generator's fingerprint, and 307 of the 313 service
 tests run unchanged on PGlite (the other six need more than one database
 session).
 
@@ -261,21 +261,21 @@ runs every suite, as the continuous integration does on Ubuntu 24.04 and
 Windows Server 2025 on every push to main, on every pull request and once a
 week. It starts a throwaway PostgreSQL 18, and each suite must reach a
 written minimum number of checks: a suite that checked nothing, or skipped a
-test, does not pass. The 43 suites of the run on commit 3624502, on 25
-October 2026, on the machine of the measurements below:
+test, does not pass. The 40 suites of the continuous integration's run on
+commit 63506f9, on 26 October 2026, on Ubuntu 24.04:
 
 | Part | Suites | What they counted |
 |---|---|---|
-| The tools | typecheck, tools, licenses | 22 files type-checked, 4 tests, 586 packages within the licence policy |
+| The tools | typecheck, tools, licenses | 22 files type-checked, 4 tests, 585 packages within the licence policy |
 | The contract | contract | 47 generated files equal to a fresh generation |
 | The database | migrations, data, compat, measure | 17 migrations; 18 invariants on 5,006 generated subscribers, none broken; the two-step change of schema with the previous release's reads; 7 measured queries giving the same answer before and after their indexes |
-| The engine | pytest | 812 tests: the database's rules 114, the domain 235, golden cases 44, services 306, gRPC end to end 31, properties 10, faults 14, the package for the browser 58; 12 faults injected, 0 partial activations |
+| The engine | pytest | 821 tests: the database's rules 115, the domain 236, golden cases 44, services 313, gRPC end to end 31, properties 10, faults 14, the package for the browser 58; 12 faults injected, 0 partial activations |
 | The gateway | gw-types, gw-codegen, gw-schemas, gw-tests, dataloader, integration | 56 files; 26 schema tests and 258 others; 26 engine calls for 25 offers without DataLoader and 2 with it; 13 tests against the real engine |
-| The site | site-types, site-codegen, site-unit, site-build, site-e2e, site-e2e-7, site-e2e-fans | 91 unit tests; 27 end-to-end tests in headless Chromium against the real engine, axe on 25 pages with no serious violation |
-| The console | design, console-types, console-codegen, console-unit, storybook, console-build, console-e2e | 77 design tests; 104 unit tests; 56 stories with axe; 33 end-to-end tests with real launches |
+| The site | site-types, site-codegen, site-unit, site-build, site-e2e, site-e2e-7, site-e2e-fans | 95 unit tests; 30 end-to-end tests in headless Chromium against the real engine, axe on 28 pages with no serious violation |
+| The console | design, console-types, console-codegen, console-unit, storybook, console-build, console-e2e | 77 design tests; 122 unit tests; 70 stories with axe; 34 end-to-end tests with real launches |
 | `npm start` | start | the whole system starts, every part answers, and it stops in order |
-| The sandbox | sandbox-types, -build, -schema, -services, -node, -browser, -measure, -gateway, -worker | the schema equal to Flyway's (255 relations, 911 constraints, 163 indexes, 86 triggers, 26 functions); 300 of the 306 service tests on PGlite, 6 left to PostgreSQL; 11 tests in Chromium |
-| The demo | demo | the site's 6 tests and the console's 8, the guided path, on the assembled build, with no request leaving it |
+| The sandbox | sandbox-types, -build, -schema, -services, -node, -browser, -measure, -gateway, -worker | the schema equal to Flyway's (255 relations, 911 constraints, 163 indexes, 86 triggers, 26 functions); 307 of the 313 service tests on PGlite, 6 left to PostgreSQL; 11 tests in Chromium |
+| The demo | demo | the site's 7 tests and the console's 9, the guided path, on the assembled build, with no request leaving it |
 
 The end-to-end suites need Playwright's Chromium (`npx playwright install
 chromium`, a download); without it they are reported as not run, never as

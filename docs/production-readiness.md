@@ -14,7 +14,8 @@ integration runs the same command on Ubuntu 24.04 and Windows Server 2025 on
 every push to main, on every pull request and once a week. The README lists
 what each suite covers.
 
-On 25 October 2026, on commit 3624502, all 43 suites passed; the README
+On 26 October 2026, in the continuous integration's run on commit 63506f9,
+all 40 suites passed on Ubuntu 24.04 and on Windows Server 2025; the README
 lists them with what each counted.
 
 What the tests establish, in short:
