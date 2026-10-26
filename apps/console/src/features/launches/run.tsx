@@ -14,7 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "design/icon";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { type ReactNode, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
 import { PageBody, PageHead } from "../../components/frame.tsx";
 import { Button, Callout, Chip, Empty, ErrorPanel, Loading, Locked } from "../../components/ui.tsx";
@@ -163,9 +163,21 @@ function Fact({ label, children }: { readonly label: string; readonly children: 
  * change suspended or ended since, a later catalog live), the page says so.
  */
 function LiveNow({ launch, zone }: { readonly launch: LaunchDetail; readonly zone: string }) {
+  // The newest catalog the log says was published, read at the pace of the launch it stands beside: every two
+  // seconds while the launch runs, at the pace of a page that watches otherwise (a later launch, a suspension), and
+  // once more as the launch stops running, so that a catalog published in its last seconds is not missed.
+  const watch = useWatch();
+  const running = launch.state === "RUNNING";
   const latest = useGatewayQuery(AuditEventsDocument, { filter: { action: "catalog.published" }, first: 1, after: null }, {
-    refetchInterval: launch.state === "RUNNING" ? 2_000 : false,
+    ...watch,
+    refetchInterval: running ? 2_000 : watch.refetchInterval ?? false,
   });
+  const ran = useRef(running);
+  const { refetch } = latest;
+  useEffect(() => {
+    if (ran.current && !running) void refetch();
+    ran.current = running;
+  }, [running, refetch]);
   const newest = latest.data?.auditEvents.nodes[0] ?? null;
   const liveCatalog = newest?.subject.startsWith("catalog:") ? newest.subject.slice("catalog:".length) : null;
   const today = now(launch, liveCatalog);
