@@ -7,9 +7,14 @@
 // build's fingerprint, which ready tells every tab.
 import { startEngine } from "sandbox-engine";
 import { WORKER_NAME } from "./protocol.ts";
+import { retryingFetch } from "./retry.ts";
 import { createBackend, type Port } from "./worker.ts";
 
 declare const __SANDBOX_BUILD__: string;
+
+// Before anything fetches: the engine's files, Pyodide's and PGlite's, come through a fetch that tries a dropped
+// download again (retry.ts).
+globalThis.fetch = retryingFetch(globalThis.fetch.bind(globalThis));
 
 type SharedScope = { addEventListener(type: "connect", listener: (event: { readonly ports: readonly Port[] }) => void): void };
 const sharedScope = (globalThis as { SharedWorkerGlobalScope?: abstract new () => unknown }).SharedWorkerGlobalScope;

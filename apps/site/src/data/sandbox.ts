@@ -13,7 +13,7 @@
 // transport over the worker, which says a worker that failed the way the HTTP
 // transport says a gateway it cannot reach.
 import {
-  type Backend, BackendFailure, type BackendStatus, connectBackend, missingInBrowser, openBackend, type Port, stoppedBackend,
+  type Backend, BackendFailure, type BackendStatus, connectBackend, droppedConnection, missingInBrowser, openBackend, type Port, stoppedBackend,
 } from "sandbox/client";
 import type { Changed } from "sandbox/protocol";
 import { keys } from "./keys.ts";
@@ -22,7 +22,7 @@ import { readAnswer, type Transport, TransportFailure } from "./transport.ts";
 export type Sandbox = Backend;
 export type SandboxStatus = BackendStatus;
 export type { Port };
-export { missingInBrowser };
+export { droppedConnection, missingInBrowser };
 
 /** The sandbox over any port that carries the messages, as the site's tab: the tests drive it with a fake worker. */
 export function connectSandbox(port: Port, { build }: { readonly build: string }): Sandbox {

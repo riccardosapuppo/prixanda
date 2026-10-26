@@ -14,7 +14,7 @@ import { ChangeDocument, LaunchRunsDocument } from "../graphql/generated.ts";
 import { currentStep, type GuideFacts, guideSteps, NO_FACTS, recoveredFrom } from "../lib/guide.ts";
 import { useGatewayQuery } from "../lib/react/gateway.tsx";
 import { DEMO_STATUS_KEY, recordGuide, useDemoStatus, useGuideRecord, useSandbox, useSandboxStatus } from "../lib/react/sandbox.tsx";
-import { runCommand, type Sandbox } from "../lib/sandbox.ts";
+import { droppedConnection, runCommand, type Sandbox } from "../lib/sandbox.ts";
 import { formatInstantIn } from "../lib/time.ts";
 import { ConfirmDialog } from "./confirm-dialog.tsx";
 import { Button, Callout } from "./ui.tsx";
@@ -72,14 +72,18 @@ function Start({ sandbox }: { readonly sandbox: Sandbox }) {
       </section>
     );
   }
+  // A download the network dropped is no fault of the browser: it says so, and that a reload tries again.
+  const dropped = status.state === "failed" && !status.browser && droppedConnection(status.reason);
   const reason = status.state === "other-build"
     ? "This page belongs to another version of the demo than the one running in this browser, and reloading did not bring them together."
     : status.browser
       ? `This browser has no ${status.reason} here, which the demo needs. A recent Chrome, Edge, Firefox or Safari has it, outside a private window, which can refuse the storage the demo keeps its data in.`
-      : `The demo's engine stopped while it started: ${status.reason}.`;
+      : dropped
+        ? `The connection dropped while the demo was starting (${status.reason}). Reload to try again: the files that already arrived stay in this browser.`
+        : `The demo's engine stopped while it started: ${status.reason}.`;
   return (
     <Callout tone="error" icon="warning" role="alert" className="max-w-2xl" >
-      <p className="font-bold" data-sandbox="failed">The demo cannot run in this browser</p>
+      <p className="font-bold" data-sandbox="failed">{dropped ? "The demo's files stopped arriving" : "The demo cannot run in this browser"}</p>
       <p>{reason}</p>
       <Button size="small" icon="arrows-clockwise" className="mt-2" onClick={() => window.location.reload()}>Reload the page</Button>
     </Callout>

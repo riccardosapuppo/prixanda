@@ -1031,7 +1031,7 @@ const SUITES: Suite[] = [
         if (ran.code !== 0) return failed(counted.join(", "), ran.output.split(/\r?\n/).filter((line) => /error TS\d+/.test(line)).slice(0, 8).join("\n") || ran.output.slice(0, 2000));
         if (ours < floor) return failed(counted.join(", "), `${config}: fewer than ${floor} files of the gateway's side checked`);
       }
-      const tests = await nodeTests("sandbox-gateway", ["test/protocol.test.ts", "test/client.test.ts", "test/worker.test.ts", "test/sha256.test.ts"],
+      const tests = await nodeTests("sandbox-gateway", ["test/protocol.test.ts", "test/client.test.ts", "test/worker.test.ts", "test/sha256.test.ts", "test/retry.test.ts"],
         SANDBOX_GATEWAY_FLOOR.nodeTests, {}, sandboxDir);
       counted.push(tests.counted);
       if (tests.outcome !== "passed") return { ...tests, counted: counted.join("; ") };

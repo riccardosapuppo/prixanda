@@ -13,13 +13,14 @@
 // over. Here: the console's requests as the worker's messages, the demo's
 // commands with their answers, and what the console reads again after a
 // change.
-import { type Backend, BackendFailure, type BackendStatus, openBackend, type Reply } from "sandbox/client";
+import { type Backend, BackendFailure, type BackendStatus, droppedConnection, openBackend, type Reply } from "sandbox/client";
 import type { Changed, CommandArgs, CommandName, CommandResults } from "sandbox/protocol";
 import { GatewayError, type GraphQLResult, type GraphQLTransport } from "./gateway.ts";
 
 /** The demo's worker, as this tab sees it. */
 export type Sandbox = Backend;
 export type SandboxStatus = BackendStatus;
+export { droppedConnection };
 
 /** Built for the demo's sandbox (SANDBOX=1): the requests go to the worker in this browser, not to a gateway. */
 export const SANDBOX_MODE: boolean = process.env["CONSOLE_SANDBOX"] === "1";

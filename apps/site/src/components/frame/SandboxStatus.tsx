@@ -10,7 +10,7 @@ import { Icon } from "design/icon";
 import { useEffect, useSyncExternalStore } from "react";
 import { copy } from "../../content/copy.ts";
 import { useSandbox } from "../../data/provider.tsx";
-import type { Sandbox, SandboxStatus as Status } from "../../data/sandbox.ts";
+import { droppedConnection, type Sandbox, type SandboxStatus as Status } from "../../data/sandbox.ts";
 
 const STARTING: Status = { state: "starting", step: null, done: 0, of: 0 };
 const RELOADED = "sandbox-reloaded-for-build";
@@ -65,16 +65,19 @@ function Bar({ sandbox }: { readonly sandbox: Sandbox }) {
     );
   }
 
+  // A download the network dropped is no fault of the browser: it says so, and that a reload tries again.
+  const dropped = status.state === "failed" && !status.browser && droppedConnection(status.reason);
   return (
     <div className="sandbox-bar is-failed" role="alert" data-sandbox="failed">
       <div className="wrap sandbox-bar-row">
         <Icon name="warning-circle" size={20} />
         <div className="grid gap-[0.2rem]">
-          <p className="m-0"><b>{words.failedTitle}</b></p>
+          <p className="m-0"><b>{dropped ? words.droppedTitle : words.failedTitle}</b></p>
           <p className="m-0">
-            {status.state === "other-build" ? words.otherBuild : status.browser ? words.missing(status.reason) : words.worker(status.reason)}
+            {status.state === "other-build" ? words.otherBuild : status.browser ? words.missing(status.reason)
+              : dropped ? words.dropped(status.reason) : words.worker(status.reason)}
           </p>
-          {status.state === "other-build" ? null : <p className="m-0 text-md text-ink-2">{words.advice}</p>}
+          {status.state === "other-build" ? null : <p className="m-0 text-md text-ink-2">{dropped ? words.droppedAdvice : words.advice}</p>}
         </div>
         <button type="button" className="btn" onClick={() => window.location.reload()}>
           <Icon name="arrows-clockwise" size={16} />

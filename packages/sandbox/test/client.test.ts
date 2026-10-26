@@ -5,7 +5,7 @@
 // start over, and a worker that could not be reached at all.
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
-import { type Backend, BackendFailure, connectBackend, missingInBrowser, stoppedBackend } from "../src/client.ts";
+import { type Backend, BackendFailure, connectBackend, droppedConnection, missingInBrowser, stoppedBackend } from "../src/client.ts";
 import { type FromWorker, parseToWorker, type ReadyInfo, type ToWorker } from "../src/protocol.ts";
 
 const READY: ReadyInfo = { bootMs: 4200, alreadyRunning: false, build: "build-0001", now: "2026-10-24T08:00:00.000Z" };
@@ -215,5 +215,16 @@ describe("the sandbox's client", () => {
     await assert.rejects(failed.command("status"), BackendFailure);
     const rendering = stoppedBackend({ state: "starting", step: null, done: 0, of: 0 });
     assert.equal(await settles(rendering.graphql({}, "{}")), false, "a page rendered at build time waits");
+  });
+
+  test("tells a download the network dropped from a demo that failed", () => {
+    for (const reason of ["Failed to fetch", "NetworkError when attempting to fetch resource.", "Load failed", "network error",
+      "/sandbox/engine/snapshot-29f12910851e.tar.gz answered 503"]) {
+      assert.equal(droppedConnection(reason), true, reason);
+    }
+    for (const reason of ["IndexedDB", "the demo's engine could not be loaded from this address",
+      "/sandbox/engine/manifest.json answered 404", "The data kept in this browser came from another build"]) {
+      assert.equal(droppedConnection(reason), false, reason);
+    }
   });
 });

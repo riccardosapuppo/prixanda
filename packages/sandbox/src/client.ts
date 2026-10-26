@@ -173,6 +173,15 @@ export function missingInBrowser(scope: {
   return null;
 }
 
+/**
+ * A start that failed because the network dropped a download, rather than because of the browser: fetch's words for
+ * it in Chromium ("Failed to fetch"), Firefox ("NetworkError") and Safari ("Load failed"), and a host that answered
+ * with a server error. A reload tries again, and the files that did arrive stay in the browser's cache.
+ */
+export function droppedConnection(reason: string): boolean {
+  return /failed to fetch|networkerror|network error|load failed|answered 5\d\d/i.test(reason);
+}
+
 /** A backend that never answers: for a page rendered at build time, and for a browser that cannot run the demo. */
 export function stoppedBackend(status: BackendStatus): Backend {
   const never = () => new Promise<Reply>(() => undefined);
