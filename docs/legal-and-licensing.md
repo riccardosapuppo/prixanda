@@ -41,10 +41,10 @@ come from Phosphor under the MIT licence.
 | Archivo, the display typeface | `packages/design/fonts` | The Archivo Project Authors (Omnibus-Type) | SIL Open Font License 1.1 | keep the licence beside the font files (done); do not sell the fonts on their own |
 | Atkinson Hyperlegible Next, the text typeface | `packages/design/fonts` | The Atkinson Hyperlegible Next Project Authors | SIL Open Font License 1.1 | as above |
 | Icons | `packages/design/src/icons.ts`, copied from `@phosphor-icons/core` 2.1.1 | Phosphor Icons | MIT | keep the copyright notice (`packages/design/src/LICENSE-phosphor.txt`) |
-| Record covers | drawn at run time by `apps/site/src/components/art/covers.ts` from each record's seed | the project | the repository's licence | none |
-| Courtyard texture | `apps/site/src/app/courtyard.svg`, a generated pattern | the project | the repository's licence | none |
-| Wordmarks of Plancia and Rione | the names set in Archivo by the interface's code | the project | the repository's licence | none; not registered |
-| Screenshots in the README | taken from the project's own builds, with synthetic data | the project | the repository's licence | none |
+| Record covers | drawn at run time by `apps/site/src/components/art/covers.ts` from each record's seed | the project | Apache-2.0, as the code that draws them | none |
+| Courtyard texture | `apps/site/src/app/courtyard.svg`, a generated pattern | the project | Apache-2.0, with the site's code | none |
+| Wordmarks of Plancia and Rione | the names set in Archivo by the interface's code | the author | not licensed: reserved ([TRADEMARKS.md](../TRADEMARKS.md)) | none; not registered |
+| Screenshots in the README | `docs/images`, taken from the project's own builds, with synthetic data | the author | not licensed: all rights reserved ([TRADEMARKS.md](../TRADEMARKS.md)) | none |
 
 No stock photography, no images found on the web, no screenshots of other
 products. Artists, labels, albums and people are invented, and their names
@@ -88,16 +88,23 @@ other jars, what their own licence files and manifests say.
 
 ### The repository's own licence
 
-The repository carries the MIT licence today, and it is private. The author
-chooses its licence before it is published. As far as the licence check can
-tell, every dependency allows each option below; a lawyer should confirm it.
+The code and the documentation are under the Apache License, Version 2.0,
+chosen by the author on 26 October 2026 among MIT, Apache-2.0 and AGPL-3.0.
+Anyone may use, change and distribute the code, also commercially and also
+as a service, without publishing their changes; they keep the licence and
+the NOTICE, and say which files they changed. The licence adds an explicit
+patent grant from each contributor, which ends for whoever sues over a patent
+in the work. The project's NOTICE names what the repository holds under other
+licences.
 
-| Option | What it allows | What it means for a future commercial product |
-|---|---|---|
-| MIT (today) | anyone may use, change and sell the code, keeping the notice | simplest; a competitor could run it as a service without giving anything back |
-| Apache-2.0 | the same, with an explicit patent licence and a NOTICE file | the same commercial openness; clearer for companies |
-| AGPL-3.0 | use and change, but whoever runs a changed version as a network service must publish its source | protects the commercial option; the author can still sell other licences, because he wrote all of the project's own code (the icons copied from Phosphor keep their MIT licence) |
-| A source-available licence (for example PolyForm Noncommercial) | reading and non-commercial use only | keeps every commercial right; the project could no longer be called open source |
+The licence covers copyright in the code, not the project's names, their
+wordmarks or the images in `docs/images`, which stay the author's
+([TRADEMARKS.md](../TRADEMARKS.md)): a fork may take the code, not the name.
+
+Every dependency allows it, as far as the licence check can tell: all of
+them are under the permissive licences above or under MPL-2.0 used unmodified,
+and the three exceptions never reach what the project distributes. A lawyer
+should confirm it before any commercial use.
 
 ## Privacy and data
 
@@ -166,7 +173,7 @@ None of this is a statement of legal compliance in any market.
 | Point | Status | Needs |
 |---|---|---|
 | Final names of the platform and of the fictional service | open | the author's choice, then a professional clearance search before any commercial use |
-| The repository's licence | MIT while private | the author's choice before publication |
+| The repository's licence | Apache-2.0, chosen on 26 October 2026; names and images reserved (TRADEMARKS.md) | closed |
 | Next.js 16.4.0 security advisories (22 October 2026) | not reachable in the static exports | the upgrade to 16.4.1 or later before publication |
 | Access logs of the host that will serve the sandbox | known | a line in the host's privacy notice at publication |
 | Commercial launch | out of scope | tax, consumer, payment and privacy review per market |

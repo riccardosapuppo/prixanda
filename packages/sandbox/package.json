@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "description": "The demo in the browser: the engine in Pyodide over PGlite and the gateway's core, in one worker that the site and the console of an origin share.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "exports": {
     "./protocol": "./src/protocol.ts",
     "./client": "./src/client.ts",

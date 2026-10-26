@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "description": "The commerce engine's gRPC contract as JavaScript with type declarations, generated from proto/ by `npm run proto`.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "exports": {
     "./commerce/v1/*": {
       "types": "./gen/commerce/v1/*_pb.d.ts",

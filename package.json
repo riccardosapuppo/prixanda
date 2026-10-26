@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "description": "A subscription and pricing operations platform: offers, prices, approvals and catalog publication across markets, explored through a fictional independent-music service.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=24"
   },

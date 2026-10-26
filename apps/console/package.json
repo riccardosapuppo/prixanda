@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "description": "The console of the platform: where the commercial team creates, simulates, approves and follows changes. Next.js, built to static files; every number comes from the gateway's internal GraphQL API.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 4631",
     "build": "node scripts/build.ts",

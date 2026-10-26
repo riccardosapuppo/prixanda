@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "description": "The GraphQL gateway in front of the commerce engine: an internal schema for the console, a public one for the site.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=24"
   },
