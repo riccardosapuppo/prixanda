@@ -189,6 +189,20 @@ export function primaryRole(roles: readonly Role[]): Role | null {
   return ROLES.find((role) => roles.includes(role)) ?? null;
 }
 
+/**
+ * The demo's people as the console lists them: Marketing first, where the
+ * guided path starts, then the other roles in the order of the team's table
+ * (§12.1), two people of one role in the order of their ids. The engine
+ * lists them by name; only the console's lists change.
+ */
+export function inTeamOrder<T extends { readonly id: string; readonly roles: readonly Role[] }>(people: readonly T[]): T[] {
+  const rank = (person: T) => {
+    const role = primaryRole(person.roles);
+    return role === null ? ROLES.length : ROLES.indexOf(role);
+  };
+  return [...people].sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
+}
+
 export type Signature = { readonly role: Role; readonly conditions: readonly number[]; readonly why: string; readonly signed: boolean };
 export type ApprovalView = {
   readonly state: string;

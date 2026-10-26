@@ -12,11 +12,12 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { Button, Callout, Empty, ErrorPanel, Loading, Locked } from "../../components/ui.tsx";
 import {
   AuditEventsDocument, type AuditEventsQuery, ExportAuditHeadDocument, PeopleDocument, VerifyAuditChainDocument, type VerifyAuditChainQuery,
 } from "../../graphql/generated.ts";
-import { asRole, can, logRule, primaryRole, ROLE_NAME, type Role, whoDoes } from "../../lib/permissions.ts";
+import { asRole, can, inTeamOrder, logRule, primaryRole, ROLE_NAME, type Role, whoDoes } from "../../lib/permissions.ts";
 import { useAction, useGateway, useGatewayPages, useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { seek } from "../../lib/seek.ts";
 import { useViewer } from "../../lib/react/session.tsx";
@@ -120,7 +121,7 @@ export function AuditScreen() {
               <span className="label">Who</span>
               <select className="input min-w-[13rem]" value={actor} onChange={(event) => setFilter("actor", event.target.value)}>
                 <option value="">Everyone</option>
-                {(people.data?.people ?? []).map((person) => <option key={person.id} value={person.id}>{person.label}</option>)}
+                {inTeamOrder(people.data?.people ?? []).map((person) => <option key={person.id} value={person.id}>{person.label}</option>)}
                 <option value="activation">The activation job</option>
               </select>
             </label>
@@ -196,7 +197,7 @@ function Events({ filter, labelledBy, highlight, filtered }: {
   return (
     <>
       {named}
-      <div className="table-scroll" tabIndex={0} role="region" aria-labelledby={labelledBy}>
+      <TableScroll labelledBy={labelledBy}>
         <table className="data min-w-[64rem]" aria-labelledby={labelledBy}>
           <thead>
             <tr>
@@ -215,7 +216,7 @@ function Events({ filter, labelledBy, highlight, filtered }: {
             {rows.map((event) => <EventRow key={event.seq} event={event} highlighted={event.seq === highlight} />)}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
       {failed ? (
         <ErrorPanel error={events.error} retry={() => void events.fetchNextPage()} />
       ) : events.hasNextPage ? (

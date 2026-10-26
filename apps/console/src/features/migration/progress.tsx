@@ -20,6 +20,7 @@ import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { formatClockIn, formatLocalWithUtc } from "../../lib/time.ts";
 import { ItsLaunches } from "../approval/approval.tsx";
 import { MarketsUnavailable } from "../../components/change-parts.tsx";
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { ChangeTabs } from "../campaigns/tabs.tsx";
 import { MarketPolicy } from "./policy.tsx";
 
@@ -149,7 +150,7 @@ function Standing({ progress, market, plan, zone, live, readAt }: {
         </div>
         <p className="text-xs text-ink-2">Each subscriber is in one of these states; together they make the {formatCount(progress.asked)} {consent ? "asked" : "told"}.</p>
       </div>
-      <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="standing-table">
+      <TableScroll labelledBy="standing-table">
         <table className="data min-w-[17rem]">
           <caption id="standing-table" className="sr-only">Where the existing subscribers stand</caption>
           <thead><tr><th scope="col">State, and what it means</th><th scope="col">Subscribers</th></tr></thead>
@@ -168,7 +169,7 @@ function Standing({ progress, market, plan, zone, live, readAt }: {
             <tr><th scope="row">{consent ? "Asked" : "Told"}</th><td>{formatCount(progress.asked)}</td></tr>
           </tfoot>
         </table>
-      </div>
+      </TableScroll>
       <p className="flex items-baseline gap-2">
         <Icon name="door-open" size={16} className="translate-y-0.5 text-indigo" />
         <span>

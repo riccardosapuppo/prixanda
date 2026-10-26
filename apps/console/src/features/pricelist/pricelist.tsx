@@ -8,6 +8,7 @@ import { formatMoney } from "design";
 import { Icon } from "design/icon";
 import Link from "next/link";
 import { PageBody, PageHead } from "../../components/frame.tsx";
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { Callout, ErrorPanel, Loading } from "../../components/ui.tsx";
 import { PriceListDocument, type PriceListQuery } from "../../graphql/generated.ts";
 import { byMarketOrder, PLAN_ORDER, planName } from "../../lib/markets.ts";
@@ -38,7 +39,7 @@ export function PriceListScreen() {
                       {market.currency} · VAT {market.vatBasisPoints / 100}% · floor <b className="text-ink">{formatMoney(market.floor)}</b> · artists' minimum <b className="text-madder">{formatMoney(market.artistsMinimum)}</b> a month
                     </p>
                   </div>
-                  <div className="table-scroll" tabIndex={0} role="region" aria-labelledby={`market-${market.code}`}>
+                  <TableScroll labelledBy={`market-${market.code}`}>
                     <table className="data min-w-[40rem]">
                       <thead>
                         <tr>
@@ -54,7 +55,7 @@ export function PriceListScreen() {
                         {sortEntries(entries).map((entry) => <PriceRow key={entry.id} entry={entry} zone={market.timeZone} />)}
                       </tbody>
                     </table>
-                  </div>
+                  </TableScroll>
                 </section>
               );
             })}

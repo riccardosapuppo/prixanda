@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { SandboxFoot, SandboxStart } from "../../components/sandbox.tsx";
 import { Button, ErrorPanel, Loading } from "../../components/ui.tsx";
 import { PeopleDocument } from "../../graphql/generated.ts";
-import { primaryRole, TEAM } from "../../lib/permissions.ts";
+import { inTeamOrder, primaryRole, TEAM } from "../../lib/permissions.ts";
 import { useGatewayQuery } from "../../lib/react/gateway.tsx";
 import { useSession } from "../../lib/react/session.tsx";
 import { safeNext } from "../../lib/safe-next.ts";
@@ -58,7 +58,7 @@ export function Entry() {
           <ErrorPanel error={people.error} retry={() => void people.refetch()} />
         ) : (
           <ul role="list" className="grid border-t-2 border-ink">
-            {people.data.people.map((person) => {
+            {inTeamOrder(people.data.people).map((person) => {
               const role = primaryRole(person.roles);
               return (
                 <li key={person.id} className="grid gap-3 border-b border-cord py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">

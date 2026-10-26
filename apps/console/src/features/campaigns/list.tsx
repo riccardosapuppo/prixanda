@@ -8,6 +8,7 @@ import { Icon } from "design/icon";
 import Link from "next/link";
 import { type ReactNode, useId, useState } from "react";
 import { CONSOLE_ZONE, PageBody, PageHead } from "../../components/frame.tsx";
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { Button, ButtonLink, Chip, Empty, ErrorPanel, Loading, Locked, StateChip } from "../../components/ui.tsx";
 import { ChangesDocument, type ChangesQuery, type ChangeState, MarketsDocument } from "../../graphql/generated.ts";
 import { marketName } from "../../lib/markets.ts";
@@ -38,7 +39,7 @@ function ChangesTable({ rows, labelledBy, kind = null }: { readonly rows: readon
   const markets = useGatewayQuery(MarketsDocument, {}, { staleTime: 5 * 60_000 });
   const names = markets.data?.markets ?? [];
   return (
-    <div className="table-scroll" tabIndex={0} role="region" aria-labelledby={labelledBy}>
+    <TableScroll labelledBy={labelledBy}>
       <table className="data min-w-[52rem]">
         <thead>
           <tr>
@@ -74,7 +75,7 @@ function ChangesTable({ rows, labelledBy, kind = null }: { readonly rows: readon
           })}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
 }
 

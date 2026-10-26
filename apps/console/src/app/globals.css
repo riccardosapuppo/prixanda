@@ -122,6 +122,8 @@
     color: var(--color-rail-ink); font-weight: 650;
   }
   .rail-select option { color: var(--color-ink); background: var(--color-stone-0); }
+  /* the rail taller than the window: a shadow at the foot of what scrolls, while more of it is below (frame.tsx) */
+  .rail-cue { position: absolute; inset-inline: 0; bottom: 0; height: 0.75rem; pointer-events: none; box-shadow: inset 0 -0.625rem 0.5rem -0.5rem rgb(0 0 0 / 0.55); }
 
   /* ---------- page head ---------- */
   .page-title { font-family: var(--font-archivo); font-stretch: 125%; font-weight: 300; font-size: var(--text-7xl); letter-spacing: -0.02em; line-height: 1.12; }
@@ -180,6 +182,13 @@
 
   /* ---------- tables ---------- */
   .table-scroll { position: relative; overflow-x: auto; }
+  /* columns hidden past an edge of their box: a shadow of the ink on that edge, gone once the table's end is in
+     sight (components/table-scroll.tsx); over the table, never in the way of a finger or a pointer */
+  .table-cue { position: relative; min-width: 0; }
+  .table-cue::before, .table-cue::after { content: ""; position: absolute; inset-block: 0; width: 0.75rem; pointer-events: none; opacity: 0; }
+  .table-cue::before { left: 0; box-shadow: inset 0.625rem 0 0.5rem -0.5rem rgb(27 31 51 / 0.34); }
+  .table-cue::after { right: 0; box-shadow: inset -0.625rem 0 0.5rem -0.5rem rgb(27 31 51 / 0.34); }
+  .table-cue[data-hidden-start]::before, .table-cue[data-hidden-end]::after { opacity: 1; }
   table.data { width: 100%; border-collapse: collapse; }
   table.data caption { text-align: left; }
   table.data th, table.data td { padding: 0.45rem 0.6rem; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--color-cord); }

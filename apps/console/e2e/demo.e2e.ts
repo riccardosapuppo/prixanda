@@ -14,7 +14,9 @@
 //   5. The site finds the campaign, from "Try this": every step is ticked.
 //   6. The data stays after a reload.
 //   7. Start over puts the demo back as it was built, in both tabs.
-//   8. No request left the origin, no page logged an error, axe found nothing serious.
+//   8. A wrong address in the console shows the console's own page, with the
+//      demo's words and the line on where the data stays.
+//   9. No request left the origin, no page logged an error, axe found nothing serious.
 //
 // Each step is timed, and the times are written with the machine and the
 // conditions they were taken under (CONSOLE_DEMO_SUMMARY).
@@ -83,6 +85,23 @@ async function slowAnimations(page: Page, rate: number): Promise<{ restore: () =
       await session.detach();
     },
   };
+}
+
+/** The demo's words in the console's frame (business book §13.3): the beginning is enough to find them. */
+const DISCLAIMER = "Independent personal project. Fictional business and synthetic customer data.";
+
+/** In sight without scrolling anything: inside the window, and inside every box around it that clips what overflows. */
+async function inSight(target: Locator): Promise<boolean> {
+  return target.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0 || box.top < 0 || box.bottom > innerHeight) return false;
+    for (let at = element.parentElement; at !== null; at = at.parentElement) {
+      if (getComputedStyle(at).overflowY === "visible") continue;
+      const clip = at.getBoundingClientRect();
+      if (box.top < clip.top - 1 || box.bottom > clip.bottom + 1) return false;
+    }
+    return true;
+  });
 }
 
 /** The demo has started in this tab: the start is gone. */
@@ -169,6 +188,17 @@ describe("the console in the demo's sandbox: the recruiter's path, two tabs, one
     await click(page.getByRole("button", { name: "Enter as Marketing", exact: true }));
     await tryThis(page).waitFor();
     assert.deepEqual(await stepsDone(page), []);
+    // Try this and the demo's controls make the rail taller than the window: they scroll above the person and the
+    // demo's words, which stay in sight at the rail's foot.
+    assert.ok(await inSight(page.getByLabel("Signed in as")), "the person's menu is in sight");
+    assert.ok(await inSight(page.locator("header.rail").getByText(DISCLAIMER)), "the demo's words are in sight");
+    // A shadow at the foot of what scrolls says that more of the rail is below, until its end is in sight.
+    const rail = page.locator("header.rail [data-rail-scroll]");
+    const cue = page.locator("header.rail .rail-cue");
+    await cue.waitFor({ state: "visible", timeout: 10_000 });
+    await rail.evaluate((box) => box.scrollTo({ top: box.scrollHeight }));
+    await cue.waitFor({ state: "detached", timeout: 10_000 });
+    await rail.evaluate((box) => box.scrollTo({ top: 0 }));
     await accessible(page, "the home in the sandbox, with Try this and the demo's controls");
   });
 
@@ -326,7 +356,20 @@ describe("the console in the demo's sandbox: the recruiter's path, two tabs, one
     assert.equal(await page.getByRole("row", { name: /Student Autumn Pass/ }).count(), 0, "the campaign is gone");
   });
 
-  test("8. no request left the origin, and no page logged an error", () => {
+  test("8. a wrong address in the console shows its own page, with the demo's words and the line on where the data stays", async () => {
+    assert.ok(context);
+    // A tab of its own, not watched: the address answers 404, which the browser logs as an error of the page.
+    const page = await context.newPage();
+    const answer = await page.goto(`${DEMO_URL}/console/no-such-page/`);
+    assert.equal(answer?.status(), 404);
+    await page.getByRole("heading", { name: "Nothing at this address", level: 1 }).waitFor({ timeout: 30_000 });
+    assert.ok(await inSight(page.getByText(DISCLAIMER)), "the demo's words are in sight");
+    await page.locator("footer").getByText(/^Your data stays in this browser\./).waitFor({ timeout: 30_000 });
+    await accessible(page, "the console's page for a wrong address");
+    await page.close();
+  });
+
+  test("9. no request left the origin, and no page logged an error", () => {
     assert.equal(seen.externalRequests, 0);
     assert.deepEqual(seen.pageErrors, []);
     assert.ok(seen.pagesChecked >= 5, `axe ran on ${seen.pagesChecked} pages`);

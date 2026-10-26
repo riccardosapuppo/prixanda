@@ -43,6 +43,7 @@ import { SANDBOX_MODE } from "../../lib/sandbox.ts";
 import { useViewer } from "../../lib/react/session.tsx";
 import { formatInstantIn, formatLocalWithUtc } from "../../lib/time.ts";
 import { MarketsUnavailable } from "../../components/change-parts.tsx";
+import { TableScroll } from "../../components/table-scroll.tsx";
 import { ChangeTabs } from "../campaigns/tabs.tsx";
 import { MigrationInShort } from "../migration/in-short.tsx";
 import { MarketPolicy } from "../migration/policy.tsx";
@@ -140,7 +141,7 @@ function Evidence({ change, events, markets }: { readonly change: Change; readon
       {previous ? (
         <Block id="changed" title={`Changed since v${previous.version}`}>
           {differences.length === 0 ? <p className="text-ink-2">v{change.currentVersion} says the same as v{previous.version}.</p> : (
-            <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="changed">
+            <TableScroll labelledBy="changed">
               <table className="data diff min-w-[30rem]">
                 <thead><tr><th scope="col">Field</th><th scope="col">v{previous.version}</th><th scope="col">v{change.currentVersion}</th></tr></thead>
                 <tbody>
@@ -153,7 +154,7 @@ function Evidence({ change, events, markets }: { readonly change: Change; readon
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
           )}
           {lastSentBack?.reason ? (
             <blockquote className="said m-0">
@@ -226,7 +227,7 @@ function Evidence({ change, events, markets }: { readonly change: Change; readon
       <Block id="fingerprint" title="Version and fingerprint">
         <p>An approval names v{change.currentVersion} and the fingerprint of its content (§7.2). Any edit makes v{change.currentVersion + 1}, and approvals don't carry over.</p>
         <p className="code" aria-label={`Fingerprint of v${change.currentVersion}`}>{change.current.fingerprint}</p>
-        <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="fingerprint">
+        <TableScroll labelledBy="fingerprint">
           <table className="data min-w-[36rem]">
             <thead><tr><th scope="col">Version</th><th scope="col" className="wrap">Saved by, when</th><th scope="col" className="wrap">What happened to it</th><th scope="col">Fingerprint</th></tr></thead>
             <tbody>
@@ -245,7 +246,7 @@ function Evidence({ change, events, markets }: { readonly change: Change; readon
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </Block>
 
       <Block id="history" title="In the audit log">
@@ -307,7 +308,7 @@ function PassInShort({ pass, markets }: { readonly pass: PassContentView; readon
       <p className="max-w-[75ch]">
         {planName(pass.plan)} for {pass.months} month{pass.months === 1 ? "" : "s"}, paid once and never renewed; a code sold waits up to {pass.codeValidMonths} months to be activated, then expires, unused. Price changes made after a sale never touch it (§9.1).
       </p>
-      <div className="table-scroll" tabIndex={0} role="region" aria-labelledby="pass">
+      <TableScroll labelledBy="pass">
         <table className="data min-w-[30rem]">
           <thead><tr><th scope="col">Market</th><th scope="col">Price, paid once</th><th scope="col" className="wrap">On sale</th></tr></thead>
           <tbody>
@@ -324,7 +325,7 @@ function PassInShort({ pass, markets }: { readonly pass: PassContentView; readon
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
     </Block>
   );
 }
@@ -439,7 +440,7 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
   return (
     <section className="grid gap-4 border border-ink bg-stone-0 px-5 pt-4 pb-5" aria-labelledby={headingId}>
       <h2 id={headingId} className="text-3xl font-bold">Decision</h2>
-      <p className="text-xs text-ink-2">Demo role: <b className="text-ink">{role ? ROLE_NAME[role] : "none"}</b>. Change it in the menu to see what another role can do.</p>
+      <p className="text-xs text-ink-2">Demo role: <b className="text-ink">{role ? ROLE_NAME[role] : "none"}</b>. Choose another person under “Signed in as” to see what their role can do.</p>
       {done ? <Callout tone="good" icon="check-circle" role="status">{done.words}</Callout> : null}
       {refusal ? <Callout tone="error" icon="warning" role="alert"><p className="font-bold">The engine refused it.</p><p>{refusal}</p></Callout> : null}
       {failure ? <ErrorPanel error={failure} /> : null}
