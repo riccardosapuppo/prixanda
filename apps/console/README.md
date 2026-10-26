@@ -1,7 +1,7 @@
 # The console
 
 Where Rione's commercial team creates, simulates, approves and follows
-changes: Next.js 16.4.0 built to static files, React 19, TanStack Query. Every
+changes: Next.js 16.4.3 built to static files, React 19, TanStack Query. Every
 number on a page comes from the gateway's internal GraphQL API; nothing runs
 on a server at request time.
 
@@ -157,13 +157,12 @@ console and the engine rightly refuse a start at such a time (§3.7). Those
 tests then are not run: each says why, and from what time (UTC) it can run
 again, and the `console-e2e` suite reports "not run", never "passed".
 
-## Next.js 16.4.0, and why not 16.4.1 yet
+## Next.js 16.4.3, after the advisories of 16.4.0
 
-On 22 October 2026 three security advisories were published for Next.js:
-one on Server Actions, one on the image optimization API with SVG, and one on
-`use cache`. The fixed release, 16.4.1, came out less than two weeks ago, and
-the repository only takes dependencies released before 10 October 2026. The
-console stays on 16.4.0, because it uses none of the three:
+On 22 October 2026 three security advisories were published for Next.js
+16.0.0 to 16.4.0: one on Server Actions, one on the image optimization API
+with SVG, and one on `use cache`. They never reached the console, which uses
+none of the three:
 
 - `output: "export"`: there is no Next.js server at all, so no Server Action
   endpoint and no image optimizer can be reached;
@@ -173,12 +172,14 @@ console stays on 16.4.0, because it uses none of the three:
   `agentRules: false` keeps `next dev` from writing instruction files into
   the app's folder.
 
-**Before publication, move to 16.4.1 or later**, once it is old enough for
-the dependency rule.
+16.4.1 fixed them. On 26 October 2026 the console moved to 16.4.3, the
+stable release of 23 October: the repository takes dependencies at least two
+weeks old, except a security fix, which comes in once the full checks pass on
+it.
 
 ## Two workarounds, and where they end
 
-- **Segment files on Windows.** Next.js 16.4.0 names each segment's prefetch
+- **Segment files on Windows.** Next.js 16.4 (16.4.0 and 16.4.3 alike) names each segment's prefetch
   file from a path it collects with the system's separator, so on Windows
   `out/campaigns/__next.campaigns/__PAGE__.txt` lands in a folder while the
   client asks for `/campaigns/__next.campaigns.__PAGE__.txt`: 404s in the
@@ -186,11 +187,13 @@ the dependency rule.
   `scripts/build.ts` moves the files to the names the client asks for; on
   Linux and macOS it finds nothing to move. Remove it when Next.js writes
   them right.
-- **Storybook's App Router mock.** `@storybook/nextjs-vite` 10.6.1 provides a
+- **Storybook's App Router mock.** `@storybook/nextjs-vite` 10.6.1 provided a
   layout context older than Next.js 16.4, whose `useRouter` reads a render
   tree that context lacks. The framework runs in its pages mode, and
   `.storybook/preview.tsx` mounts the App Router's contexts itself: a router
-  of spies, the pathname and the search parameters a story names.
+  of spies, the pathname and the search parameters a story names. The
+  workaround stays with 10.6.2, a security release, and all 70 stories pass
+  on it.
 
 ## Motion
 

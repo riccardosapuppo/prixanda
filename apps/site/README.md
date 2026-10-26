@@ -382,18 +382,19 @@ check reports the suite as not run, never as passed, when it is missing.
 
 ## Notes
 
-- **Next.js 16.4.0 and its advisories.** Three advisories published on
-  22 October 2026 affect Next.js 16.0.0 to 16.4.0: a denial of service through
-  Server Actions, code execution in the image optimization API with SVG files,
-  and code execution in `use cache` functions returning typed arrays. The site
-  uses none of them: it is a static export, with no Server Action, no image
-  optimization (`images.unoptimized`) and no `use cache`; only `next dev` runs
-  a server, on 127.0.0.1. The fixed 16.4.1 came out on 14 October, under the
-  project's rule of dependencies at least two weeks old; the site moves to it
-  before publication. The build's own check of the advisories, which calls the
-  npm registry and stops the build, is off (`experimental.agentUpgrade`), so
-  builds stay offline and reproducible.
-- **The static export on Windows.** Next.js 16.4.0 writes the prefetch data
+- **Next.js 16.4.3, after the advisories of 16.4.0.** Three advisories
+  published on 22 October 2026 affect Next.js 16.0.0 to 16.4.0: a denial of
+  service through Server Actions, code execution in the image optimization API
+  with SVG files, and code execution in `use cache` functions returning typed
+  arrays. They never reached the site: it is a static export, with no Server
+  Action, no image optimization (`images.unoptimized`) and no `use cache`; only
+  `next dev` runs a server, on 127.0.0.1. 16.4.1 fixed them, and on 26 October
+  2026 the site moved to 16.4.3, the stable release of 23 October, as a
+  security fix allowed past the project's rule of dependencies at least two
+  weeks old. The build's own check of the advisories, which calls the npm
+  registry and stops the build, is off (`experimental.agentUpgrade`), so builds
+  stay offline and reproducible.
+- **The static export on Windows.** Next.js 16.4, 16.4.3 as 16.4.0, writes the prefetch data
   of nested routes under a folder (`campaign/__next.campaign/__PAGE__.txt`)
   instead of the dotted name the router asks for
   (`campaign/__next.campaign.__PAGE__.txt`): the path it renames is joined

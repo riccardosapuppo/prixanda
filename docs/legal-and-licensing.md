@@ -174,6 +174,6 @@ None of this is a statement of legal compliance in any market.
 |---|---|---|
 | Final names of the platform and of the fictional service | open | the author's choice, then a professional clearance search before any commercial use |
 | The repository's licence | Apache-2.0, chosen on 26 October 2026; names and images reserved (TRADEMARKS.md) | closed |
-| Next.js 16.4.0 security advisories (22 October 2026) | not reachable in the static exports | the upgrade to 16.4.1 or later before publication |
+| Next.js 16.4.0 security advisories (22 October 2026) | closed: Next.js 16.4.3 since 26 October 2026 | none |
 | Access logs of the host that will serve the sandbox | known | a line in the host's privacy notice at publication |
 | Commercial launch | out of scope | tax, consumer, payment and privacy review per market |

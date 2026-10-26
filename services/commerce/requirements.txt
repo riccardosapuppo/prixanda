@@ -1,8 +1,10 @@
 # The engine's packages, pinned. tzdata gives zoneinfo the time zone rules on
-# Windows, which has no system copy of them. protobuf stays at 6.31.1, the
-# version Pyodide ships: the browser sandbox runs the same engine.
+# Windows, which has no system copy of them. protobuf is 6.33.5 here, for a
+# fix in its JSON parsing, which the engine does not use; the browser sandbox
+# runs the same engine on the 6.31.1 that Pyodide ships. The generated code is
+# for 6.31.1 (grpcio-tools), and both runtimes accept it.
 asyncpg==0.32.0
 grpcio==1.74.0
 grpcio-health-checking==1.74.0
-protobuf==6.31.1
+protobuf==6.33.5
 tzdata==2026.5
