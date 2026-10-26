@@ -440,7 +440,7 @@ function DecisionPanel({ change, markets }: { readonly change: Change; readonly 
   return (
     <section className="grid gap-4 border border-ink bg-stone-0 px-5 pt-4 pb-5" aria-labelledby={headingId}>
       <h2 id={headingId} className="text-3xl font-bold">Decision</h2>
-      <p className="text-xs text-ink-2">Demo role: <b className="text-ink">{role ? ROLE_NAME[role] : "none"}</b>. Change it in the menu to see what another role can do.</p>
+      <p className="text-xs text-ink-2">Demo role: <b className="text-ink">{role ? ROLE_NAME[role] : "none"}</b>. Choose another person under “Signed in as” to see what their role can do.</p>
       {done ? <Callout tone="good" icon="check-circle" role="status">{done.words}</Callout> : null}
       {refusal ? <Callout tone="error" icon="warning" role="alert"><p className="font-bold">The engine refused it.</p><p>{refusal}</p></Callout> : null}
       {failure ? <ErrorPanel error={failure} /> : null}

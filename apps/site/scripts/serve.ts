@@ -1,6 +1,8 @@
 // npm run serve -w site: the static build in apps/site/out, served on
 // 127.0.0.1:4632 (SITE_PORT) the way any static host would serve it: a file
-// for each address, /campaign/ as campaign/index.html, 404.html for the rest.
+// for each address, /campaign/ as campaign/index.html, and for the rest the
+// nearest 404.html, its folder's or a folder's above it (in the demo,
+// /console/... gets the console's own), the root's at last.
 // Nothing else: no proxy, no rewrite, no header the build does not set. The
 // end-to-end tests use it, so they test the files that would be published.
 // The assembled demo (tools/demo.ts) is served the same way, with the types
@@ -56,6 +58,25 @@ async function fileFor(root: string, pathname: string): Promise<string | null> {
   return null;
 }
 
+/** The 404 page nearest to an address that has no file: its folder's, or a folder's above it, the root's at last. */
+export async function notFoundFor(root: string, pathname: string): Promise<string> {
+  const last = join(root, "404.html");
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return last;
+  }
+  for (let folder = normalize(join(root, decoded)); folder.startsWith(root + sep); folder = dirname(folder)) {
+    try {
+      if ((await stat(join(folder, "404.html"))).isFile()) return join(folder, "404.html");
+    } catch {
+      // the folder above
+    }
+  }
+  return last;
+}
+
 /** Serves `root` on 127.0.0.1:`port`; resolves once it listens. */
 export async function serveStatic(root: string, port: number): Promise<Server> {
   const base = normalize(root);
@@ -66,7 +87,7 @@ export async function serveStatic(root: string, port: number): Promise<Server> {
       return;
     }
     const found = await fileFor(base, url.pathname);
-    const path = found ?? join(base, "404.html");
+    const path = found ?? await notFoundFor(base, url.pathname);
     const status = found ? 200 : 404;
     response.writeHead(status, {
       "content-type": TYPES[extname(path)] ?? "application/octet-stream",

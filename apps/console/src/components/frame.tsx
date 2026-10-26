@@ -8,11 +8,12 @@ import { Icon } from "design/icon";
 import type { IconName } from "design";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { PeopleDocument } from "../graphql/generated.ts";
-import { primaryRole, ROLE_NAME, TEAM } from "../lib/permissions.ts";
+import { inTeamOrder, primaryRole, ROLE_NAME, TEAM } from "../lib/permissions.ts";
 import { useMinute } from "../lib/react/clock.tsx";
 import { useGatewayQuery } from "../lib/react/gateway.tsx";
+import { useHiddenEdges } from "../lib/react/hidden-edges.ts";
 import { useSession } from "../lib/react/session.tsx";
 import { nowLabel } from "../lib/time.ts";
 import { DemoPanel, SandboxFoot, SandboxStart } from "./sandbox.tsx";
@@ -75,38 +76,49 @@ function Rail({ section }: { readonly section: Section }) {
   const people = useGatewayQuery(PeopleDocument, {}, { staleTime: 5 * 60_000 });
   const viewer = session.viewer;
   const role = viewer ? primaryRole(viewer.roles) : null;
+  const scrolling = useRef<HTMLDivElement>(null);
+  const below = useHiddenEdges(scrolling, "y");
 
   return (
     <header className="rail">
-      <div className="flex flex-row flex-wrap items-center gap-3 px-4 py-3 lg:sticky lg:top-0 lg:max-h-screen lg:min-h-screen lg:flex-col lg:flex-nowrap lg:items-stretch lg:gap-6 lg:overflow-y-auto lg:px-3 lg:py-6">
-        <p className="grid gap-0.5 lg:px-2.5">
-          <span className="font-archivo text-3xl font-bold leading-tight tracking-[-0.015em] [font-stretch:125%]">{BRAND.platform}</span>
-          <span className="text-xs text-rail-ink-2">{BRAND.service}</span>
-        </p>
-        <button
-          type="button"
-          className="btn btn--small ml-auto border-rail-ink-2 bg-transparent text-rail-ink lg:hidden"
-          aria-expanded={open}
-          aria-controls={navId}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <Icon name="list" size={18} />
-          Menu
-        </button>
-        <nav id={navId} aria-label={BRAND.platform} className={`${open ? "block" : "hidden"} w-full lg:block`}>
-          <ul role="list" className="grid gap-0.5">
-            {NAV.map((item) => (
-              <li key={item.section}>
-                <Link className="rail-link" href={item.href} {...(item.section === section ? { "aria-current": "page" as const } : {})} onClick={() => setOpen(false)}>
-                  <Icon name={item.icon} size={18} />
-                  <span>{item.label}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        <DemoPanel shown={open} />
-        <div className="order-2 grid w-full gap-2 border-t border-rail-line pt-3 lg:order-none lg:mt-auto lg:px-2.5 lg:pt-4">
+      {/* On a wide screen the rail stands the window's height: the person and the demo's words stay at its foot,
+          always in sight, and what is above them (the pages, and in the demo Try this and its controls) scrolls on
+          its own. On a narrow one it is a bar on top, its menu folded. */}
+      <div className="flex flex-row flex-wrap items-center gap-3 px-4 py-3 lg:sticky lg:top-0 lg:h-screen lg:flex-col lg:flex-nowrap lg:items-stretch lg:gap-0 lg:overflow-hidden lg:p-0">
+        <div className="contents lg:relative lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+          <div ref={scrolling} data-rail-scroll="" className="contents lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:gap-6 lg:overflow-y-auto lg:px-3 lg:py-6">
+            <p className="grid gap-0.5 lg:px-2.5">
+              <span className="font-archivo text-3xl font-bold leading-tight tracking-[-0.015em] [font-stretch:125%]">{BRAND.platform}</span>
+              <span className="text-xs text-rail-ink-2">{BRAND.service}</span>
+            </p>
+            <button
+              type="button"
+              className="btn btn--small ml-auto border-rail-ink-2 bg-transparent text-rail-ink lg:hidden"
+              aria-expanded={open}
+              aria-controls={navId}
+              onClick={() => setOpen((value) => !value)}
+            >
+              <Icon name="list" size={18} />
+              Menu
+            </button>
+            <nav id={navId} aria-label={BRAND.platform} className={`${open ? "block" : "hidden"} w-full lg:block`}>
+              <ul role="list" className="grid gap-0.5">
+                {NAV.map((item) => (
+                  <li key={item.section}>
+                    <Link className="rail-link" href={item.href} {...(item.section === section ? { "aria-current": "page" as const } : {})} onClick={() => setOpen(false)}>
+                      <Icon name={item.icon} size={18} />
+                      <span>{item.label}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+            <DemoPanel shown={open} />
+          </div>
+          {/* More of the rail below its fold: a shadow on that edge says so, as on a table that goes on. */}
+          {below.after ? <div aria-hidden="true" className="rail-cue hidden lg:block" /> : null}
+        </div>
+        <div className="order-2 grid w-full gap-2 border-t border-rail-line pt-3 lg:order-none lg:mx-3 lg:w-auto lg:flex-none lg:px-2.5 lg:pt-4 lg:pb-6">
           <label htmlFor={roleId} className="text-xs text-rail-ink-2">Signed in as</label>
           <select
             id={roleId}
@@ -117,7 +129,7 @@ function Rail({ section }: { readonly section: Section }) {
             onChange={(event) => void session.signIn(event.target.value)}
           >
             {viewer && !people.data ? <option value={viewer.personId}>{viewer.label}</option> : null}
-            {(people.data?.people ?? []).map((person) => (
+            {inTeamOrder(people.data?.people ?? []).map((person) => (
               <option key={person.id} value={person.id}>{person.label}</option>
             ))}
           </select>

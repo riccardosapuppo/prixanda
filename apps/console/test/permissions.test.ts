@@ -16,8 +16,8 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { FIELD_ROLES, METHOD_ROLES } from "../../../services/gateway/src/core/roles.ts";
 import {
-  type ApprovalView, approvesWithoutScheduling, decide, decisionSentence, everyoneReadsWords, logRule, otherwiseSigner, type Right, type Role, ROLES,
-  sendsBack, type Signature, TEAM, waitingFor, whoDoes,
+  type ApprovalView, approvesWithoutScheduling, decide, decisionSentence, everyoneReadsWords, inTeamOrder, logRule, otherwiseSigner, type Right, type Role,
+  ROLES, sendsBack, type Signature, TEAM, waitingFor, whoDoes,
 } from "../src/lib/permissions.ts";
 
 const BOOK = join(import.meta.dirname, "..", "..", "..", "docs", "business.md");
@@ -38,6 +38,25 @@ describe("the team's table", () => {
       const line = `| ${row.name} | ${row.can} | ${row.cannot} |`;
       assert.ok(book.includes(`\n${line}\n`), `§12.1 has no row ${line}`);
     }
+  });
+
+  it("lists the demo's people Marketing first, then in the order of the team's table (§12.1), as the book writes its rows", async () => {
+    // As the engine lists them: by name.
+    const people = [
+      { id: "auditor-1", label: "Auditor", roles: ["AUDITOR"] },
+      { id: "catalog-manager-1", label: "Catalog manager", roles: ["CATALOG_MANAGER"] },
+      { id: "commercial-lead-1", label: "Commercial lead", roles: ["COMMERCIAL_LEAD"] },
+      { id: "finance-1", label: "Finance", roles: ["FINANCE"] },
+      { id: "marketing-2", label: "Marketing, second", roles: ["MARKETING"] },
+      { id: "marketing-1", label: "Marketing", roles: ["MARKETING"] },
+      { id: "on-call-1", label: "On-call engineer", roles: ["ON_CALL"] },
+    ] as const;
+    assert.deepEqual(inTeamOrder(people).map((person) => person.label), [
+      "Marketing", "Marketing, second", "Commercial lead", "Finance", "Catalog manager", "On-call engineer", "Auditor",
+    ]);
+    const book = await readFile(BOOK, "utf8");
+    const rows = ROLES.map((role) => book.indexOf(`\n| ${TEAM.roles[role].name} |`));
+    assert.deepEqual([...rows].sort((a, b) => a - b), rows, "the roles in the order of §12.1's rows");
   });
 
   it("says §11.4 on the audit log, word for word, with the roles its rights give", async () => {

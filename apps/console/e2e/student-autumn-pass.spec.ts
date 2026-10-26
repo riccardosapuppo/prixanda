@@ -37,6 +37,11 @@ test("the demo entry says it is not a login, and Marketing enters", async () => 
   await page.goto("/");
   await page.waitForURL(/\/sign-in\//);
   await expect(page.getByText("This is a demonstration entry, not a login")).toBeVisible();
+  // Marketing first, where the guided path starts, then the team in the order of its table (§12.1).
+  await expect(page.getByRole("button", { name: /^Enter as / })).toHaveText([
+    "Enter as Marketing", "Enter as Marketing, second", "Enter as Commercial lead", "Enter as Finance", "Enter as Catalog manager", "Enter as On-call engineer",
+    "Enter as Auditor",
+  ]);
   await axe(page, "the demo entry");
   await enterAs(page, "Marketing");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();

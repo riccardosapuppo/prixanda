@@ -1143,7 +1143,7 @@ const DEMO_JOURNEYS: readonly DemoJourney[] = [
     cwd: join(repoRoot, "apps", "console"),
     args: (report) => ["--test", "--test-reporter=junit", `--test-reporter-destination=${report}`, "--test-reporter=spec", "--test-reporter-destination=stdout", join("e2e", "demo.e2e.ts")],
     summaryVariable: "CONSOLE_DEMO_SUMMARY",
-    floor: 8,
+    floor: 9,
     describe: (summary) => `first start ${seconds(summary["coldReadyMs"])}, the site's tab ${seconds(summary["secondTabMs"])},`
       + ` the launch through a simulated fault ${seconds(summary["launchMs"])}, a reload ${seconds(summary["reloadMs"])}, start over ${seconds(summary["startOverMs"])};`
       + ` axe on ${String(summary["pagesChecked"])} pages, ${String(summary["seriousViolations"])} serious; ${String(summary["externalRequests"])} requests elsewhere`,
@@ -1290,7 +1290,7 @@ async function siteNodeTests(suite: string, files: string[], floor: number): Pro
 const designDir = join(repoRoot, "packages", "design");
 const consoleDir = join(repoRoot, "apps", "console");
 const CONSOLE_FLOOR = {
-  designFiles: 4, designTests: 77, files: 136, operations: 36, unitTests: 118, stories: 66, pages: 23, e2eTests: 34,
+  designFiles: 4, designTests: 77, files: 139, operations: 36, unitTests: 119, stories: 68, pages: 23, e2eTests: 34,
 };
 /** The gateway the console is built for: the one its end-to-end tests start. */
 const CONSOLE_GATEWAY_URL = E2E_GATEWAY_URL;

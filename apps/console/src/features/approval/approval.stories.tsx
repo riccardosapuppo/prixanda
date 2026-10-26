@@ -69,6 +69,8 @@ export const TheAuthorFindsNoButton: Story = {
     await expect(await page.findByText("You wrote v3. Someone else has to approve it.")).toBeInTheDocument();
     await expect(page.queryByRole("button", { name: /^Approve/ })).toBeNull();
     await expect(page.getByLabelText("Fingerprint of v3")).toHaveTextContent(FINGERPRINT_V3);
+    // Where to change person, in words true at every width: "Signed in as" is in the rail and in the bar on top alike.
+    await expect(page.getByText(/Choose another person under “Signed in as” to see what their role can do\./)).toHaveTextContent("Demo role: Marketing. Choose another person under “Signed in as” to see what their role can do.");
   },
 };
 
